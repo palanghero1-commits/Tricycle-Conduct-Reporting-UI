@@ -1,0 +1,1406 @@
+# UI/UX DESIGN ONLY — TRICYCLE DRIVERS CONDUCT REPORTING SYSTEM
+
+Design a complete, modern, polished **UI/UX prototype only** for a **Web and Mobile-Based Tricycle Drivers Conduct Reporting System with Progressive Web Application (PWA)** for the **Tricycle Operators and Drivers Association (TODA) of Barangay Old Sagay, Sagay City, Negros Occidental**, primarily serving **State University of Northern Negros (SUNN) students**.
+
+## CRITICAL INSTRUCTION — UI/UX ONLY
+
+This project is STRICTLY for **UI/UX design and frontend visual prototyping**.
+
+DO NOT build or implement:
+
+* Backend
+* Database
+* Supabase integration
+* API calls
+* Authentication logic
+* Real user registration
+* Real login functionality
+* Real file storage
+* Real notification services
+* Real email/SMS services
+* Server-side logic
+* Business logic
+* Real-time functionality
+* Payment systems
+* External integrations
+
+Use **static mock data and frontend-only interactions** to demonstrate the interface.
+
+The goal is to create a visually complete and highly polished prototype that demonstrates how the final system should look and feel.
+
+Do not spend effort explaining or implementing backend architecture. Focus entirely on:
+**visual design + user experience + layout + navigation structure + responsive behavior + component design + interactive UI states.**
+
+---
+
+# 1. DESIGN GOAL
+
+Create a professional civic/public-service UI that feels:
+
+* Modern
+* Clean
+* Trustworthy
+* Safe
+* Simple
+* Accessible
+* Student-friendly
+* Professional
+* Organized
+* Mobile-first
+* Appropriate for a university/community system
+
+The interface should look like a real production application, but all information can be mock/demo data.
+
+The system should NOT look like:
+
+* A police/military application
+* A social media application
+* A ride-booking application
+* An e-commerce application
+* A generic corporate dashboard
+
+It should feel like a **student-centered community complaint/reporting platform**.
+
+---
+
+# 2. VISUAL STYLE
+
+Use a modern visual design system.
+
+### Color direction
+
+Primary:
+
+* Trustworthy blue
+
+Secondary:
+
+* Teal/green
+
+Supporting:
+
+* Neutral gray
+* White
+* Soft blue backgrounds
+* Amber for warnings
+* Red for errors/destructive states
+
+Use colors carefully and consistently.
+
+Do not make the interface overly colorful.
+
+### Typography
+
+Use a clean modern sans-serif font.
+
+Create a clear hierarchy:
+
+* Large page titles
+* Medium section headings
+* Clear body text
+* Small supporting text
+* Strong button labels
+* Accessible form labels
+
+Typography should prioritize readability on mobile.
+
+### UI style
+
+Use:
+
+* Soft rounded corners
+* Clean cards
+* Subtle shadows
+* Thin borders
+* Generous spacing
+* Clear visual hierarchy
+* Modern icons
+* Consistent button styles
+* Consistent input styles
+* Consistent status badges
+
+Avoid excessive gradients, unnecessary glassmorphism, excessive animations, or visually complicated layouts.
+
+---
+
+# 3. RESPONSIVE DESIGN
+
+Design BOTH:
+
+### Desktop
+
+* Sidebar navigation
+* Top navigation/header
+* Dashboard layouts
+* Tables
+* Multi-column content
+* Cards
+* Charts
+* Detail panels
+
+### Mobile
+
+* Bottom navigation
+* Mobile header
+* Full-width cards
+* Touch-friendly controls
+* Large buttons
+* Simplified forms
+* Mobile-friendly report lists
+* Mobile-friendly status timeline
+* Bottom sheets/dialogs
+* Camera/gallery-style attachment UI
+
+The mobile interface is extremely important because students are expected to access the system primarily through smartphones.
+
+The project specifically calls for responsive access across desktop and mobile devices and PWA-oriented mobile behavior.
+
+---
+
+# 4. DESIGN SYSTEM
+
+Create a consistent reusable UI component system.
+
+Design components for:
+
+### Buttons
+
+* Primary
+* Secondary
+* Outline
+* Ghost
+* Destructive
+* Icon button
+
+### Form controls
+
+* Text input
+* Search field
+* Select
+* Date picker
+* Time picker
+* Textarea
+* File upload
+* Checkbox
+* Radio
+* Toggle
+
+### UI components
+
+* Cards
+* Tables
+* Tabs
+* Breadcrumbs
+* Pagination
+* Dropdowns
+* Modal
+* Confirmation dialog
+* Toast
+* Alert
+* Tooltip
+* Status badge
+* Avatar
+* Timeline
+* Progress indicator
+* Empty state
+* Loading state
+* Error state
+
+Every component should visually match the same design system.
+
+---
+
+# 5. PUBLIC LANDING PAGE
+
+Create a polished public homepage.
+
+## Header
+
+Logo / system icon
+
+Navigation:
+
+* Home
+* How It Works
+* About
+* Privacy
+* Login
+* Register
+
+Primary CTA:
+**Report a Concern**
+
+## Hero section
+
+Title:
+
+**Tricycle Drivers Conduct Reporting System**
+
+Subtitle:
+
+**A secure and organized reporting platform for SUNN students and authorized personnel.**
+
+Buttons:
+
+* Report a Concern
+* Track My Report
+
+Hero visual:
+Create a tasteful illustration showing:
+
+* Student
+* Tricycle
+* Mobile device
+* Community/reporting concept
+
+## How It Works
+
+Show 5 visually connected steps:
+
+1. Submit a Report
+2. Report is Received
+3. Authorized Personnel Review
+4. Status is Updated
+5. Resolution / Closure
+
+## Features
+
+Create feature cards:
+
+* Easy Reporting
+* Evidence Upload
+* Report Tracking
+* Notifications
+* Organized Records
+* Responsive Access
+
+## Privacy section
+
+Design a privacy-focused section explaining that reports and attachments are handled by authorized personnel.
+
+## Disclaimer section
+
+Use:
+
+"Submitting a report does not automatically establish a violation or finding of guilt. Reports are subject to review and verification by authorized personnel."
+
+## Footer
+
+Include:
+
+* System name
+* SUNN
+* TODA Barangay Old Sagay
+* Privacy
+* Terms
+* Contact
+
+---
+
+# 6. LOGIN UI
+
+Design a polished login screen.
+
+Desktop:
+
+* Split-screen or centered card layout
+
+Mobile:
+
+* Full-width mobile layout
+
+Include:
+
+* System logo
+* Email / account field
+* Password field
+* Show/hide password
+* Remember me
+* Forgot password
+* Login button
+* Register link
+
+Create visual states for:
+
+* Default
+* Focus
+* Validation error
+* Loading
+* Success
+
+DO NOT implement actual authentication.
+
+Use demo/mock interaction only.
+
+---
+
+# 7. STUDENT REGISTRATION UI
+
+Create a clean multi-step registration interface.
+
+Step indicator:
+
+**1 Account → 2 Student Information → 3 Confirmation**
+
+Step 1:
+
+* Email
+* Password
+* Confirm password
+
+Step 2:
+
+* Student name
+* Student number
+* Course/program
+* Other appropriate student profile fields
+
+Step 3:
+
+* Review information
+* Confirmation
+
+Create visual states:
+
+* Empty
+* Active
+* Completed
+* Validation error
+* Loading
+* Success
+
+Do not implement real registration logic.
+
+---
+
+# 8. STUDENT DASHBOARD
+
+This is the most important mobile experience.
+
+Create a welcoming dashboard.
+
+Header:
+
+"Good day, Maria!"
+
+Subtext:
+"Welcome back to your reporting dashboard."
+
+Primary action:
+
+**+ Report a Concern**
+
+## Summary cards
+
+* Total Reports
+* Active Reports
+* Resolved
+* Notifications
+
+## Recent Reports
+
+Create attractive report cards showing:
+
+* Report ID
+* Date
+* Driver
+* Category
+* Status
+* Last updated
+* View Details
+
+Example status labels:
+
+* Submitted
+* Received
+* Under Review
+* Verified
+* Referred
+* Resolved
+* Closed
+
+Do NOT visually classify normal submitted complaints as violations.
+
+---
+
+# 9. STUDENT MOBILE NAVIGATION
+
+Create a bottom navigation bar:
+
+* Home
+* Reports
+* Notifications
+* Profile
+
+Use icons + labels.
+
+Highlight the active page clearly.
+
+Keep the navigation accessible and thumb-friendly.
+
+---
+
+# 10. STUDENT DESKTOP SIDEBAR
+
+Desktop navigation:
+
+* Dashboard
+* Submit Report
+* My Reports
+* Notifications
+* Profile
+
+Include:
+
+* System logo
+* User profile
+* Logout
+
+Use a collapsible sidebar concept.
+
+---
+
+# 11. SUBMIT REPORT UI
+
+Create a beautiful multi-step complaint/report form.
+
+Do NOT implement backend submission.
+
+## Step 1 — Select Driver
+
+Design:
+
+* Search driver
+* Driver cards
+* Driver name
+* Vehicle/tricycle identifier
+* Select button
+
+Use mock driver data.
+
+## Step 2 — Incident Information
+
+Fields:
+
+* Complaint category
+* Date
+* Time
+* Location
+* Description
+
+Categories:
+
+* Overcharging
+* Reckless Driving
+* Refusal to Transport
+* Discourteous Behavior
+* Unsafe Driving
+* Other
+
+For "Other":
+show additional text input.
+
+## Step 3 — Supporting Evidence
+
+Create an attractive upload interface.
+
+Desktop:
+
+* Drag-and-drop zone
+
+Mobile:
+
+* Upload from device
+* Camera/gallery-style interface
+
+Show mock attachment previews.
+
+Display:
+
+* File name
+* File type
+* File size
+* Upload progress
+* Remove button
+* Preview
+
+Text:
+
+**Supporting Evidence**
+
+"Attachments are reviewed by authorized personnel and are not automatically treated as proof of a violation."
+
+## Step 4 — Review
+
+Create a summary card displaying:
+
+* Driver
+* Category
+* Date
+* Time
+* Location
+* Description
+* Evidence
+
+Show:
+
+**Submit Report**
+
+Include confirmation text:
+
+"By submitting this report, you confirm that the information provided is accurate to the best of your knowledge."
+
+---
+
+# 12. REPORT SUBMISSION SUCCESS SCREEN
+
+Create a polished success state.
+
+Icon/illustration:
+
+✓
+
+Heading:
+
+**Report Submitted Successfully**
+
+Display:
+
+* Report ID
+* Date submitted
+* Current status: Submitted
+
+Buttons:
+
+* Track Report
+* Back to Dashboard
+
+Use static demo behavior only.
+
+---
+
+# 13. MY REPORTS PAGE
+
+Create the student's report history.
+
+Top section:
+
+* Page title
+* Search
+* Filter
+* Sort
+
+Filters:
+
+* Status
+* Category
+* Date
+
+Desktop:
+Use a clean table.
+
+Mobile:
+Convert reports into cards.
+
+Report card:
+
+**TRC-2026-00124**
+
+Driver:
+Juan Dela Cruz
+
+Category:
+Unsafe Driving
+
+Status:
+Under Review
+
+Date:
+September 2, 2026
+
+Last Updated:
+September 3, 2026
+
+Button:
+View Details
+
+---
+
+# 14. REPORT TRACKING UI
+
+Create a highly visual report-status page.
+
+Top:
+
+* Report ID
+* Current status
+* Submission date
+
+Create a vertical timeline:
+
+Submitted
+↓
+Received
+↓
+Under Review
+↓
+Verified / Referred
+↓
+Resolved
+↓
+Closed
+
+Each timeline item should have:
+
+* Icon
+* Status
+* Date
+* Time
+* Short description
+
+Highlight the current status.
+
+Below the timeline show:
+
+### Incident Information
+
+* Category
+* Date
+* Time
+* Location
+* Description
+
+### Driver Information
+
+* Driver
+* Vehicle identifier
+
+### Evidence
+
+* Attachment cards/previews
+
+### Updates
+
+* Authorized-personnel update cards
+
+IMPORTANT UI RULE:
+
+Clearly distinguish:
+**Report**
+from
+**Confirmed Violation**
+
+Never make a submitted complaint visually appear to mean guilt.
+
+---
+
+# 15. NOTIFICATIONS UI
+
+Create a modern notification center.
+
+Notification cards:
+
+"Your report has been received."
+
+"Your report is now under review."
+
+"Your report has been updated."
+
+"Your report has been referred."
+
+"Your report has been resolved."
+
+"Your report has been closed."
+
+Show:
+
+* Notification icon
+* Notification title
+* Short message
+* Time
+* Report ID
+* Read/unread state
+
+Actions:
+
+* Mark as read
+* Mark all as read
+
+---
+
+# 16. STUDENT PROFILE UI
+
+Create:
+
+### Profile Overview
+
+* Profile photo/avatar
+* Student name
+* Student number
+* Course/program
+
+### Account
+
+* Email
+* Account information
+
+### Settings
+
+* Edit Profile
+* Change Password
+* Notification Preferences
+* Privacy
+
+### Security
+
+* Password
+* Active sessions visual UI
+* Logout
+
+Do not implement actual account/security functionality.
+
+---
+
+# 17. TODA OFFICER DASHBOARD
+
+Create a separate professional desktop dashboard for TODA officers.
+
+Use a sidebar.
+
+Navigation:
+
+* Dashboard
+* Reports
+* Drivers
+* Violations
+* Notifications
+* Analytics
+* Settings
+
+Dashboard cards:
+
+* Total Reports
+* New Reports
+* Under Review
+* Verified
+* Referred
+* Resolved
+* Closed
+* Confirmed Violations
+
+Create polished charts:
+
+### Reports by Status
+
+### Reports by Category
+
+### Reports Over Time
+
+### Complaint Frequency by Driver
+
+Charts should be visually clean and easy to understand.
+
+Do not use charts that imply guilt based only on complaint counts.
+
+---
+
+# 18. TODA REPORT MANAGEMENT UI
+
+Create a professional report-management page.
+
+Desktop:
+Large data table.
+
+Columns:
+
+* Report ID
+* Date
+* Complainant
+* Driver
+* Category
+* Status
+* Reviewer
+* Last Updated
+* Actions
+
+Controls:
+
+* Search
+* Filter
+* Sort
+* Date range
+* Status filter
+* Category filter
+* Driver filter
+
+Actions:
+
+* View
+* Review
+* Update Status
+* Add Action
+* Refer
+* Resolve
+* Close
+
+On mobile:
+Convert each row into an expandable report card.
+
+---
+
+# 19. REPORT REVIEW UI
+
+Create a detailed report-review workspace.
+
+Desktop layout:
+
+### Main content
+
+* Incident information
+* Driver information
+* Evidence
+* Description
+
+### Right panel
+
+* Current status
+* Reviewer
+* Status control
+* Action history
+
+Create visually distinct action buttons:
+
+* Received
+* Under Review
+* Verify
+* Refer
+* Record Action
+* Resolve
+* Close
+
+Use confirmation dialogs for important actions.
+
+Create a detailed history timeline:
+
+Example:
+
+September 2, 2026
+Report submitted
+
+September 2, 2026
+Report received
+
+September 3, 2026
+Assigned for review
+
+September 3, 2026
+Status changed to Under Review
+
+Show:
+
+* Action
+* Date
+* Time
+* Person/role
+* Previous status
+* New status
+
+---
+
+# 20. DRIVER MANAGEMENT UI
+
+Create driver directory pages.
+
+## Driver list
+
+Show:
+
+* Search
+* Filter
+* Driver name
+* Vehicle identifier
+* Status
+* Number of reports
+* Confirmed violations
+
+## Driver profile
+
+Sections:
+
+### Driver Information
+
+* Name
+* Vehicle/tricycle identifier
+
+### Complaint History
+
+Display reports separately.
+
+### Confirmed Violations
+
+Display confirmed violations separately.
+
+### Activity / History
+
+Show timeline.
+
+IMPORTANT:
+
+The UI must clearly differentiate:
+
+**Reports / Complaints**
+
+from
+
+**Confirmed Violations**
+
+A complaint should never automatically appear as a confirmed violation.
+
+---
+
+# 21. VIOLATION MANAGEMENT UI
+
+Create a dedicated visual interface for **Confirmed Violations**.
+
+Table/card fields:
+
+* Violation ID
+* Driver
+* Related Report
+* Violation Type
+* Date
+* Status
+* Authorized Action
+
+Use a distinct label:
+
+**Confirmed Violation**
+
+Make this section visually different from ordinary complaints.
+
+---
+
+# 22. ADMIN DASHBOARD UI
+
+Create a separate administrator dashboard.
+
+Sidebar:
+
+* Dashboard
+* Users
+* Students
+* Drivers
+* TODA
+* Reports
+* Violations
+* Notifications
+* Audit Logs
+* Analytics
+* Settings
+
+Dashboard cards:
+
+* Total Users
+* Students
+* Authorized Personnel
+* Drivers
+* Reports
+* Pending Reports
+* Resolved Reports
+* Confirmed Violations
+
+Create:
+
+* Recent activity
+* Recent reports
+* User activity
+* System activity
+
+Use mock data only.
+
+---
+
+# 23. USER MANAGEMENT UI
+
+Create an admin user-management interface.
+
+Tabs:
+
+* Students
+* TODA Officers
+* Administrators
+* Drivers
+* Authorized PNP Personnel
+
+Controls:
+
+* Search
+* Filter
+* Role
+* Account status
+
+Create:
+
+* User table
+* User cards
+* User profile modal
+* Account-status UI
+* Role badges
+
+Do not implement actual permission logic.
+
+This is only a visual representation of role-based UI.
+
+---
+
+# 24. AUTHORIZED PNP REVIEW UI
+
+Create a restricted professional review interface.
+
+Sections:
+
+* Authorized Reports
+* Reports for Review
+* Incident Details
+* Evidence
+* Driver Information
+* Review Notes
+* Status
+* History
+
+Display a visual restricted-access indicator.
+
+Example:
+
+**Authorized Access**
+
+"This information is available only to authorized personnel."
+
+Keep the design professional and minimal.
+
+---
+
+# 25. ANALYTICS UI
+
+Create an analytics dashboard.
+
+Charts:
+
+* Reports by month
+* Reports by category
+* Report status distribution
+* Resolution trends
+* Driver report frequency
+
+Use filters:
+
+* Date
+* Category
+* Status
+
+Provide visual cards for key statistics.
+
+Do not imply that a higher number of complaints automatically means guilt.
+
+---
+
+# 26. PWA UI STATES
+
+Create visual designs for PWA behavior only.
+
+### Install App Prompt
+
+"Install Tricycle Conduct Reporting System"
+
+Button:
+**Install**
+
+### Offline State
+
+Show:
+
+"You are currently offline."
+
+"Some features may not be available until your connection is restored."
+
+### Connection Restored
+
+"Connection restored."
+
+### Loading
+
+Create:
+
+* Skeleton screens
+* Spinners
+* Loading cards
+
+### Error
+
+"You are unable to load this information right now."
+
+Button:
+**Try Again**
+
+These are UI states only. Do not implement service workers or offline functionality.
+
+---
+
+# 27. EMPTY STATES
+
+Create polished empty states for every major module.
+
+Examples:
+
+"No reports found."
+
+"You haven't submitted any reports yet."
+
+"No notifications."
+
+"No drivers found."
+
+"No confirmed violations."
+
+"No recent activity."
+
+Include appropriate icon/illustration and CTA where useful.
+
+---
+
+# 28. ERROR AND VALIDATION STATES
+
+Design visual examples for:
+
+* Required field
+* Invalid email
+* Incorrect password
+* Missing category
+* Missing description
+* Unsupported attachment
+* Large attachment
+* Upload error
+* Network error
+* Unauthorized page
+* Page not found
+
+Keep error messages friendly and understandable.
+
+---
+
+# 29. MODALS AND CONFIRMATION UI
+
+Create polished modals for:
+
+* Submit report confirmation
+* Cancel report form
+* Delete/remove attachment
+* Update report status
+* Resolve report
+* Close report
+* Logout
+* Account actions
+
+Keep confirmations clear and concise.
+
+---
+
+# 30. ACCESSIBILITY UI
+
+Ensure the visual design supports:
+
+* Strong contrast
+* Large touch targets
+* Clear focus states
+* Clear labels
+* Clear error messages
+* Keyboard-friendly layouts
+* Status indicators that do not rely only on color
+* Accessible icons
+* Readable text sizes
+* Mobile accessibility
+
+---
+
+# 31. MOCK DATA ONLY
+
+Use realistic demo data.
+
+Example location:
+
+**Barangay Old Sagay, Sagay City, Negros Occidental**
+
+Example institution:
+
+**State University of Northern Negros**
+
+Create fictional/demo:
+
+* Students
+* Drivers
+* TODA officers
+* Administrators
+* PNP personnel
+* Reports
+* Notifications
+* Attachments
+* Status histories
+* Confirmed violations
+
+Clearly treat all data as mock/demo data.
+
+Do not use real personal information.
+
+---
+
+# 32. NAVIGATION PROTOTYPE
+
+All screens should be visually connected.
+
+Create a complete clickable-style prototype flow:
+
+Landing
+→ Login
+→ Student Dashboard
+→ Submit Report
+→ Review
+→ Success
+→ My Reports
+→ Report Details
+→ Notifications
+→ Profile
+
+Separate administration flow:
+
+Login
+→ TODA Dashboard
+→ Reports
+→ Report Details
+→ Review
+→ Driver Management
+→ Driver Profile
+→ Violations
+→ Analytics
+
+Separate admin flow:
+
+Admin Dashboard
+→ Users
+→ Drivers
+→ Reports
+→ Violations
+→ Audit Logs
+→ Settings
+
+Use frontend-only navigation and mock interactions.
+
+---
+
+# 33. MOBILE FIRST PRIORITY
+
+Give special design attention to:
+
+* Student dashboard
+* Report submission
+* Attachment upload
+* Report tracking
+* Notifications
+* Profile
+* Mobile navigation
+
+The report submission workflow should feel extremely simple.
+
+A student should immediately understand:
+
+**What happened?**
+**Which driver was involved?**
+**Where and when did it happen?**
+**What evidence can I attach?**
+**What happens after I submit?**
+
+---
+
+# 34. IMPORTANT CONTENT RULE
+
+The system is a reporting and documentation platform.
+
+Use neutral wording.
+
+Preferred:
+
+* Submit a Report
+* Report Submitted
+* Under Review
+* Verified
+* Referred
+* Resolved
+* Closed
+* Confirmed Violation
+
+Avoid:
+
+* Driver is Guilty
+* Punish Driver
+* Guilty Driver
+* Automatically Confirm Violation
+
+The UI must communicate that submitted reports are reviewed by authorized personnel.
+
+---
+
+# 35. DO NOT ADD UNRELATED FEATURES
+
+Do not add:
+
+* Ride booking
+* Driver ratings
+* Passenger ratings
+* Online payment
+* E-commerce
+* Social media
+* Public comments
+* Public driver reviews
+* Live vehicle tracking
+* Driver chat
+* Advertising
+* Marketplace
+
+Stay focused on:
+
+**Student Reporting → Report Tracking → Authorized Review → Status Updates → Documentation → Notifications**
+
+---
+
+# FINAL INSTRUCTION
+
+Build ONLY the **frontend UI/UX prototype**.
+
+The result must be:
+
+* Visually polished
+* Modern
+* Responsive
+* Mobile-first
+* Consistent
+* Accessible
+* Professional
+* Presentation-ready
+* Suitable for an academic capstone defense
+
+Use mock data and simulated frontend interactions.
+
+DO NOT build backend functionality.
+
+DO NOT build database functionality.
+
+DO NOT integrate APIs.
+
+DO NOT implement real authentication.
+
+DO NOT implement real storage.
+
+DO NOT implement real notifications.
+
+Focus 100% on:
+
+**UI DESIGN + UX FLOW + RESPONSIVE LAYOUT + COMPONENTS + VISUAL STATES + PROTOTYPE INTERACTIONS.**
