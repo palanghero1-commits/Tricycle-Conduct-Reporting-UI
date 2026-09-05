@@ -1,45 +1,78 @@
-# [Project name]
+# Tricycle Drivers Conduct Reporting System
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Web and mobile-based PWA for SUNN students to submit tricycle driver conduct reports and for authorized Old Sagay TODA/admin/PNP personnel to review, document, and monitor complaints.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `npm run dev` - run the UI preview.
+- `npm run dev --workspace @workspace/api-server` - build and run the API server.
+- `npm run typecheck` - full typecheck across all packages.
+- `npm run build` - typecheck and build all packages.
+- MySQL local schema: import `api-php/schema.mysql.sql`.
+- MySQL local demo data: import `api-php/seed.mysql.sql` or call `POST /seed`.
+- PHP local API: serve the `api-php` folder with Apache/XAMPP or PHP's built-in server.
+- Seed baseline data after schema import: `POST /seed` on the PHP API base.
+
+## Environment
+
+- PHP config: copy `api-php/config.example.php` to `api-php/config.php` and set `db_host`, `db_name`, `db_user`, `db_pass`, `jwt_secret`, and `upload_dir`.
+- `VITE_API_BASE_URL` - set this to the PHP API base, for example `http://localhost:8000/index.php`.
+- The older Node/Express/PostgreSQL API remains available for Replit-style environments, but local deployment can use PHP + MySQL.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- npm workspaces, Node.js 24, TypeScript 5.9
+- Frontend: Vite, React 19, Tailwind CSS 4, Radix UI, lucide-react
+- API: PHP 8 with PDO for local MySQL deployments; Express 5 remains as an alternate Node API.
+- DB: MySQL locally; PostgreSQL + Drizzle ORM remains as the Node API schema path.
+- Auth: password hashes + HMAC JWT-style bearer sessions
+- Validation: Zod
+- Build: esbuild for API, Vite for frontend
 
-## Where things live
+## Where Things Live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- Frontend screens: `artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting`
+- Frontend API helper: `artifacts/mockup-sandbox/src/lib/api.ts`
+- PHP API: `api-php/index.php`
+- MySQL schema: `api-php/schema.mysql.sql`
+- PHP config template: `api-php/config.example.php`
+- API server: `artifacts/api-server/src`
+- API domain routes: `artifacts/api-server/src/routes/domain.ts`
+- Database schema: `lib/db/src/schema/index.ts`
+- PWA assets: `artifacts/mockup-sandbox/public/manifest.webmanifest`, `public/sw.js`, `public/pwa-icon.svg`
 
-## Architecture decisions
+## Architecture Decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Complaints are reports, not confirmed violations. Violations are separate records created only by authorized roles.
+- The backend derives complainant identity from the authenticated session; complaint creation never accepts a student user ID.
+- Attachments are stored outside public frontend assets and are served only through an authenticated API endpoint.
+- The service worker caches static UI assets only and bypasses API requests so offline mode does not fake complaint submission or notifications.
+- Status changes are restricted to the configured workflow and always write status history plus audit records.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Student registration/login and complaint submission with driver/category selection.
+- TODA/admin/PNP complaint review, status updates, action records, confirmed violation creation, notifications, and database-backed reports.
+- Admin management endpoints for users, drivers, and complaint categories.
+- PWA installability and static offline fallback.
 
-## User preferences
+## Local Testing Accounts
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+After calling `POST /seed`, these accounts are available:
+
+- Student: `student@sunn.edu.ph`
+- Driver: `driver@oldsagay-toda.ph`
+- Admin: `admin@oldsagay.gov.ph`
+- TODA Officer: `officer@oldsagay.gov.ph`
+- Password for all seeded accounts: `Password123!`
+
+## User Preferences
+
+- Preserve the existing visual design while replacing mock behavior with real functionality.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Run `npm run typecheck:libs` after schema edits so API project references see fresh DB declarations.
+- For local PHP/MySQL, import `api-php/schema.mysql.sql` before using the API.
+- For local PHP/MySQL, set `VITE_API_BASE_URL=http://localhost:8000/index.php` or the equivalent Apache/XAMPP URL.
+- Seed records are required for the first driver/category/officer workflow.

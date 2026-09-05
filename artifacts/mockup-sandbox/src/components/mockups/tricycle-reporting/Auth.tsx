@@ -17,10 +17,11 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
+import { login, registerStudent } from "../../../lib/api";
 
 type AuthMode = "login" | "register";
 type RegistrationStep = 1 | 2 | 3;
-type AccountRole = "student" | "personnel";
+type AccountRole = "studentDriver" | "personnel";
 type Notice = { type: "error" | "success"; message: string } | null;
 
 const registrationSteps = [
@@ -130,7 +131,7 @@ function LoadingLabel({ children }: { children: string }) {
 
 export function Auth() {
   const [mode, setMode] = useState<AuthMode>("login");
-  const [role, setRole] = useState<AccountRole>("student");
+  const [role, setRole] = useState<AccountRole>("studentDriver");
   const [registrationStep, setRegistrationStep] = useState<RegistrationStep>(1);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -165,7 +166,7 @@ export function Auth() {
 
   const validateEmail = () => {
     if (!form.email.trim()) return "Enter the email or account identifier for this preview.";
-    if (!form.email.includes("@") && role === "student") return "Use a valid email address, such as name@sunn.edu.ph.";
+    if (!form.email.includes("@") && role === "studentDriver") return "Use a valid email address, such as name@sunn.edu.ph.";
     return null;
   };
 
@@ -183,14 +184,17 @@ export function Auth() {
 
     setNotice(null);
     setIsLoading(true);
-    window.setTimeout(() => {
+    login(form.email, form.password)
+      .then(() => {
+        setComplete(true);
+        setNotice({ type: "success", message: "Sign-in complete. Your secure session is ready." });
+      })
+      .catch((error) => {
+        setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to sign in." });
+      })
+      .finally(() => {
       setIsLoading(false);
-      setComplete(true);
-      setNotice({
-        type: "success",
-        message: "Preview sign-in complete. No account was created and no information was sent.",
       });
-    }, 850);
   };
 
   const handleForgotPassword = (event: FormEvent<HTMLFormElement>) => {
@@ -251,14 +255,25 @@ export function Auth() {
 
     setNotice(null);
     setIsLoading(true);
-    window.setTimeout(() => {
+    registerStudent({
+      fullName: form.fullName,
+      studentId: form.studentId,
+      email: form.email,
+      password: form.password,
+      confirmPassword: form.confirmPassword,
+      program: form.program,
+      yearLevel: form.yearLevel,
+    })
+      .then(() => {
+        setComplete(true);
+        setNotice({ type: "success", message: "Registration complete. Your student account was created." });
+      })
+      .catch((error) => {
+        setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to complete registration." });
+      })
+      .finally(() => {
       setIsLoading(false);
-      setComplete(true);
-      setNotice({
-        type: "success",
-        message: "Registration preview complete. This prototype does not save your details.",
       });
-    }, 900);
   };
 
   const resetToLogin = () => {
@@ -387,7 +402,7 @@ export function Auth() {
                     <Mail className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#91a7bb]" size={16} strokeWidth={1.8} />
                     <input
                       id="forgot-email"
-                      type={role === "student" ? "email" : "text"}
+                      type={role === "studentDriver" ? "email" : "text"}
                       value={form.email}
                       onChange={(event) => updateForm("email", event.target.value)}
                       className="w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] py-3.5 pl-10 pr-4 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]"
@@ -450,17 +465,17 @@ export function Auth() {
                   <div className="grid grid-cols-2 gap-1">
                     <button
                       type="button"
-                      onClick={() => setRole("student")}
-                      className={`flex items-center justify-center gap-2 rounded-[10px] py-2.5 text-[11px] font-extrabold transition-colors ${role === "student" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
+                      onClick={() => setRole("studentDriver")}
+                      className={`flex items-center justify-center gap-2 rounded-[10px] py-2.5 text-[11px] font-extrabold transition-colors ${role === "studentDriver" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
                     >
-                      <GraduationCap size={15} /> Student
+                      <GraduationCap size={15} /> Student / Driver
                     </button>
                     <button
                       type="button"
                       onClick={() => setRole("personnel")}
                       className={`flex items-center justify-center gap-2 rounded-[10px] py-2.5 text-[11px] font-extrabold transition-colors ${role === "personnel" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
                     >
-                      <Building2 size={15} /> Authorized personnel
+                      <Building2 size={15} /> Authorized / TODA President
                     </button>
                   </div>
                 </div>
@@ -481,7 +496,7 @@ export function Auth() {
                           value={form.email}
                           onChange={(event) => updateForm("email", event.target.value)}
                           className="w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] py-3.5 pl-10 pr-4 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]"
-                          placeholder={role === "student" ? "name@sunn.edu.ph" : "name@oldsagay.gov.ph"}
+                          placeholder={role === "studentDriver" ? "student@sunn.edu.ph or driver account" : "toda-president@oldsagay.gov.ph"}
                           autoComplete="email"
                         />
                       </div>
@@ -505,6 +520,38 @@ export function Auth() {
                       <button type="submit" disabled={isLoading} className="mt-6 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white shadow-[0_9px_20px_rgba(12,91,206,0.16)] transition-[transform,background-color] hover:-translate-y-0.5 hover:bg-[#094fae] disabled:cursor-wait disabled:bg-[#7da5cb]">
                         {isLoading ? <LoadingLabel>Checking details</LoadingLabel> : <>Sign in <ArrowRight size={16} /></>}
                       </button>
+                      <div className="mt-5 rounded-[14px] border border-[#d8e8ee] bg-white p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#eef4fb] text-[#0c5bce]">
+                            <KeyRound size={15} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#7c99ab]">Testing accounts</p>
+                            <div className="mt-3 space-y-2 text-[12px]">
+                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="font-bold text-[#315574]">Student</span>
+                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">student@sunn.edu.ph</span>
+                              </div>
+                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="font-bold text-[#315574]">Driver</span>
+                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">driver@oldsagay-toda.ph</span>
+                              </div>
+                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="font-bold text-[#315574]">Admin</span>
+                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">admin@oldsagay.gov.ph</span>
+                              </div>
+                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="font-bold text-[#315574]">TODA Officer</span>
+                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">officer@oldsagay.gov.ph</span>
+                              </div>
+                              <div className="flex flex-col gap-1 rounded-xl bg-[#fff9eb] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="font-bold text-[#82652d]">Password</span>
+                                <span className="font-mono text-[11px] font-extrabold text-[#9b6011]">Password123!</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </>
                   ) : registrationStep === 1 ? (
                     <>

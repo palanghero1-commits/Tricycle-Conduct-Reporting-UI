@@ -24,10 +24,12 @@ import {
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest } from "../../../lib/api";
 
 type Step = 1 | 2 | 3 | 4;
 
 type Driver = {
+  id: number;
   name: string;
   identifier: string;
   color: string;
@@ -46,6 +48,7 @@ type EvidenceItem = {
 
 const drivers: Driver[] = [
   {
+    id: 1,
     name: "Rogelio D. Santos",
     identifier: "OS-4821",
     color: "bg-[#dceeff] text-[#1660a8]",
@@ -53,6 +56,7 @@ const drivers: Driver[] = [
     route: "Old Sagay • Market loop",
   },
   {
+    id: 2,
     name: "Maribel A. Cruz",
     identifier: "OS-3176",
     color: "bg-[#fbe8dc] text-[#b85e3d]",
@@ -60,6 +64,7 @@ const drivers: Driver[] = [
     route: "Old Sagay • Campus loop",
   },
   {
+    id: 3,
     name: "Jonas P. Villanueva",
     identifier: "OS-9084",
     color: "bg-[#e8e4fb] text-[#6656a9]",
@@ -115,8 +120,13 @@ function formatTime(value: string) {
 export function SubmitReport() {
   const [step, setStep] = useState<Step>(1);
   const [selectedDriver, setSelectedDriver] = useState<string>("OS-4821");
+  const [liveDrivers, setLiveDrivers] = useState<Driver[]>(drivers);
+  const [liveCategories, setLiveCategories] = useState<{ id: number; name: string }[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [notice, setNotice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [vehicleSearch, setVehicleSearch] = useState("");
-  const [category, setCategory] = useState<(typeof categories)[number]>("Overcharging");
+  const [category, setCategory] = useState<string>("Overcharging");
   const [otherCategory, setOtherCategory] = useState("");
   const [incidentDate, setIncidentDate] = useState("2025-04-18");
   const [incidentTime, setIncidentTime] = useState("08:40");
@@ -128,15 +138,45 @@ export function SubmitReport() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiRequest<{ drivers: Array<{ id: number; fullName: string; tricycleIdentifier: string; routeArea: string | null }> }>("/drivers"),
+      apiRequest<{ categories: Array<{ id: number; name: string }> }>("/categories"),
+    ])
+      .then(([driverData, categoryData]) => {
+        if (cancelled) return;
+        setLiveDrivers(
+          driverData.drivers.map((driver) => ({
+            id: driver.id,
+            name: driver.fullName,
+            identifier: driver.tricycleIdentifier,
+            route: driver.routeArea ?? "Old Sagay TODA",
+            initials: driver.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
+            color: "bg-[#dceeff] text-[#1660a8]",
+          })),
+        );
+        setLiveCategories(categoryData.categories);
+        if (driverData.drivers[0]) setSelectedDriver(driverData.drivers[0].tricycleIdentifier);
+        if (categoryData.categories[0]) setCategory(categoryData.categories[0].name);
+      })
+      .catch(() => setNotice("Connect to the API and sign in to load official drivers and categories."))
+      .finally(() => !cancelled && setIsLoadingData(false));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const visibleDrivers = useMemo(
     () =>
-      drivers.filter((driver) =>
+      liveDrivers.filter((driver) =>
         `${driver.name} ${driver.identifier} ${driver.route}`.toLowerCase().includes(vehicleSearch.toLowerCase()),
       ),
-    [vehicleSearch],
+    [liveDrivers, vehicleSearch],
   );
 
-  const selected = drivers.find((driver) => driver.identifier === selectedDriver) ?? drivers[0];
+  const selected = liveDrivers.find((driver) => driver.identifier === selectedDriver) ?? liveDrivers[0];
+  const visibleCategories = liveCategories.length ? liveCategories.map((item) => item.name) : [...categories];
 
   useEffect(() => {
     const pending = evidence.filter((item) => item.status === "uploading");
@@ -189,9 +229,31 @@ export function SubmitReport() {
     if (step > 1) setStep((current) => (current - 1) as Step);
   };
 
-  const submitReport = () => {
-    setReportId("TCR-25-0418-073");
-    setIsSubmitted(true);
+  const submitReport = async () => {
+    if (!selected) return;
+    const categoryRecord = liveCategories.find((item) => item.name === category);
+    if (!categoryRecord) {
+      setNotice("Official complaint categories are still loading. Please try again.");
+      return;
+    }
+    setIsSubmitting(true);
+    setNotice("");
+    const body = new FormData();
+    body.append("driverId", String(selected.id));
+    body.append("categoryId", String(categoryRecord.id));
+    body.append("incidentDate", incidentDate);
+    body.append("incidentTime", incidentTime);
+    body.append("location", location);
+    body.append("description", category === "Other" && otherCategory ? `${otherCategory}\n\n${description}` : description);
+    try {
+      const data = await apiRequest<{ complaint: { referenceNumber: string } }>("/complaints", { method: "POST", body });
+      setReportId(data.complaint.referenceNumber);
+      setIsSubmitted(true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to submit the complaint.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isSubmitted) {
@@ -332,7 +394,7 @@ export function SubmitReport() {
                           <label className="text-[13px] font-extrabold text-[#294664]">Select the driver or vehicle</label>
                           <p className="mt-1 text-[11px] text-[#8ca0b5]">Choose the identifier you saw during the trip.</p>
                         </div>
-                        <span className="hidden text-[10px] font-bold text-[#9aabbe] sm:block">3 fictional records</span>
+                        <span className="hidden text-[10px] font-bold text-[#9aabbe] sm:block">{isLoadingData ? "Loading records" : `${visibleDrivers.length} active records`}</span>
                       </div>
                       <div className="relative mb-3">
                         <Search size={16} className="absolute left-3.5 top-3.5 text-[#9aaabd]" />
@@ -391,7 +453,7 @@ export function SubmitReport() {
                       <label className="text-[13px] font-extrabold text-[#294664]">What was the concern?</label>
                       <p className="mt-1 text-[11px] text-[#8ca0b5]">Select the category that best describes the experience.</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {categories.map((item) => (
+                        {visibleCategories.map((item) => (
                           <button
                             type="button"
                             key={item}
@@ -503,10 +565,11 @@ export function SubmitReport() {
                 {step < 4 ? (
                   <button type="button" onClick={goNext} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-5 py-3 text-[12px] font-extrabold text-white shadow-[0_7px_16px_rgba(12,91,206,0.2)] transition hover:bg-[#084da9]">Continue<ArrowRight size={16} /></button>
                 ) : (
-                  <button type="button" onClick={submitReport} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-5 py-3 text-[12px] font-extrabold text-white shadow-[0_7px_16px_rgba(12,91,206,0.2)] transition hover:bg-[#084da9]">Send report<Send size={15} /></button>
+                  <button type="button" onClick={submitReport} disabled={isSubmitting} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-5 py-3 text-[12px] font-extrabold text-white shadow-[0_7px_16px_rgba(12,91,206,0.2)] transition hover:bg-[#084da9] disabled:cursor-wait disabled:bg-[#7da5cb]">{isSubmitting ? "Sending..." : "Send report"}<Send size={15} /></button>
                 )}
               </div>
             </div>
+            {notice ? <p className="mt-4 rounded-xl border border-[#f1d7c9] bg-[#fff7f2] px-4 py-3 text-center text-[12px] font-semibold text-[#9b6048]">{notice}</p> : null}
             <p className="mt-4 flex items-center justify-center gap-2 text-center text-[10px] leading-4 text-[#9aabba]"><ShieldCheck size={13} />Your report is shown only to the conduct review team in this prototype.</p>
           </section>
         </div>

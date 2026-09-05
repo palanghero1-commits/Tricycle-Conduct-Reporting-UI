@@ -99,12 +99,12 @@ export function AppLayout({
                   <ShieldCheck size={16} />
                 </div>
                 <span className="rounded-full bg-[#dcf5eb] px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[#20885d]">
-                  Demo mode
+                  Secure
                 </span>
               </div>
-              <p className="mt-3 text-[12px] font-bold text-[#23405f]">Prototype preview</p>
+              <p className="mt-3 text-[12px] font-bold text-[#23405f]">Conduct reporting</p>
               <p className="mt-1 text-[11px] leading-4 text-[#71859e]">
-                All records shown here are fictional sample data.
+                Reports are reviewed by authorized personnel.
               </p>
             </div>
             <button

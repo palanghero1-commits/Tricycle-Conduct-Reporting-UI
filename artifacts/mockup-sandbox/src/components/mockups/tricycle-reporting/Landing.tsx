@@ -114,6 +114,11 @@ export function Landing() {
     setDialog("track");
   };
 
+  const openAuth = () => {
+    setMobileOpen(false);
+    window.location.href = "/preview/tricycle-reporting/Auth";
+  };
+
   const closeDialog = () => {
     setDialog(null);
     window.setTimeout(() => reportButtonRef.current?.focus(), 0);
@@ -169,10 +174,10 @@ export function Landing() {
             </button>
             <button
               type="button"
-              onClick={() => setDialog("access")}
+              onClick={openAuth}
               className="rounded-xl border border-[#cfe0ed] bg-white px-4 py-2.5 text-[13px] font-bold text-[#244565] shadow-[0_3px_12px_rgba(33,72,111,0.05)] transition-all hover:-translate-y-0.5 hover:border-[#acc9e3] hover:text-[#0c5bce]"
             >
-              Authorized access
+              Login / Register
             </button>
           </nav>
 
@@ -197,8 +202,8 @@ export function Landing() {
             <button type="button" onClick={() => scrollTo("privacy")} className="block w-full py-3 text-left text-sm font-semibold text-[#496985]">
               Privacy
             </button>
-            <button type="button" onClick={() => setDialog("access")} className="mt-2 w-full rounded-xl bg-[#edf5ff] py-3 text-sm font-bold text-[#0c5bce]">
-              Authorized access
+            <button type="button" onClick={openAuth} className="mt-2 w-full rounded-xl bg-[#edf5ff] py-3 text-sm font-bold text-[#0c5bce]">
+              Login / Register
             </button>
           </nav>
         ) : null}
@@ -226,19 +231,19 @@ export function Landing() {
                 <button
                   ref={reportButtonRef}
                   type="button"
-                  onClick={openReport}
+                  onClick={openAuth}
                   className="group inline-flex items-center justify-center gap-3 rounded-[13px] bg-[#0c5bce] px-5 py-3.5 text-[14px] font-extrabold text-white shadow-[0_12px_26px_rgba(12,91,206,0.2)] transition-all duration-200 hover:-translate-y-1 hover:bg-[#094fae] hover:shadow-[0_15px_30px_rgba(12,91,206,0.27)]"
                 >
-                  Submit a report
+                  Login / Register
                   <ArrowRight size={17} className="transition-transform duration-200 group-hover:translate-x-1" />
                 </button>
                 <button
                   type="button"
-                  onClick={openTrack}
+                  onClick={openAuth}
                   className="inline-flex items-center justify-center gap-2.5 rounded-[13px] border border-[#cddfea] bg-white px-5 py-3.5 text-[14px] font-extrabold text-[#315271] shadow-[0_5px_18px_rgba(34,75,112,0.05)] transition-all duration-200 hover:-translate-y-1 hover:border-[#a5c3dd] hover:text-[#0c5bce]"
                 >
-                  <Search size={16} />
-                  Track a report
+                  <ShieldCheck size={16} />
+                  Authorized access
                 </button>
               </div>
               <div className="mt-8 flex items-center gap-3 text-[12px] font-semibold text-[#7890a8]">
@@ -439,11 +444,11 @@ export function Landing() {
               Whether you are sharing a concern or checking a reference, take the next step at your own pace.
             </p>
             <div className="relative mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-              <button type="button" onClick={openReport} className="group inline-flex items-center justify-center gap-2.5 rounded-[12px] bg-white px-5 py-3.5 text-[13px] font-extrabold text-[#0c5bce] transition-all hover:-translate-y-1 hover:bg-[#f2f8ff]">
-                Submit a report <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+              <button type="button" onClick={openAuth} className="group inline-flex items-center justify-center gap-2.5 rounded-[12px] bg-white px-5 py-3.5 text-[13px] font-extrabold text-[#0c5bce] transition-all hover:-translate-y-1 hover:bg-[#f2f8ff]">
+                Login / Register <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
               </button>
-              <button type="button" onClick={openTrack} className="inline-flex items-center justify-center gap-2 rounded-[12px] border border-white/30 px-5 py-3.5 text-[13px] font-extrabold text-white transition-all hover:-translate-y-1 hover:border-white/60 hover:bg-white/10">
-                <Search size={16} /> Track a report
+              <button type="button" onClick={openAuth} className="inline-flex items-center justify-center gap-2 rounded-[12px] border border-white/30 px-5 py-3.5 text-[13px] font-extrabold text-white transition-all hover:-translate-y-1 hover:border-white/60 hover:bg-white/10">
+                <ShieldCheck size={16} /> Authorized access
               </button>
             </div>
           </div>
