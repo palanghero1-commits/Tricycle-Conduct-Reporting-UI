@@ -13,7 +13,6 @@ import {
   KeyRound,
   LockKeyhole,
   Mail,
-  MapPin,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
@@ -129,8 +128,13 @@ function LoadingLabel({ children }: { children: string }) {
   );
 }
 
+function getInitialAuthMode(): AuthMode {
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  return mode === "register" ? "register" : "login";
+}
+
 export function Auth() {
-  const [mode, setMode] = useState<AuthMode>("login");
+  const [mode, setMode] = useState<AuthMode>(getInitialAuthMode);
   const [role, setRole] = useState<AccountRole>("studentDriver");
   const [registrationStep, setRegistrationStep] = useState<RegistrationStep>(1);
   const [showPassword, setShowPassword] = useState(false);
@@ -284,64 +288,32 @@ export function Auth() {
     setRegistrationStep(1);
   };
 
+  const goHome = () => {
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    window.location.href = base || "/";
+  };
+
   return (
     <div className="min-h-[100dvh] overflow-x-hidden bg-[#f7fbff] text-[#173552]">
-      <div className="grid min-h-[100dvh] lg:grid-cols-[minmax(370px,0.82fr)_minmax(580px,1.18fr)]">
-        <aside className="relative isolate overflow-hidden bg-[#103651] px-6 py-7 text-white sm:px-10 lg:px-12 lg:py-10">
-          <div className="absolute inset-0 -z-10 opacity-50 [background-image:radial-gradient(#6ea5bd_0.7px,transparent_0.7px)] [background-size:18px_18px]" />
-          <div className="absolute -right-28 top-20 -z-10 h-[410px] w-[410px] rounded-full border border-[#82bfc5]/20" />
-          <div className="absolute -right-16 top-32 -z-10 h-[290px] w-[290px] rounded-full border border-[#82bfc5]/20" />
-          <div className="absolute -bottom-24 -left-20 -z-10 h-[310px] w-[310px] rounded-full bg-[#197078]/35 blur-3xl" />
+      <main className="relative mx-auto flex min-h-[100dvh] w-full max-w-[640px] flex-col px-4 py-5 sm:px-8 sm:py-7 lg:max-w-[720px] lg:px-10 lg:py-10">
+        <button
+          type="button"
+          onClick={goHome}
+          className="mb-4 inline-flex w-fit items-center gap-1.5 rounded-xl border border-[#d3e2ed] bg-white px-3 py-2 text-[12px] font-bold text-[#496985] transition-colors hover:border-[#acc9e3] hover:text-[#0c5bce]"
+        >
+          <ArrowLeft size={15} strokeWidth={2.2} />
+          Back to home
+        </button>
 
-          <BrandMark />
-
-          <div className="mx-auto max-w-[480px] pb-9 pt-20 sm:pt-24 lg:pt-[clamp(100px,17vh,190px)]">
-            <div className="mb-7 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#91d0ce]">
-              <span className="h-px w-8 bg-[#63b9b3]" />
-              A shared record for safer rides
-            </div>
-            <h1 className="max-w-[490px] text-[clamp(34px,4vw,57px)] font-extrabold leading-[0.98] tracking-[-0.06em] text-[#f4fbff]">
-              Speak clearly.
-              <span className="block text-[#88d0c8]">Be heard fairly.</span>
-            </h1>
-            <p className="mt-7 max-w-[420px] text-[14px] leading-7 text-[#b7d0dc]">
-              A student-centered way to share transport concerns in Barangay Old Sagay. Details are organized for review; a report is not a confirmed violation.
-            </p>
-
-            <div className="mt-11 grid max-w-[450px] gap-3 sm:grid-cols-2">
-              <div className="rounded-[17px] border border-[#8dc2cc]/20 bg-[#174560]/75 p-4 backdrop-blur-sm">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#d6f0eb]/10 text-[#96ded3]">
-                  <LockKeyhole size={16} strokeWidth={1.8} />
-                </div>
-                <p className="mt-3 text-[12px] font-extrabold text-[#ecf8fa]">Private reference</p>
-                <p className="mt-1 text-[11px] leading-5 text-[#9ab9c7]">Keep a personal code to check progress.</p>
-              </div>
-              <div className="rounded-[17px] border border-[#8dc2cc]/20 bg-[#174560]/75 p-4 backdrop-blur-sm">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f5dfb1]/10 text-[#f5d896]">
-                  <MapPin size={16} strokeWidth={1.8} />
-                </div>
-                <p className="mt-3 text-[12px] font-extrabold text-[#ecf8fa]">Local context</p>
-                <p className="mt-1 text-[11px] leading-5 text-[#9ab9c7]">For SUNN and Old Sagay communities.</p>
-              </div>
-            </div>
+        <div className="flex items-center justify-between">
+          <BrandMark compact />
+          <div className="hidden items-center gap-2 text-[11px] font-semibold text-[#8299ad] sm:flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#56a895]" />
+            Demo mode · fictional data
           </div>
+        </div>
 
-          <div className="mx-auto flex max-w-[480px] items-center justify-between border-t border-[#8dc2cc]/20 pt-5 text-[10px] font-semibold text-[#8eafbd]">
-            <span>Prototype workspace</span>
-            <span className="flex items-center gap-1.5 text-[#a7d5d1]"><ShieldCheck size={13} /> Information notice</span>
-          </div>
-        </aside>
-
-        <main className="relative flex min-h-[620px] flex-col bg-[#f7fbff] px-5 py-6 sm:px-10 sm:py-9 lg:px-[clamp(50px,8vw,145px)] lg:py-10">
-          <div className="flex items-center justify-between">
-            <BrandMark compact />
-            <div className="hidden items-center gap-2 text-[11px] font-semibold text-[#8299ad] sm:flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#56a895]" />
-              Demo mode · fictional data
-            </div>
-          </div>
-
-          <div className="mx-auto flex w-full max-w-[510px] flex-1 flex-col justify-center py-12 lg:py-16">
+        <div className="mx-auto flex w-full max-w-[510px] flex-1 flex-col justify-center py-6 sm:py-10 lg:py-16">
             {complete ? (
               <div className="animate-[auth-rise_500ms_ease-out_both]">
                 <div className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-[#e3f5ef] text-[#278b7d]">
@@ -350,7 +322,7 @@ export function Auth() {
                 <p className="mt-8 text-[10px] font-extrabold uppercase tracking-[0.17em] text-[#5a9c95]">
                   Preview complete
                 </p>
-                <h2 className="mt-3 text-[31px] font-extrabold tracking-[-0.055em] text-[#173b5d]">
+                <h2 className="mt-3 text-[clamp(1.65rem,5vw,31px)] font-extrabold tracking-[-0.055em] text-[#173b5d]">
                   You can keep exploring.
                 </h2>
                 <p className="mt-4 max-w-[420px] text-[13px] leading-6 text-[#71889e]">
@@ -387,7 +359,7 @@ export function Auth() {
                   <ArrowLeft size={15} /> Back to sign in
                 </button>
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.17em] text-[#5a9c95]">Account help</p>
-                <h2 id="forgot-title" className="mt-3 text-[31px] font-extrabold tracking-[-0.055em] text-[#173b5d]">
+                <h2 id="forgot-title" className="mt-3 text-[clamp(1.65rem,5vw,31px)] font-extrabold tracking-[-0.055em] text-[#173b5d]">
                   Reset your password
                 </h2>
                 <p className="mt-3 max-w-[430px] text-[13px] leading-6 text-[#71889e]">
@@ -417,12 +389,12 @@ export function Auth() {
               </section>
             ) : (
               <section className="animate-[auth-rise_500ms_ease-out_both]" aria-labelledby="auth-title">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
+                <div className="flex items-start justify-between gap-3 sm:gap-4">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.17em] text-[#5a9c95]">
                       {mode === "login" ? "Welcome back" : "Create a student account"}
                     </p>
-                    <h2 id="auth-title" className="mt-3 text-[31px] font-extrabold tracking-[-0.055em] text-[#173b5d]">
+                    <h2 id="auth-title" className="mt-3 text-[clamp(1.65rem,5vw,31px)] font-extrabold tracking-[-0.055em] text-[#173b5d]">
                       {mode === "login" ? "Sign in to continue" : "Start with the basics"}
                     </h2>
                   </div>
@@ -466,16 +438,18 @@ export function Auth() {
                     <button
                       type="button"
                       onClick={() => setRole("studentDriver")}
-                      className={`flex items-center justify-center gap-2 rounded-[10px] py-2.5 text-[11px] font-extrabold transition-colors ${role === "studentDriver" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
+                      className={`flex flex-col items-center justify-center gap-1 rounded-[10px] px-1 py-2.5 text-[10px] font-extrabold leading-tight transition-colors sm:flex-row sm:gap-2 sm:px-2 sm:text-[11px] ${role === "studentDriver" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
                     >
-                      <GraduationCap size={15} /> Student / Driver
+                      <GraduationCap size={15} className="shrink-0" /> Student / Driver
                     </button>
                     <button
                       type="button"
                       onClick={() => setRole("personnel")}
-                      className={`flex items-center justify-center gap-2 rounded-[10px] py-2.5 text-[11px] font-extrabold transition-colors ${role === "personnel" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
+                      className={`flex flex-col items-center justify-center gap-1 rounded-[10px] px-1 py-2.5 text-[10px] font-extrabold leading-tight transition-colors sm:flex-row sm:gap-2 sm:px-2 sm:text-[11px] ${role === "personnel" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
                     >
-                      <Building2 size={15} /> Authorized / TODA President
+                      <Building2 size={15} className="shrink-0" />
+                      <span className="hidden min-[381px]:inline">Authorized / TODA President</span>
+                      <span className="min-[381px]:hidden">Authorized</span>
                     </button>
                   </div>
                 </div>
@@ -503,7 +477,7 @@ export function Auth() {
                       <div className="mt-5">
                         <PasswordField id="password" label="Password" value={form.password} onChange={(value) => updateForm("password", value)} visible={showPassword} onToggle={() => setShowPassword((visible) => !visible)} />
                       </div>
-                      <div className="mt-4 flex items-center justify-between">
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <label className="flex cursor-pointer items-center gap-2 text-[12px] font-semibold text-[#71889e]">
                           <input
                             type="checkbox"
@@ -613,8 +587,8 @@ export function Auth() {
                         <input type="checkbox" checked={form.hasReadNotice} onChange={(event) => updateForm("hasReadNotice", event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#c6d8e4] accent-[#278b7d]" />
                         <span>I understand that this prototype uses the information only to demonstrate the registration flow.</span>
                       </label>
-                      <div className="mt-6 flex gap-3">
-                        <button type="button" onClick={() => { setRegistrationStep(1); setNotice(null); }} className="flex items-center justify-center gap-2 rounded-[12px] border border-[#d3e2ed] bg-white px-4 py-3.5 text-[12px] font-extrabold text-[#62809a] transition-colors hover:bg-[#f2f7fb]">
+                      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                        <button type="button" onClick={() => { setRegistrationStep(1); setNotice(null); }} className="flex items-center justify-center gap-2 rounded-[12px] border border-[#d3e2ed] bg-white px-4 py-3.5 text-[12px] font-extrabold text-[#62809a] transition-colors hover:bg-[#f2f7fb] sm:shrink-0">
                           <ArrowLeft size={15} /> Back
                         </button>
                         <button type="submit" className="flex flex-1 items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white shadow-[0_9px_20px_rgba(12,91,206,0.16)] transition-[transform,background-color] hover:-translate-y-0.5 hover:bg-[#094fae]">
@@ -627,20 +601,20 @@ export function Auth() {
                       <div className="rounded-[16px] border border-[#d8e8ee] bg-white p-4">
                         <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#7c99ab]">Account details</p>
                         <div className="mt-3 divide-y divide-[#edf2f5]">
-                          <div className="flex items-center justify-between gap-4 py-2.5 text-[12px]">
-                            <span className="text-[#879bac]">Email</span><span className="max-w-[250px] truncate font-extrabold text-[#315574]">{form.email}</span>
+                          <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                            <span className="shrink-0 text-[#879bac]">Email</span><span className="truncate font-extrabold text-[#315574] sm:max-w-[250px] sm:text-right">{form.email}</span>
                           </div>
-                          <div className="flex items-center justify-between gap-4 py-2.5 text-[12px]">
-                            <span className="text-[#879bac]">Name</span><span className="max-w-[250px] truncate font-extrabold text-[#315574]">{form.fullName}</span>
+                          <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                            <span className="shrink-0 text-[#879bac]">Name</span><span className="truncate font-extrabold text-[#315574] sm:max-w-[250px] sm:text-right">{form.fullName}</span>
                           </div>
-                          <div className="flex items-center justify-between gap-4 py-2.5 text-[12px]">
-                            <span className="text-[#879bac]">Student ID</span><span className="font-extrabold text-[#315574]">{form.studentId}</span>
+                          <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                            <span className="shrink-0 text-[#879bac]">Student ID</span><span className="font-extrabold text-[#315574] sm:text-right">{form.studentId}</span>
                           </div>
-                          <div className="flex items-center justify-between gap-4 py-2.5 text-[12px]">
-                            <span className="text-[#879bac]">Program</span><span className="max-w-[250px] truncate font-extrabold text-[#315574]">{form.program}</span>
+                          <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                            <span className="shrink-0 text-[#879bac]">Program</span><span className="truncate font-extrabold text-[#315574] sm:max-w-[250px] sm:text-right">{form.program}</span>
                           </div>
-                          <div className="flex items-center justify-between gap-4 pt-2.5 text-[12px]">
-                            <span className="text-[#879bac]">Year level</span><span className="font-extrabold text-[#315574]">{form.yearLevel}</span>
+                          <div className="flex flex-col gap-1 pt-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                            <span className="shrink-0 text-[#879bac]">Year level</span><span className="font-extrabold text-[#315574] sm:text-right">{form.yearLevel}</span>
                           </div>
                         </div>
                       </div>
@@ -648,8 +622,8 @@ export function Auth() {
                         <ShieldCheck size={15} className="mt-0.5 shrink-0" />
                         <span>Review the details above. Completing this step only demonstrates the prototype; it does not create a live account.</span>
                       </div>
-                      <div className="mt-6 flex gap-3">
-                        <button type="button" onClick={() => { setRegistrationStep(2); setNotice(null); }} className="flex items-center justify-center gap-2 rounded-[12px] border border-[#d3e2ed] bg-white px-4 py-3.5 text-[12px] font-extrabold text-[#62809a] transition-colors hover:bg-[#f2f7fb]">
+                      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                        <button type="button" onClick={() => { setRegistrationStep(2); setNotice(null); }} className="flex items-center justify-center gap-2 rounded-[12px] border border-[#d3e2ed] bg-white px-4 py-3.5 text-[12px] font-extrabold text-[#62809a] transition-colors hover:bg-[#f2f7fb] sm:shrink-0">
                           <ArrowLeft size={15} /> Edit
                         </button>
                         <button type="submit" disabled={isLoading} className="flex flex-1 items-center justify-center gap-2 rounded-[12px] bg-[#278b7d] py-3.5 text-[13px] font-extrabold text-white shadow-[0_9px_20px_rgba(39,139,125,0.16)] transition-[transform,background-color] hover:-translate-y-0.5 hover:bg-[#20786d] disabled:cursor-wait disabled:bg-[#8abeb5]">
@@ -677,12 +651,11 @@ export function Auth() {
             )}
           </div>
 
-          <div className="mx-auto flex w-full max-w-[510px] items-center justify-between gap-4 border-t border-[#dce8ef] pt-5 text-[10px] font-semibold text-[#91a4b4]">
-            <span className="flex items-center gap-1.5"><LockKeyhole size={12} /> No live credentials collected</span>
-            <span>Barangay Old Sagay · Sagay City</span>
-          </div>
-        </main>
-      </div>
+        <div className="mx-auto flex w-full max-w-[510px] flex-col gap-2 border-t border-[#dce8ef] pt-5 text-[10px] font-semibold text-[#91a4b4] sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-1.5"><LockKeyhole size={12} /> No live credentials collected</span>
+          <span>Barangay Old Sagay · Sagay City</span>
+        </div>
+      </main>
       <style>{`
         @keyframes auth-rise {
           from { opacity: 0; transform: translateY(10px); }

@@ -129,7 +129,7 @@ function getPreviewPath(): string | null {
 }
 
 function App() {
-  const previewPath = getPreviewPath() ?? "tricycle-reporting/Auth";
+  const previewPath = getPreviewPath() ?? "tricycle-reporting/Landing";
 
   if (previewPath) {
     return (

@@ -114,9 +114,16 @@ export function Landing() {
     setDialog("track");
   };
 
-  const openAuth = () => {
+  const authBase = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Auth`;
+
+  const openLogin = () => {
     setMobileOpen(false);
-    window.location.href = "/preview/tricycle-reporting/Auth";
+    window.location.href = `${authBase}?mode=login`;
+  };
+
+  const openRegister = () => {
+    setMobileOpen(false);
+    window.location.href = `${authBase}?mode=register`;
   };
 
   const closeDialog = () => {
@@ -132,67 +139,79 @@ export function Landing() {
   return (
     <div className="min-h-[100dvh] overflow-x-hidden bg-[#f7fbff] text-[#142d4d]">
       <header className="relative z-20 border-b border-[#dceaf4]/80 bg-[#f7fbff]/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-[76px] max-w-[1240px] items-center justify-between px-5 lg:px-8">
+        <div className="mx-auto flex h-[72px] max-w-[1240px] items-center justify-between gap-3 px-4 sm:h-[76px] sm:gap-4 sm:px-5 lg:px-8">
           <button
             type="button"
             onClick={() => scrollTo("top")}
-            className="group flex items-center gap-3 text-left"
+            className="group flex min-w-0 shrink items-center gap-2.5 text-left sm:gap-3"
             aria-label="Back to top"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#0c5bce] text-white shadow-[0_8px_22px_rgba(12,91,206,0.22)] transition-transform duration-200 group-hover:-translate-y-0.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[14px] bg-[#0c5bce] text-white shadow-[0_8px_22px_rgba(12,91,206,0.22)] transition-transform duration-200 group-hover:-translate-y-0.5 sm:h-10 sm:w-10">
               <ShieldCheck size={21} strokeWidth={2.2} />
             </span>
-            <span>
-              <span className="block text-[13px] font-extrabold tracking-[-0.02em] text-[#12305a]">
+            <span className="min-w-0">
+              <span className="block truncate text-[12px] font-extrabold tracking-[-0.02em] text-[#12305a] sm:text-[13px]">
                 Tricycle Conduct
               </span>
-              <span className="block text-[11px] font-medium text-[#718aa5]">Old Sagay • SUNN</span>
+              <span className="hidden min-[400px]:block text-[11px] font-medium text-[#718aa5]">Old Sagay • SUNN</span>
             </span>
           </button>
 
-          <nav className="hidden items-center gap-8 md:flex" aria-label="Primary navigation">
-            <button
-              type="button"
-              onClick={() => scrollTo("how-it-works")}
-              className="text-[13px] font-semibold text-[#65809d] transition-colors hover:text-[#0c5bce]"
-            >
-              How it works
-            </button>
-            <button
-              type="button"
-              onClick={() => scrollTo("why-it-matters")}
-              className="text-[13px] font-semibold text-[#65809d] transition-colors hover:text-[#0c5bce]"
-            >
-              Why use it
-            </button>
-            <button
-              type="button"
-              onClick={() => scrollTo("privacy")}
-              className="text-[13px] font-semibold text-[#65809d] transition-colors hover:text-[#0c5bce]"
-            >
-              Privacy
-            </button>
-            <button
-              type="button"
-              onClick={openAuth}
-              className="rounded-xl border border-[#cfe0ed] bg-white px-4 py-2.5 text-[13px] font-bold text-[#244565] shadow-[0_3px_12px_rgba(33,72,111,0.05)] transition-all hover:-translate-y-0.5 hover:border-[#acc9e3] hover:text-[#0c5bce]"
-            >
-              Login / Register
-            </button>
-          </nav>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2 md:gap-3">
+            <nav className="hidden items-center gap-6 md:flex lg:gap-8" aria-label="Primary navigation">
+              <button
+                type="button"
+                onClick={() => scrollTo("how-it-works")}
+                className="text-[13px] font-semibold text-[#65809d] transition-colors hover:text-[#0c5bce]"
+              >
+                How it works
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollTo("why-it-matters")}
+                className="text-[13px] font-semibold text-[#65809d] transition-colors hover:text-[#0c5bce]"
+              >
+                Why use it
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollTo("privacy")}
+                className="text-[13px] font-semibold text-[#65809d] transition-colors hover:text-[#0c5bce]"
+              >
+                Privacy
+              </button>
+            </nav>
 
-          <button
-            type="button"
-            onClick={() => setMobileOpen((current) => !current)}
-            className="rounded-xl border border-[#d3e2ee] bg-white p-2.5 text-[#42617f] md:hidden"
-            aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
-            aria-expanded={mobileOpen}
-          >
-            {mobileOpen ? <X size={19} /> : <Menu size={19} />}
-          </button>
+            <div className="flex items-center gap-1.5 sm:gap-2.5">
+              <button
+                type="button"
+                onClick={openLogin}
+                className="rounded-xl border border-[#cfe0ed] bg-white px-3 py-1.5 text-[11px] font-bold text-[#244565] shadow-[0_2px_8px_rgba(33,72,111,0.04)] transition-all hover:border-[#acc9e3] hover:text-[#0c5bce] sm:px-4 sm:py-2.5 sm:text-[13px]"
+              >
+                Log in
+              </button>
+              <button
+                type="button"
+                onClick={openRegister}
+                className="rounded-xl bg-[#0c5bce] px-3 py-1.5 text-[11px] font-bold text-white shadow-[0_3px_12px_rgba(12,91,206,0.2)] transition-all hover:bg-[#094fae] sm:px-4 sm:py-2.5 sm:text-[13px]"
+              >
+                Register
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setMobileOpen((current) => !current)}
+              className="rounded-xl border border-[#d3e2ee] bg-white p-2 text-[#42617f] md:hidden sm:p-2.5"
+              aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
+              aria-expanded={mobileOpen}
+            >
+              {mobileOpen ? <X size={19} /> : <Menu size={19} />}
+            </button>
+          </div>
         </div>
         {mobileOpen ? (
-          <nav className="border-t border-[#dceaf4] bg-white px-5 py-3 md:hidden" aria-label="Mobile navigation">
+          <nav className="border-t border-[#dceaf4] bg-white px-4 py-3 sm:px-5 md:hidden" aria-label="Mobile navigation">
             <button type="button" onClick={() => scrollTo("how-it-works")} className="block w-full border-b border-[#edf3f8] py-3 text-left text-sm font-semibold text-[#496985]">
               How it works
             </button>
@@ -201,9 +220,6 @@ export function Landing() {
             </button>
             <button type="button" onClick={() => scrollTo("privacy")} className="block w-full py-3 text-left text-sm font-semibold text-[#496985]">
               Privacy
-            </button>
-            <button type="button" onClick={openAuth} className="mt-2 w-full rounded-xl bg-[#edf5ff] py-3 text-sm font-bold text-[#0c5bce]">
-              Login / Register
             </button>
           </nav>
         ) : null}
@@ -231,19 +247,18 @@ export function Landing() {
                 <button
                   ref={reportButtonRef}
                   type="button"
-                  onClick={openAuth}
+                  onClick={openLogin}
                   className="group inline-flex items-center justify-center gap-3 rounded-[13px] bg-[#0c5bce] px-5 py-3.5 text-[14px] font-extrabold text-white shadow-[0_12px_26px_rgba(12,91,206,0.2)] transition-all duration-200 hover:-translate-y-1 hover:bg-[#094fae] hover:shadow-[0_15px_30px_rgba(12,91,206,0.27)]"
                 >
-                  Login / Register
+                  Log in
                   <ArrowRight size={17} className="transition-transform duration-200 group-hover:translate-x-1" />
                 </button>
                 <button
                   type="button"
-                  onClick={openAuth}
+                  onClick={openRegister}
                   className="inline-flex items-center justify-center gap-2.5 rounded-[13px] border border-[#cddfea] bg-white px-5 py-3.5 text-[14px] font-extrabold text-[#315271] shadow-[0_5px_18px_rgba(34,75,112,0.05)] transition-all duration-200 hover:-translate-y-1 hover:border-[#a5c3dd] hover:text-[#0c5bce]"
                 >
-                  <ShieldCheck size={16} />
-                  Authorized access
+                  Register
                 </button>
               </div>
               <div className="mt-8 flex items-center gap-3 text-[12px] font-semibold text-[#7890a8]">
@@ -444,11 +459,11 @@ export function Landing() {
               Whether you are sharing a concern or checking a reference, take the next step at your own pace.
             </p>
             <div className="relative mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-              <button type="button" onClick={openAuth} className="group inline-flex items-center justify-center gap-2.5 rounded-[12px] bg-white px-5 py-3.5 text-[13px] font-extrabold text-[#0c5bce] transition-all hover:-translate-y-1 hover:bg-[#f2f8ff]">
-                Login / Register <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+              <button type="button" onClick={openLogin} className="group inline-flex items-center justify-center gap-2.5 rounded-[12px] bg-white px-5 py-3.5 text-[13px] font-extrabold text-[#0c5bce] transition-all hover:-translate-y-1 hover:bg-[#f2f8ff]">
+                Log in <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
               </button>
-              <button type="button" onClick={openAuth} className="inline-flex items-center justify-center gap-2 rounded-[12px] border border-white/30 px-5 py-3.5 text-[13px] font-extrabold text-white transition-all hover:-translate-y-1 hover:border-white/60 hover:bg-white/10">
-                <ShieldCheck size={16} /> Authorized access
+              <button type="button" onClick={openRegister} className="inline-flex items-center justify-center gap-2 rounded-[12px] border border-white/30 px-5 py-3.5 text-[13px] font-extrabold text-white transition-all hover:-translate-y-1 hover:border-white/60 hover:bg-white/10">
+                Register
               </button>
             </div>
           </div>
