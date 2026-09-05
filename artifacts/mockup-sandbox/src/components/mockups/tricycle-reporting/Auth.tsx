@@ -16,16 +16,16 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { login, registerStudent } from "../../../lib/api";
+import { login, registerStudent, type ApiUser } from "../../../lib/api";
 
 type AuthMode = "login" | "register";
 type RegistrationStep = 1 | 2 | 3;
-type AccountRole = "studentDriver" | "personnel";
+type AccountRole = "student" | "driver" | "personnel";
 type Notice = { type: "error" | "success"; message: string } | null;
 
 const registrationSteps = [
   { number: 1, label: "Account" },
-  { number: 2, label: "Student Information" },
+  { number: 2, label: "Role Information" },
   { number: 3, label: "Confirmation" },
 ];
 
@@ -133,9 +133,38 @@ function getInitialAuthMode(): AuthMode {
   return mode === "register" ? "register" : "login";
 }
 
+function getInitialAccountRole(): AccountRole {
+  const role = new URLSearchParams(window.location.search).get("role");
+  if (role === "driver") return "driver";
+  return role === "personnel" ? "personnel" : "student";
+}
+
+function previewUrl(component: string) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  return `${base}/preview/tricycle-reporting/${component}`;
+}
+
+function getWorkspaceAfterLogin(email: string, role: AccountRole, user?: ApiUser) {
+  if (user?.role === "SUPERADMIN") return "AdminDashboard";
+  if (user?.role === "PNP") return "PNPReview";
+  if (user?.role === "TODA_PRESIDENT" || user?.role === "AUTHORIZED_PERSONNEL") return "OfficerDashboard";
+  if (user?.role === "DRIVER") return "Profile";
+  if (user?.role === "STUDENT") return "StudentDashboard";
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (normalizedEmail.includes("superadmin") || normalizedEmail.includes("admin")) return "AdminDashboard";
+  if (normalizedEmail.includes("pnp")) return "PNPReview";
+  if (normalizedEmail.includes("authorized") || normalizedEmail.includes("officer") || normalizedEmail.includes("president") || normalizedEmail.includes("toda-president")) return "OfficerDashboard";
+  if (normalizedEmail.includes("driver")) return "Profile";
+
+  if (role === "driver") return "Profile";
+  return role === "personnel" ? "OfficerDashboard" : "StudentDashboard";
+}
+
 export function Auth() {
   const [mode, setMode] = useState<AuthMode>(getInitialAuthMode);
-  const [role, setRole] = useState<AccountRole>("studentDriver");
+  const [role, setRole] = useState<AccountRole>(getInitialAccountRole);
   const [registrationStep, setRegistrationStep] = useState<RegistrationStep>(1);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -150,8 +179,11 @@ export function Auth() {
     confirmPassword: "",
     fullName: "",
     studentId: "",
+    driverCode: "",
+    tricycleIdentifier: "",
     program: "",
     yearLevel: "",
+    routeArea: "",
     hasReadNotice: false,
   });
 
@@ -162,6 +194,7 @@ export function Auth() {
 
   const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode);
+    if (nextMode === "register" && role === "personnel") setRole("student");
     setForgotPassword(false);
     setComplete(false);
     setNotice(null);
@@ -170,7 +203,7 @@ export function Auth() {
 
   const validateEmail = () => {
     if (!form.email.trim()) return "Enter the email or account identifier for this preview.";
-    if (!form.email.includes("@") && role === "studentDriver") return "Use a valid email address, such as name@sunn.edu.ph.";
+    if (!form.email.includes("@") && role !== "personnel") return "Use a valid email address, such as name@sunn.edu.ph.";
     return null;
   };
 
@@ -189,9 +222,8 @@ export function Auth() {
     setNotice(null);
     setIsLoading(true);
     login(form.email, form.password)
-      .then(() => {
-        setComplete(true);
-        setNotice({ type: "success", message: "Sign-in complete. Your secure session is ready." });
+      .then((data) => {
+        window.location.href = previewUrl(getWorkspaceAfterLogin(form.email, role, data.user));
       })
       .catch((error) => {
         setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to sign in." });
@@ -244,8 +276,10 @@ export function Auth() {
     }
 
     if (registrationStep === 2) {
-      if (!form.fullName.trim() || !form.studentId.trim() || !form.program || !form.yearLevel) {
-        setNotice({ type: "error", message: "Complete each student information field before continuing." });
+      const missingStudentFields = role === "student" && (!form.fullName.trim() || !form.studentId.trim() || !form.program || !form.yearLevel);
+      const missingDriverFields = role === "driver" && (!form.fullName.trim() || !form.driverCode.trim() || !form.tricycleIdentifier.trim() || !form.routeArea.trim());
+      if (missingStudentFields || missingDriverFields) {
+        setNotice({ type: "error", message: `Complete each ${role} information field before continuing.` });
         return;
       }
       if (!form.hasReadNotice) {
@@ -260,17 +294,20 @@ export function Auth() {
     setNotice(null);
     setIsLoading(true);
     registerStudent({
+      role: role === "driver" ? "DRIVER" : "STUDENT",
       fullName: form.fullName,
       studentId: form.studentId,
+      driverCode: form.driverCode,
+      tricycleIdentifier: form.tricycleIdentifier,
       email: form.email,
       password: form.password,
       confirmPassword: form.confirmPassword,
       program: form.program,
       yearLevel: form.yearLevel,
+      routeArea: form.routeArea,
     })
-      .then(() => {
-        setComplete(true);
-        setNotice({ type: "success", message: "Registration complete. Your student account was created." });
+      .then((data) => {
+        window.location.href = previewUrl(getWorkspaceAfterLogin(data.user?.email ?? form.email, role, data.user));
       })
       .catch((error) => {
         setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to complete registration." });
@@ -374,7 +411,7 @@ export function Auth() {
                     <Mail className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#91a7bb]" size={16} strokeWidth={1.8} />
                     <input
                       id="forgot-email"
-                      type={role === "studentDriver" ? "email" : "text"}
+                      type={role === "personnel" ? "text" : "email"}
                       value={form.email}
                       onChange={(event) => updateForm("email", event.target.value)}
                       className="w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] py-3.5 pl-10 pr-4 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]"
@@ -392,7 +429,7 @@ export function Auth() {
                 <div className="flex items-start justify-between gap-3 sm:gap-4">
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.17em] text-[#5a9c95]">
-                      {mode === "login" ? "Welcome back" : "Create a student account"}
+                      {mode === "login" ? "Welcome back" : `Create a ${role} account`}
                     </p>
                     <h2 id="auth-title" className="mt-3 text-[clamp(1.65rem,5vw,31px)] font-extrabold tracking-[-0.055em] text-[#173b5d]">
                       {mode === "login" ? "Sign in to continue" : "Start with the basics"}
@@ -434,23 +471,32 @@ export function Auth() {
                 ) : null}
 
                 <div className="mt-7 rounded-[13px] border border-[#dce9ef] bg-[#eef7f7] p-1">
-                  <div className="grid grid-cols-2 gap-1">
+                  <div className={`grid gap-1 ${mode === "login" ? "grid-cols-3" : "grid-cols-2"}`}>
                     <button
                       type="button"
-                      onClick={() => setRole("studentDriver")}
-                      className={`flex flex-col items-center justify-center gap-1 rounded-[10px] px-1 py-2.5 text-[10px] font-extrabold leading-tight transition-colors sm:flex-row sm:gap-2 sm:px-2 sm:text-[11px] ${role === "studentDriver" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
+                      onClick={() => setRole("student")}
+                      className={`flex flex-col items-center justify-center gap-1 rounded-[10px] px-1 py-2.5 text-[10px] font-extrabold leading-tight transition-colors sm:flex-row sm:gap-2 sm:px-2 sm:text-[11px] ${role === "student" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
                     >
-                      <GraduationCap size={15} className="shrink-0" /> Student / Driver
+                      <GraduationCap size={15} className="shrink-0" /> Student
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRole("personnel")}
-                      className={`flex flex-col items-center justify-center gap-1 rounded-[10px] px-1 py-2.5 text-[10px] font-extrabold leading-tight transition-colors sm:flex-row sm:gap-2 sm:px-2 sm:text-[11px] ${role === "personnel" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
+                      onClick={() => setRole("driver")}
+                      className={`flex flex-col items-center justify-center gap-1 rounded-[10px] px-1 py-2.5 text-[10px] font-extrabold leading-tight transition-colors sm:flex-row sm:gap-2 sm:px-2 sm:text-[11px] ${role === "driver" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
                     >
                       <Building2 size={15} className="shrink-0" />
-                      <span className="hidden min-[381px]:inline">Authorized / TODA President</span>
-                      <span className="min-[381px]:hidden">Authorized</span>
+                      Driver
                     </button>
+                    {mode === "login" ? (
+                      <button
+                        type="button"
+                        onClick={() => setRole("personnel")}
+                        className={`flex flex-col items-center justify-center gap-1 rounded-[10px] px-1 py-2.5 text-[10px] font-extrabold leading-tight transition-colors sm:flex-row sm:gap-2 sm:px-2 sm:text-[11px] ${role === "personnel" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
+                      >
+                        <KeyRound size={15} className="shrink-0" />
+                        Personnel
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -470,7 +516,7 @@ export function Auth() {
                           value={form.email}
                           onChange={(event) => updateForm("email", event.target.value)}
                           className="w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] py-3.5 pl-10 pr-4 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]"
-                          placeholder={role === "studentDriver" ? "student@sunn.edu.ph or driver account" : "toda-president@oldsagay.gov.ph"}
+                          placeholder={role === "personnel" ? "authorized@oldsagay.gov.ph" : role === "driver" ? "driver@oldsagay-toda.ph" : "student@sunn.edu.ph"}
                           autoComplete="email"
                         />
                       </div>
@@ -511,12 +557,20 @@ export function Auth() {
                                 <span className="font-mono text-[11px] font-bold text-[#0c5bce]">driver@oldsagay-toda.ph</span>
                               </div>
                               <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#315574]">Admin</span>
-                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">admin@oldsagay.gov.ph</span>
+                                <span className="font-bold text-[#315574]">Superadmin</span>
+                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">superadmin@oldsagay.gov.ph</span>
                               </div>
                               <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#315574]">TODA Officer</span>
-                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">officer@oldsagay.gov.ph</span>
+                                <span className="font-bold text-[#315574]">Authorized Personnel</span>
+                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">authorized@oldsagay.gov.ph</span>
+                              </div>
+                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="font-bold text-[#315574]">TODA President</span>
+                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">president@oldsagay-toda.ph</span>
+                              </div>
+                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="font-bold text-[#315574]">PNP Reviewer</span>
+                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">pnp@oldsagay.gov.ph</span>
                               </div>
                               <div className="flex flex-col gap-1 rounded-xl bg-[#fff9eb] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                                 <span className="font-bold text-[#82652d]">Password</span>
@@ -551,7 +605,7 @@ export function Auth() {
                         <PasswordField id="confirm-password" label="Confirm password" value={form.confirmPassword} onChange={(value) => updateForm("confirmPassword", value)} visible={showConfirmation} onToggle={() => setShowConfirmation((visible) => !visible)} />
                       </div>
                       <button type="submit" className="mt-6 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white shadow-[0_9px_20px_rgba(12,91,206,0.16)] transition-[transform,background-color] hover:-translate-y-0.5 hover:bg-[#094fae]">
-                        Continue to student information <ArrowRight size={16} />
+                        Continue to {role} information <ArrowRight size={16} />
                       </button>
                     </>
                   ) : registrationStep === 2 ? (
@@ -564,24 +618,43 @@ export function Auth() {
                             <input id="full-name" value={form.fullName} onChange={(event) => updateForm("fullName", event.target.value)} className="w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] py-3.5 pl-10 pr-4 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="Your name as it appears on school records" autoComplete="name" />
                           </div>
                         </div>
-                        <div>
-                          <label htmlFor="student-id" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Student ID</label>
-                          <input id="student-id" value={form.studentId} onChange={(event) => updateForm("studentId", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. 2024-01482" />
-                        </div>
-                        <div>
-                          <label htmlFor="year-level" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Year level</label>
-                          <select id="year-level" value={form.yearLevel} onChange={(event) => updateForm("yearLevel", event.target.value)} className="mt-2 w-full appearance-none rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]">
-                            <option value="">Select year</option>
-                            <option value="1st year">1st year</option>
-                            <option value="2nd year">2nd year</option>
-                            <option value="3rd year">3rd year</option>
-                            <option value="4th year">4th year</option>
-                          </select>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <label htmlFor="program" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Program or department</label>
-                          <input id="program" value={form.program} onChange={(event) => updateForm("program", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. Bachelor of Science in Education" />
-                        </div>
+                        {role === "student" ? (
+                          <>
+                            <div>
+                              <label htmlFor="student-id" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Student ID</label>
+                              <input id="student-id" value={form.studentId} onChange={(event) => updateForm("studentId", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. 2024-01482" />
+                            </div>
+                            <div>
+                              <label htmlFor="year-level" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Year level</label>
+                              <select id="year-level" value={form.yearLevel} onChange={(event) => updateForm("yearLevel", event.target.value)} className="mt-2 w-full appearance-none rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]">
+                                <option value="">Select year</option>
+                                <option value="1st year">1st year</option>
+                                <option value="2nd year">2nd year</option>
+                                <option value="3rd year">3rd year</option>
+                                <option value="4th year">4th year</option>
+                              </select>
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label htmlFor="program" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Program or department</label>
+                              <input id="program" value={form.program} onChange={(event) => updateForm("program", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. Bachelor of Science in Education" />
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <label htmlFor="driver-code" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Driver code</label>
+                              <input id="driver-code" value={form.driverCode} onChange={(event) => updateForm("driverCode", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. DRV-OS-2048" />
+                            </div>
+                            <div>
+                              <label htmlFor="tricycle-id" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Tricycle identifier</label>
+                              <input id="tricycle-id" value={form.tricycleIdentifier} onChange={(event) => updateForm("tricycleIdentifier", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. OS-2048" />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label htmlFor="route-area" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Route area</label>
+                              <input id="route-area" value={form.routeArea} onChange={(event) => updateForm("routeArea", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. Old Sagay Market loop" />
+                            </div>
+                          </>
+                        )}
                       </div>
                       <label className="mt-5 flex cursor-pointer items-start gap-2.5 rounded-[13px] border border-[#dbe8ee] bg-[#f1f8f8] p-3.5 text-[11px] leading-5 text-[#6c8796]">
                         <input type="checkbox" checked={form.hasReadNotice} onChange={(event) => updateForm("hasReadNotice", event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#c6d8e4] accent-[#278b7d]" />
@@ -607,20 +680,36 @@ export function Auth() {
                           <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                             <span className="shrink-0 text-[#879bac]">Name</span><span className="truncate font-extrabold text-[#315574] sm:max-w-[250px] sm:text-right">{form.fullName}</span>
                           </div>
-                          <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                            <span className="shrink-0 text-[#879bac]">Student ID</span><span className="font-extrabold text-[#315574] sm:text-right">{form.studentId}</span>
-                          </div>
-                          <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                            <span className="shrink-0 text-[#879bac]">Program</span><span className="truncate font-extrabold text-[#315574] sm:max-w-[250px] sm:text-right">{form.program}</span>
-                          </div>
-                          <div className="flex flex-col gap-1 pt-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                            <span className="shrink-0 text-[#879bac]">Year level</span><span className="font-extrabold text-[#315574] sm:text-right">{form.yearLevel}</span>
-                          </div>
+                          {role === "student" ? (
+                            <>
+                              <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                <span className="shrink-0 text-[#879bac]">Student ID</span><span className="font-extrabold text-[#315574] sm:text-right">{form.studentId}</span>
+                              </div>
+                              <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                <span className="shrink-0 text-[#879bac]">Program</span><span className="truncate font-extrabold text-[#315574] sm:max-w-[250px] sm:text-right">{form.program}</span>
+                              </div>
+                              <div className="flex flex-col gap-1 pt-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                <span className="shrink-0 text-[#879bac]">Year level</span><span className="font-extrabold text-[#315574] sm:text-right">{form.yearLevel}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                <span className="shrink-0 text-[#879bac]">Driver code</span><span className="font-extrabold text-[#315574] sm:text-right">{form.driverCode}</span>
+                              </div>
+                              <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                <span className="shrink-0 text-[#879bac]">Tricycle identifier</span><span className="font-extrabold text-[#315574] sm:text-right">{form.tricycleIdentifier}</span>
+                              </div>
+                              <div className="flex flex-col gap-1 pt-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                <span className="shrink-0 text-[#879bac]">Route area</span><span className="truncate font-extrabold text-[#315574] sm:max-w-[250px] sm:text-right">{form.routeArea}</span>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                       <div className="mt-4 flex items-start gap-2.5 rounded-[13px] border border-[#d2e9e5] bg-[#eff9f6] p-3.5 text-[11px] leading-5 text-[#4b8179]">
                         <ShieldCheck size={15} className="mt-0.5 shrink-0" />
-                        <span>Review the details above. Completing this step only demonstrates the prototype; it does not create a live account.</span>
+                        <span>Review the details above. Completing this step creates the {role} account through the PHP API and stores it in the database.</span>
                       </div>
                       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                         <button type="button" onClick={() => { setRegistrationStep(2); setNotice(null); }} className="flex items-center justify-center gap-2 rounded-[12px] border border-[#d3e2ed] bg-white px-4 py-3.5 text-[12px] font-extrabold text-[#62809a] transition-colors hover:bg-[#f2f7fb] sm:shrink-0">
@@ -638,7 +727,7 @@ export function Auth() {
                   {mode === "login" ? (
                     <>
                       New to this prototype?{" "}
-                      <button type="button" onClick={() => switchMode("register")} className="font-extrabold text-[#0c5bce] hover:text-[#084b9e]">Create a student account <ChevronRight className="inline" size={13} /></button>
+                      <button type="button" onClick={() => switchMode("register")} className="font-extrabold text-[#0c5bce] hover:text-[#084b9e]">Create a student or driver account <ChevronRight className="inline" size={13} /></button>
                     </>
                   ) : (
                     <>

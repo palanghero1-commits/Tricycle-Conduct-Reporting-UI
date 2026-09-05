@@ -1,27 +1,60 @@
 CREATE DATABASE IF NOT EXISTS tricycle_conduct CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE tricycle_conduct;
 
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS violations;
+DROP TABLE IF EXISTS complaint_actions;
+DROP TABLE IF EXISTS complaint_status_history;
+DROP TABLE IF EXISTS complaint_attachments;
+DROP TABLE IF EXISTS complaints;
+DROP TABLE IF EXISTS complaint_categories;
+DROP TABLE IF EXISTS drivers;
+DROP TABLE IF EXISTS students;
+DROP TABLE IF EXISTS authorized_personnel;
+DROP TABLE IF EXISTS todas;
+DROP TABLE IF EXISTS users;
+
 CREATE TABLE todas (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(160) NOT NULL,
   barangay VARCHAR(120) NOT NULL,
   city VARCHAR(120) NOT NULL,
   province VARCHAR(120) NOT NULL,
+  president_user_id CHAR(36),
   is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 CREATE TABLE users (
   id CHAR(36) PRIMARY KEY,
   full_name VARCHAR(180) NOT NULL,
-  email VARCHAR(180) NOT NULL UNIQUE,
+  email VARCHAR(180) UNIQUE,
+  username VARCHAR(100) UNIQUE,
   password_hash TEXT NOT NULL,
-  role ENUM('STUDENT','DRIVER','TODA_OFFICER','ADMIN','PNP') NOT NULL,
-  status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  role ENUM('STUDENT','DRIVER','TODA_PRESIDENT','AUTHORIZED_PERSONNEL','SUPERADMIN','PNP') NOT NULL,
+  status ENUM('ACTIVE','PENDING','INACTIVE','SUSPENDED') NOT NULL DEFAULT 'ACTIVE',
   contact_number VARCHAR(60),
+  created_by CHAR(36),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX users_role_idx (role)
+  CONSTRAINT users_creator_fk FOREIGN KEY (created_by) REFERENCES users(id),
+  INDEX users_role_idx (role),
+  INDEX users_status_idx (status)
+);
+
+ALTER TABLE todas
+  ADD CONSTRAINT todas_president_fk FOREIGN KEY (president_user_id) REFERENCES users(id);
+
+CREATE TABLE authorized_personnel (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id CHAR(36) NOT NULL UNIQUE,
+  personnel_type ENUM('BARANGAY_STAFF','SCHOOL_COORDINATOR','PNP_REVIEWER','SYSTEM_ADMIN') NOT NULL,
+  office_name VARCHAR(180) NOT NULL,
+  position_title VARCHAR(120),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT authorized_personnel_user_fk FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE TABLE students (
@@ -30,13 +63,14 @@ CREATE TABLE students (
   student_id VARCHAR(80) NOT NULL UNIQUE,
   program VARCHAR(180),
   year_level VARCHAR(40),
+  campus VARCHAR(120) DEFAULT 'SUNN',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT students_user_fk FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE TABLE drivers (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id CHAR(36),
+  user_id CHAR(36) UNIQUE,
   toda_id INT NOT NULL,
   full_name VARCHAR(180) NOT NULL,
   driver_code VARCHAR(80) NOT NULL UNIQUE,
@@ -44,12 +78,16 @@ CREATE TABLE drivers (
   plate_number VARCHAR(80),
   route_area VARCHAR(180),
   contact_number VARCHAR(60),
+  account_created_by CHAR(36),
+  account_creation_reason ENUM('SELF_REGISTERED','TODA_CREATED_NO_PHONE','AUTHORIZED_CREATED') NOT NULL DEFAULT 'SELF_REGISTERED',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT drivers_user_fk FOREIGN KEY (user_id) REFERENCES users(id),
   CONSTRAINT drivers_toda_fk FOREIGN KEY (toda_id) REFERENCES todas(id),
-  INDEX drivers_toda_idx (toda_id)
+  CONSTRAINT drivers_creator_fk FOREIGN KEY (account_created_by) REFERENCES users(id),
+  INDEX drivers_toda_idx (toda_id),
+  INDEX drivers_active_idx (is_active)
 );
 
 CREATE TABLE complaint_categories (
@@ -72,11 +110,13 @@ CREATE TABLE complaints (
   location VARCHAR(240) NOT NULL,
   description TEXT NOT NULL,
   review_notes TEXT,
+  assigned_to CHAR(36),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT complaints_student_fk FOREIGN KEY (student_user_id) REFERENCES users(id),
   CONSTRAINT complaints_driver_fk FOREIGN KEY (driver_id) REFERENCES drivers(id),
   CONSTRAINT complaints_category_fk FOREIGN KEY (category_id) REFERENCES complaint_categories(id),
+  CONSTRAINT complaints_assignee_fk FOREIGN KEY (assigned_to) REFERENCES users(id),
   INDEX complaints_student_idx (student_user_id),
   INDEX complaints_driver_idx (driver_id),
   INDEX complaints_status_idx (status)

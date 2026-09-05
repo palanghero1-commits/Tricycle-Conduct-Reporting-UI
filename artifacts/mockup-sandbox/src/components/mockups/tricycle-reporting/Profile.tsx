@@ -21,6 +21,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import { getCurrentUser, getUserInitials } from "../../../lib/api";
 import { AppLayout } from "./_shared/AppLayout";
 
 type PreferenceKey = "updates" | "reminders";
@@ -112,8 +113,9 @@ function Modal({
 }
 
 export function Profile() {
-  const [displayName, setDisplayName] = useState("Maria Cruz");
-  const [email, setEmail] = useState("maria.cruz@sunn.edu.ph");
+  const currentUser = getCurrentUser();
+  const [displayName, setDisplayName] = useState(currentUser?.fullName ?? "Maria Cruz");
+  const [email, setEmail] = useState(currentUser?.email ?? "maria.cruz@sunn.edu.ph");
   const [draftName, setDraftName] = useState(displayName);
   const [draftEmail, setDraftEmail] = useState(email);
   const [activePanel, setActivePanel] = useState<"edit" | "password" | "notifications" | "privacy" | "sessions" | "signout" | null>(null);
@@ -140,7 +142,7 @@ export function Profile() {
   };
 
   return (
-    <AppLayout active="Profile" title="Your profile" eyebrow="Student space">
+    <AppLayout active="Profile" title="Your profile" eyebrow={currentUser?.role === "DRIVER" ? "Driver space" : "Student space"}>
       <div className="mx-auto max-w-[1080px]">
         <div className="mb-7 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
@@ -161,7 +163,7 @@ export function Profile() {
           <div className="absolute -bottom-24 right-[20%] h-36 w-36 rounded-full bg-[#dff4ed] opacity-75" />
           <div className="relative flex flex-col gap-5 px-5 py-5 sm:flex-row sm:items-center sm:px-7 sm:py-6">
             <div className="relative flex h-[78px] w-[78px] shrink-0 items-center justify-center rounded-[25px] bg-[#f7c9ad] text-[25px] font-extrabold tracking-[-0.05em] text-[#8d4c38] shadow-[0_8px_18px_rgba(141,76,56,0.12)]">
-              MC
+              {getUserInitials({ fullName: displayName, email })}
               <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-[3px] border-[#eaf4ff] bg-[#21805c] text-white">
                 <Check size={13} strokeWidth={2.7} />
               </span>
@@ -169,7 +171,7 @@ export function Profile() {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2.5">
                 <h3 className="text-[20px] font-extrabold tracking-[-0.03em] text-[#173455]">{displayName}</h3>
-                <span className="rounded-full bg-[#d8f0e3] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.11em] text-[#247952]">Student</span>
+                <span className="rounded-full bg-[#d8f0e3] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.11em] text-[#247952]">{currentUser?.role === "DRIVER" ? "Driver" : "Student"}</span>
               </div>
               <p className="mt-1.5 text-[12px] font-medium text-[#5e7893]">Student no. 2023-04182</p>
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] font-semibold text-[#718aa2]">

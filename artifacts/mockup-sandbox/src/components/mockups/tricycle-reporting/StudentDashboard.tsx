@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
+import { getCurrentUser } from "../../../lib/api";
 import { AppLayout } from "./_shared/AppLayout";
 
 type ReportStatus = "Under review" | "Resolved" | "Received";
@@ -95,6 +96,8 @@ function StatusPill({ status }: { status: ReportStatus }) {
 }
 
 export function StudentDashboard() {
+  const currentUser = getCurrentUser();
+  const firstName = currentUser?.fullName?.trim().split(/\s+/)[0] || "Student";
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showAllReports, setShowAllReports] = useState(false);
   const [unreadNotification, setUnreadNotification] = useState(true);
@@ -108,7 +111,7 @@ export function StudentDashboard() {
   };
 
   return (
-    <AppLayout active="Dashboard" title="Good morning, Maria" eyebrow="Student dashboard">
+    <AppLayout active="Dashboard" title={`Good morning, ${firstName}`} eyebrow="Student dashboard">
       <div className="relative">
         <section className="relative overflow-hidden rounded-[28px] bg-[#0d4f86] px-6 py-7 text-white shadow-[0_18px_44px_rgba(20,82,130,0.16)] sm:px-8 lg:px-10 lg:py-9">
           <div className="pointer-events-none absolute -right-8 -top-20 h-64 w-64 rounded-full border-[32px] border-[#43b9aa]/20" />

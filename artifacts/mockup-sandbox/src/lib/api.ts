@@ -1,11 +1,12 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/index.php";
 const TOKEN_KEY = "tricycle_auth_token";
+const USER_KEY = "tricycle_current_user";
 
 export type ApiUser = {
   id: string;
   fullName: string;
-  email: string;
-  role: "STUDENT" | "DRIVER" | "TODA_OFFICER" | "ADMIN" | "PNP";
+  email: string | null;
+  role: "STUDENT" | "DRIVER" | "TODA_PRESIDENT" | "AUTHORIZED_PERSONNEL" | "SUPERADMIN" | "PNP";
 };
 
 export function getAuthToken() {
@@ -18,6 +19,33 @@ export function setAuthToken(token: string) {
 
 export function clearAuthToken() {
   window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(USER_KEY);
+}
+
+export function getCurrentUser(): ApiUser | null {
+  const stored = window.localStorage.getItem(USER_KEY);
+  if (!stored) return null;
+
+  try {
+    return JSON.parse(stored) as ApiUser;
+  } catch {
+    window.localStorage.removeItem(USER_KEY);
+    return null;
+  }
+}
+
+export function setCurrentUser(user: ApiUser) {
+  window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+export function getUserInitials(user: Pick<ApiUser, "fullName" | "email"> | null) {
+  const source = user?.fullName?.trim() || user?.email?.split("@")[0] || "User";
+  return source
+    .split(/\s+/)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -45,23 +73,31 @@ export async function login(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+  if (!data?.user || !data?.token) throw new Error("The PHP API returned an incomplete login response. Check that the database and API are running.");
   setAuthToken(data.token);
+  setCurrentUser(data.user);
   return data;
 }
 
 export async function registerStudent(input: {
+  role: "STUDENT" | "DRIVER";
   fullName: string;
-  studentId: string;
+  studentId?: string;
+  driverCode?: string;
+  tricycleIdentifier?: string;
   email: string;
   password: string;
   confirmPassword: string;
   program?: string;
   yearLevel?: string;
+  routeArea?: string;
 }) {
   const data = await apiRequest<{ user: ApiUser; token: string }>("/auth/register", {
     method: "POST",
     body: JSON.stringify(input),
   });
+  if (!data?.user || !data?.token) throw new Error("The PHP API returned an incomplete registration response. Check that the database schema is imported and the API is running.");
   setAuthToken(data.token);
+  setCurrentUser(data.user);
   return data;
 }

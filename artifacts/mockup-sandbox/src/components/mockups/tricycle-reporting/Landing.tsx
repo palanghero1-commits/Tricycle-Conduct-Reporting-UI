@@ -9,7 +9,10 @@ import {
   ClipboardList,
   Eye,
   FileSearch,
+  Gauge,
   Globe2,
+  GraduationCap,
+  KeyRound,
   LockKeyhole,
   Menu,
   MessageCircle,
@@ -17,6 +20,8 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  UsersRound,
+  Wrench,
   X,
 } from "lucide-react";
 
@@ -86,6 +91,44 @@ const benefits = [
   },
 ];
 
+const roleEntrances = [
+  {
+    label: "Student",
+    description: "Submit reports, track status, and read updates.",
+    component: "StudentLanding",
+    icon: GraduationCap,
+    tone: "bg-[#eaf2ff] text-[#0c5bce]",
+  },
+  {
+    label: "Driver",
+    description: "Review profile details and notices linked to your route.",
+    component: "DriverLanding",
+    icon: Wrench,
+    tone: "bg-[#e5f5f2] text-[#237f7d]",
+  },
+  {
+    label: "TODA Officer",
+    description: "Monitor queues, driver records, and association follow-up.",
+    component: "OfficerLanding",
+    icon: Gauge,
+    tone: "bg-[#e8f1f7] text-[#1e638d]",
+  },
+  {
+    label: "PNP Reviewer",
+    description: "Open the restricted review flow for authorized personnel.",
+    component: "PNPLanding",
+    icon: UsersRound,
+    tone: "bg-[#edf3f8] text-[#557ba4]",
+  },
+  {
+    label: "Administrator",
+    description: "Manage users, records, and system activity.",
+    component: "AdminLanding",
+    icon: KeyRound,
+    tone: "bg-[#f1edf5] text-[#806c8f]",
+  },
+];
+
 export function Landing() {
   const [dialog, setDialog] = useState<DialogType>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -115,6 +158,7 @@ export function Landing() {
   };
 
   const authBase = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Auth`;
+  const previewBase = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting`;
 
   const openLogin = () => {
     setMobileOpen(false);
@@ -346,6 +390,45 @@ export function Landing() {
               <p className="text-[12px] font-bold text-[#486783]">A shared space for student safety and responsible review</p>
             </div>
             <p className="text-[11px] font-medium text-[#8ba0b5]">Barangay Old Sagay · Sagay City · Negros Occidental</p>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-[1240px] px-5 py-16 lg:px-8 lg:py-20">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.17em] text-[#288b89]">Role landing pages</p>
+              <h2 className="mt-3 max-w-[620px] text-[clamp(2rem,4vw,3.1rem)] font-extrabold leading-[1.05] tracking-[-0.055em] text-[#15375e]">
+                Start from the workspace that matches your role.
+              </h2>
+            </div>
+            <p className="max-w-[420px] text-[13px] leading-6 text-[#668199]">
+              Each role has a focused landing page before entering the dashboard or restricted review tools.
+            </p>
+          </div>
+          <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {roleEntrances.map((role) => {
+              const Icon = role.icon;
+              return (
+                <button
+                  key={role.label}
+                  type="button"
+                  onClick={() => {
+                    window.location.href = `${previewBase}/${role.component}`;
+                  }}
+                  className="group flex min-h-[190px] flex-col rounded-[20px] border border-[#dceaf4] bg-white p-5 text-left shadow-[0_5px_18px_rgba(43,83,120,0.035)] transition-all duration-200 hover:-translate-y-1 hover:border-[#bbd5e8] hover:shadow-[0_14px_30px_rgba(43,83,120,0.09)]"
+                >
+                  <span className={`flex h-11 w-11 items-center justify-center rounded-[14px] ${role.tone}`}>
+                    <Icon size={19} />
+                  </span>
+                  <span className="mt-5 text-[15px] font-extrabold text-[#244665]">{role.label}</span>
+                  <span className="mt-2 text-[12px] leading-5 text-[#7b91a6]">{role.description}</span>
+                  <span className="mt-auto flex items-center gap-1.5 pt-5 text-[11px] font-extrabold text-[#0c5bce]">
+                    Open landing
+                    <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" />
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </section>
 

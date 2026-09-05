@@ -13,6 +13,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import { clearAuthToken, getCurrentUser, getUserInitials } from "../../../../lib/api";
 
 type AppLayoutProps = {
   children: ReactNode;
@@ -23,20 +24,50 @@ type AppLayoutProps = {
 };
 
 const studentNav = [
-  { label: "Dashboard", icon: LayoutDashboard },
-  { label: "Submit report", icon: ClipboardList },
-  { label: "My reports", icon: FileCheck2 },
-  { label: "Notifications", icon: Bell },
-  { label: "Profile", icon: UserRound },
+  { label: "Dashboard", icon: LayoutDashboard, component: "StudentDashboard" },
+  { label: "Submit report", icon: ClipboardList, component: "SubmitReport" },
+  { label: "My reports", icon: FileCheck2, component: "MyReports" },
+  { label: "Notifications", icon: Bell, component: "Notifications" },
+  { label: "Profile", icon: UserRound, component: "Profile" },
 ];
 
 const officerNav = [
-  { label: "Dashboard", icon: Gauge },
-  { label: "Reports", icon: ClipboardList },
-  { label: "Drivers", icon: UsersRound },
-  { label: "Violations", icon: ShieldCheck },
-  { label: "Analytics", icon: BarChart3 },
+  { label: "Dashboard", icon: Gauge, component: "OfficerDashboard" },
+  { label: "Reports", icon: ClipboardList, component: "PNPReview" },
+  { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
+  { label: "Violations", icon: ShieldCheck, component: "Violations" },
+  { label: "Analytics", icon: BarChart3, component: "Analytics" },
 ];
+
+const adminNav = [
+  { label: "Dashboard", icon: Gauge, component: "AdminDashboard" },
+  { label: "Reports", icon: ClipboardList, component: "ReviewWorkspace" },
+  { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
+  { label: "Violations", icon: ShieldCheck, component: "Violations" },
+  { label: "Analytics", icon: BarChart3, component: "Analytics" },
+];
+
+const pnpNav = [
+  { label: "Dashboard", icon: Gauge, component: "PNPReview" },
+  { label: "Reports", icon: ClipboardList, component: "PNPReview" },
+  { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
+  { label: "Violations", icon: ShieldCheck, component: "Violations" },
+  { label: "Analytics", icon: BarChart3, component: "Analytics" },
+];
+
+function previewUrl(component: string) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  return `${base}/preview/tricycle-reporting/${component}`;
+}
+
+function navigateTo(component: string) {
+  window.location.href = previewUrl(component);
+}
+
+function signOut() {
+  clearAuthToken();
+  window.location.href = previewUrl("Landing");
+}
 
 export function AppLayout({
   children,
@@ -45,13 +76,15 @@ export function AppLayout({
   title,
   eyebrow,
 }: AppLayoutProps) {
-  const navItems = officer ? officerNav : studentNav;
+  const currentUser = getCurrentUser();
+  const navItems = currentUser?.role === "SUPERADMIN" ? adminNav : currentUser?.role === "PNP" ? pnpNav : officer ? officerNav : studentNav;
+  const initials = getUserInitials(currentUser);
   const displayTitle = title ?? (officer ? "Officer workspace" : "Student workspace");
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] text-[#132238]">
       <div className="flex min-h-screen">
-        <aside className="hidden w-[250px] shrink-0 flex-col border-r border-[#dbe5f0] bg-white px-5 py-6 lg:flex">
+        <aside className="sticky top-0 hidden h-screen w-[250px] shrink-0 flex-col overflow-hidden border-r border-[#dbe5f0] bg-white px-5 py-6 lg:flex">
           <div className="flex items-center gap-3 px-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#0c5bce] text-white shadow-[0_6px_18px_rgba(12,91,206,0.22)]">
               <ShieldCheck size={21} strokeWidth={2.2} />
@@ -67,12 +100,13 @@ export function AppLayout({
               {officer ? "Review center" : "My space"}
             </p>
             <nav className="mt-3 space-y-1.5">
-              {navItems.map(({ label, icon: Icon }) => {
+              {navItems.map(({ label, icon: Icon, component }) => {
                 const isActive = active === label;
                 return (
                   <button
                     key={label}
                     type="button"
+                    onClick={() => navigateTo(component)}
                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold transition ${
                       isActive
                         ? "bg-[#eaf2ff] text-[#0c5bce]"
@@ -109,6 +143,7 @@ export function AppLayout({
             </div>
             <button
               type="button"
+              onClick={signOut}
               className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold text-[#71859e] hover:bg-[#f4f7fb]"
             >
               <LogOut size={17} strokeWidth={1.8} />
@@ -128,6 +163,7 @@ export function AppLayout({
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ca0b6]">{eyebrow}</p>
                 ) : null}
                 <h1 className="text-[17px] font-extrabold tracking-[-0.02em] text-[#163154] lg:text-[20px]">{displayTitle}</h1>
+                {currentUser ? <p className="mt-0.5 text-[11px] font-semibold text-[#879bb0]">{currentUser.fullName} / {currentUser.role.replace("_", " ")}</p> : null}
               </div>
             </div>
             <div className="flex items-center gap-2.5">
@@ -136,7 +172,7 @@ export function AppLayout({
                 <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#e8794f]" />
               </button>
               <div className="hidden h-9 w-9 items-center justify-center rounded-full bg-[#d9ebff] text-[12px] font-extrabold text-[#0c5bce] sm:flex">
-                {officer ? "AR" : "MC"}
+                {initials}
               </div>
             </div>
           </header>
@@ -145,10 +181,10 @@ export function AppLayout({
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-20 flex h-[72px] items-center justify-around border-t border-[#dbe5f0] bg-white/95 px-2 backdrop-blur lg:hidden">
-        {navItems.slice(0, 5).map(({ label, icon: Icon }) => {
+        {navItems.slice(0, 5).map(({ label, icon: Icon, component }) => {
           const isActive = active === label;
           return (
-            <button key={label} type="button" className={`flex min-w-[58px] flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-bold ${isActive ? "text-[#0c5bce]" : "text-[#8ca0b6]"}`}>
+            <button key={label} type="button" onClick={() => navigateTo(component)} className={`flex min-w-[58px] flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-bold ${isActive ? "text-[#0c5bce]" : "text-[#8ca0b6]"}`}>
               <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
               <span>{label === "Submit report" ? "Report" : label.replace("My ", "")}</span>
             </button>

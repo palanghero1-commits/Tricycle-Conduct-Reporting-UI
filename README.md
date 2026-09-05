@@ -96,7 +96,7 @@ Do not commit `api-php/config.php`. It is ignored by Git.
 From the project root:
 
 ```bash
-php -S localhost:8000 -t api-php
+php -c api-php/php.ini -S localhost:8000 -t api-php
 ```
 
 Test the API:
@@ -135,8 +135,12 @@ These accounts are created by `api-php/seed.mysql.sql`.
 | --- | --- | --- |
 | Student | `student@sunn.edu.ph` | `Password123!` |
 | Driver | `driver@oldsagay-toda.ph` | `Password123!` |
-| Admin | `admin@oldsagay.gov.ph` | `Password123!` |
-| TODA Officer | `officer@oldsagay.gov.ph` | `Password123!` |
+| Superadmin | `superadmin@oldsagay.gov.ph` | `Password123!` |
+| Authorized personnel | `authorized@oldsagay.gov.ph` | `Password123!` |
+| TODA president | `president@oldsagay-toda.ph` | `Password123!` |
+| PNP reviewer | `pnp@oldsagay.gov.ph` | `Password123!` |
+
+These credentials are for development only. Students and drivers may self-register. Authorized personnel and PNP accounts are created by the superadmin. TODA president accounts are created by authorized personnel or the superadmin. A TODA president may create a driver account through `POST /drivers/accounts` only when the driver has no phone number.
 
 ## Important Local URLs
 
@@ -156,6 +160,18 @@ Health check:
 
 ```text
 http://localhost:8000/index.php/healthz
+
+## Account-management API
+
+Authenticated account-creation routes enforce the role hierarchy:
+
+| Endpoint | Allowed creator | Creates |
+| --- | --- | --- |
+| `POST /users/authorized-personnel` | `SUPERADMIN` | Authorized personnel or PNP |
+| `POST /users/toda-presidents` | `AUTHORIZED_PERSONNEL`, `SUPERADMIN` | TODA president |
+| `POST /drivers/accounts` | `TODA_PRESIDENT`, `AUTHORIZED_PERSONNEL`, `SUPERADMIN` | Driver; TODA-created accounts require no phone number |
+
+Public `POST /auth/register` accepts only `STUDENT` and `DRIVER` and writes both the user account and the matching profile record in one transaction.
 ```
 
 Login/register page directly:

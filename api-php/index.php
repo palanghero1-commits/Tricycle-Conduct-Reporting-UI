@@ -19,7 +19,7 @@ $pdo = new PDO(
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
 );
 
-const ROLES = ['STUDENT', 'DRIVER', 'TODA_OFFICER', 'ADMIN', 'PNP'];
+const ROLES = ['STUDENT', 'DRIVER', 'TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP'];
 const STATUSES = ['SUBMITTED', 'RECEIVED', 'UNDER_REVIEW', 'VERIFIED', 'REFERRED', 'RESOLVED', 'CLOSED'];
 const ALLOWED_TRANSITIONS = [
     'SUBMITTED' => ['RECEIVED', 'UNDER_REVIEW', 'CLOSED'],
@@ -107,7 +107,7 @@ function notify(PDO $pdo, string $recipientId, string $type, string $message, ?s
 }
 
 function notify_officers(PDO $pdo, string $type, string $message, string $complaintId): void {
-    $stmt = $pdo->query("SELECT id FROM users WHERE status = 'ACTIVE' AND role IN ('TODA_OFFICER','ADMIN')");
+    $stmt = $pdo->query("SELECT id FROM users WHERE status = 'ACTIVE' AND role IN ('TODA_PRESIDENT','AUTHORIZED_PERSONNEL','SUPERADMIN','PNP')");
     foreach ($stmt->fetchAll() as $officer) {
         notify($pdo, $officer['id'], $type, $message, $complaintId);
     }
@@ -115,6 +115,28 @@ function notify_officers(PDO $pdo, string $type, string $message, string $compla
 
 function public_user(array $user): array {
     return ['id' => $user['id'], 'fullName' => $user['full_name'], 'email' => $user['email'], 'role' => $user['role'], 'status' => $user['status']];
+}
+
+function create_user(PDO $pdo, array $input, string $role, ?string $createdBy = null): array {
+    foreach (['fullName', 'password'] as $field) {
+        if (empty($input[$field])) fail(400, "$field is required.");
+    }
+    if (empty($input['email']) && empty($input['username'])) fail(400, 'Email or username is required.');
+    if (!empty($input['email']) && !filter_var($input['email'], FILTER_VALIDATE_EMAIL)) fail(400, 'Use a valid email address.');
+    if (strlen($input['password']) < 8) fail(400, 'Password must be at least 8 characters.');
+    $userId = uuidv4();
+    $stmt = $pdo->prepare('INSERT INTO users (id, full_name, email, username, password_hash, role, contact_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([
+        $userId,
+        trim($input['fullName']),
+        !empty($input['email']) ? strtolower($input['email']) : null,
+        !empty($input['username']) ? strtolower($input['username']) : null,
+        password_hash($input['password'], PASSWORD_DEFAULT),
+        $role,
+        $input['contactNumber'] ?? null,
+        $createdBy,
+    ]);
+    return ['id' => $userId, 'full_name' => trim($input['fullName']), 'email' => !empty($input['email']) ? strtolower($input['email']) : null, 'role' => $role, 'status' => 'ACTIVE'];
 }
 
 function route_path(): string {
@@ -136,32 +158,103 @@ try {
 
     if ($method === 'POST' && $path === '/auth/register') {
         $data = input_json();
-        foreach (['fullName', 'studentId', 'email', 'password', 'confirmPassword'] as $field) {
+        foreach (['fullName', 'email', 'password', 'confirmPassword'] as $field) {
             if (empty($data[$field])) fail(400, "$field is required.");
+        }
+        $role = strtoupper((string) ($data['role'] ?? 'STUDENT'));
+        if (!in_array($role, ['STUDENT', 'DRIVER'], true)) fail(400, 'Only student and driver accounts can self-register.');
+        if ($role === 'STUDENT' && empty($data['studentId'])) fail(400, 'studentId is required.');
+        if ($role === 'DRIVER') {
+            foreach (['driverCode', 'tricycleIdentifier'] as $field) {
+                if (empty($data[$field])) fail(400, "$field is required.");
+            }
         }
         if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) fail(400, 'Use a valid email address.');
         if (strlen($data['password']) < 8) fail(400, 'Password must be at least 8 characters.');
         if ($data['password'] !== $data['confirmPassword']) fail(400, 'Passwords do not match.');
         $pdo->beginTransaction();
         $userId = uuidv4();
-        $stmt = $pdo->prepare("INSERT INTO users (id, full_name, email, password_hash, role, contact_number) VALUES (?, ?, ?, ?, 'STUDENT', ?)");
-        $stmt->execute([$userId, trim($data['fullName']), strtolower($data['email']), password_hash($data['password'], PASSWORD_DEFAULT), $data['contactNumber'] ?? null]);
-        $stmt = $pdo->prepare('INSERT INTO students (user_id, student_id, program, year_level) VALUES (?, ?, ?, ?)');
-        $stmt->execute([$userId, trim($data['studentId']), $data['program'] ?? null, $data['yearLevel'] ?? null]);
+        $stmt = $pdo->prepare('INSERT INTO users (id, full_name, email, password_hash, role, contact_number) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$userId, trim($data['fullName']), strtolower($data['email']), password_hash($data['password'], PASSWORD_DEFAULT), $role, $data['contactNumber'] ?? null]);
+        if ($role === 'STUDENT') {
+            $stmt = $pdo->prepare('INSERT INTO students (user_id, student_id, program, year_level) VALUES (?, ?, ?, ?)');
+            $stmt->execute([$userId, trim($data['studentId']), $data['program'] ?? null, $data['yearLevel'] ?? null]);
+        } else {
+            $stmt = $pdo->prepare('INSERT INTO drivers (user_id, toda_id, full_name, driver_code, tricycle_identifier, route_area, contact_number) VALUES (?, 1, ?, ?, ?, ?, ?)');
+            $stmt->execute([$userId, trim($data['fullName']), trim($data['driverCode']), trim($data['tricycleIdentifier']), $data['routeArea'] ?? null, $data['contactNumber'] ?? null]);
+        }
         audit($pdo, $userId, 'REGISTER', 'users', $userId);
         $pdo->commit();
-        $user = ['id' => $userId, 'full_name' => trim($data['fullName']), 'email' => strtolower($data['email']), 'role' => 'STUDENT', 'status' => 'ACTIVE'];
+        $user = ['id' => $userId, 'full_name' => trim($data['fullName']), 'email' => strtolower($data['email']), 'role' => $role, 'status' => 'ACTIVE'];
         json_response(['user' => public_user($user), 'token' => token_create($user, $config['jwt_secret'])], 201);
     }
 
     if ($method === 'POST' && $path === '/auth/login') {
         $data = input_json();
-        $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? LIMIT 1');
-        $stmt->execute([strtolower($data['email'] ?? '')]);
+        $account = strtolower($data['email'] ?? $data['username'] ?? '');
+        $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1');
+        $stmt->execute([$account, $account]);
         $user = $stmt->fetch();
         if (!$user || $user['status'] !== 'ACTIVE' || !password_verify($data['password'] ?? '', $user['password_hash'])) fail(401, 'Invalid email or password.');
         audit($pdo, $user['id'], 'LOGIN', 'users', $user['id']);
         json_response(['user' => public_user($user), 'token' => token_create($user, $config['jwt_secret'])]);
+    }
+
+    if ($method === 'POST' && $path === '/users/authorized-personnel') {
+        $creator = auth($pdo, $config);
+        require_roles($creator, ['SUPERADMIN']);
+        $data = input_json();
+        $pdo->beginTransaction();
+        $user = create_user($pdo, $data, ($data['role'] ?? '') === 'PNP' ? 'PNP' : 'AUTHORIZED_PERSONNEL', $creator['id']);
+        $stmt = $pdo->prepare('INSERT INTO authorized_personnel (user_id, personnel_type, office_name, position_title) VALUES (?, ?, ?, ?)');
+        $stmt->execute([$user['id'], $data['personnelType'] ?? 'BARANGAY_STAFF', $data['officeName'] ?? 'Barangay Old Sagay', $data['positionTitle'] ?? null]);
+        audit($pdo, $creator['id'], 'AUTHORIZED_PERSONNEL_CREATE', 'users', $user['id']);
+        $pdo->commit();
+        json_response(['user' => public_user($user)], 201);
+    }
+
+    if ($method === 'POST' && $path === '/users/toda-presidents') {
+        $creator = auth($pdo, $config);
+        require_roles($creator, ['AUTHORIZED_PERSONNEL', 'SUPERADMIN']);
+        $data = input_json();
+        if (empty($data['todaId'])) fail(400, 'todaId is required.');
+        $pdo->beginTransaction();
+        $user = create_user($pdo, $data, 'TODA_PRESIDENT', $creator['id']);
+        $stmt = $pdo->prepare('UPDATE todas SET president_user_id = ? WHERE id = ?');
+        $stmt->execute([$user['id'], (int) $data['todaId']]);
+        audit($pdo, $creator['id'], 'TODA_PRESIDENT_CREATE', 'users', $user['id'], ['todaId' => (int) $data['todaId']]);
+        $pdo->commit();
+        json_response(['user' => public_user($user)], 201);
+    }
+
+    if ($method === 'POST' && $path === '/drivers/accounts') {
+        $creator = auth($pdo, $config);
+        require_roles($creator, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN']);
+        $data = input_json();
+        foreach (['fullName', 'driverCode', 'tricycleIdentifier', 'password'] as $field) {
+            if (empty($data[$field])) fail(400, "$field is required.");
+        }
+        if ($creator['role'] === 'TODA_PRESIDENT' && !empty($data['contactNumber'])) {
+            fail(400, 'TODA president-created driver accounts are only for drivers without a phone number.');
+        }
+        $pdo->beginTransaction();
+        $user = create_user($pdo, $data, 'DRIVER', $creator['id']);
+        $stmt = $pdo->prepare('INSERT INTO drivers (user_id, toda_id, full_name, driver_code, tricycle_identifier, plate_number, route_area, contact_number, account_created_by, account_creation_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([
+            $user['id'],
+            (int) ($data['todaId'] ?? 1),
+            trim($data['fullName']),
+            trim($data['driverCode']),
+            trim($data['tricycleIdentifier']),
+            $data['plateNumber'] ?? null,
+            $data['routeArea'] ?? null,
+            $data['contactNumber'] ?? null,
+            $creator['id'],
+            empty($data['contactNumber']) ? 'TODA_CREATED_NO_PHONE' : 'AUTHORIZED_CREATED',
+        ]);
+        audit($pdo, $creator['id'], 'DRIVER_ACCOUNT_CREATE', 'users', $user['id']);
+        $pdo->commit();
+        json_response(['user' => public_user($user)], 201);
     }
 
     if ($method === 'POST' && $path === '/auth/logout') {
@@ -265,7 +358,7 @@ try {
 
     if ($method === 'PATCH' && preg_match('#^/complaints/([a-f0-9-]+)/status$#', $path, $m)) {
         $user = auth($pdo, $config);
-        require_roles($user, ['TODA_OFFICER', 'ADMIN', 'PNP']);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         $data = input_json();
         $next = $data['status'] ?? '';
         if (!in_array($next, STATUSES, true)) fail(400, 'Invalid status.');
@@ -284,7 +377,7 @@ try {
 
     if ($method === 'POST' && preg_match('#^/complaints/([a-f0-9-]+)/actions$#', $path, $m)) {
         $user = auth($pdo, $config);
-        require_roles($user, ['TODA_OFFICER', 'ADMIN', 'PNP']);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         $data = input_json();
         if (empty($data['actionType']) || empty($data['description'])) fail(400, 'Action type and description are required.');
         $complaint = complaint_or_404($pdo, $m[1], $user, false);
@@ -297,7 +390,7 @@ try {
 
     if ($method === 'POST' && preg_match('#^/complaints/([a-f0-9-]+)/violations$#', $path, $m)) {
         $user = auth($pdo, $config);
-        require_roles($user, ['TODA_OFFICER', 'ADMIN', 'PNP']);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         $data = input_json();
         $complaint = complaint_or_404($pdo, $m[1], $user, false);
         if (!in_array($complaint['status'], ['VERIFIED', 'RESOLVED', 'CLOSED'], true)) fail(400, 'A confirmed violation can only be recorded after appropriate review.');
@@ -331,7 +424,7 @@ try {
 
     if ($method === 'GET' && $path === '/dashboard/stats') {
         $user = auth($pdo, $config);
-        require_roles($user, ['TODA_OFFICER', 'ADMIN', 'PNP']);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         $byStatus = $pdo->query('SELECT status, COUNT(*) AS total FROM complaints GROUP BY status')->fetchAll();
         $violations = $pdo->query('SELECT COUNT(*) AS total FROM violations')->fetch();
         json_response(['byStatus' => $byStatus, 'confirmedViolations' => (int) $violations['total']]);
@@ -339,7 +432,7 @@ try {
 
     if ($method === 'GET' && $path === '/reports/summary') {
         $user = auth($pdo, $config);
-        require_roles($user, ['TODA_OFFICER', 'ADMIN', 'PNP']);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         $byStatus = $pdo->query('SELECT status AS label, COUNT(*) AS total FROM complaints GROUP BY status')->fetchAll();
         $byCategory = $pdo->query('SELECT c.name AS label, COUNT(*) AS total FROM complaints r JOIN complaint_categories c ON c.id = r.category_id GROUP BY c.name')->fetchAll();
         $monthly = $pdo->query("SELECT DATE_FORMAT(created_at, '%Y-%m') AS label, COUNT(*) AS total FROM complaints GROUP BY DATE_FORMAT(created_at, '%Y-%m')")->fetchAll();
@@ -418,58 +511,40 @@ function save_uploads(PDO $pdo, array $config, string $complaintId, string $user
 }
 
 function seed(PDO $pdo): void {
-    $pdo->exec("INSERT IGNORE INTO todas (id, name, barangay, city, province) VALUES (1, 'Old Sagay TODA', 'Old Sagay', 'Sagay City', 'Negros Occidental')");
-    foreach (['Overcharging', 'Reckless Driving', 'Refusal to Transport', 'Discourteous Behavior', 'Unsafe Driving', 'Other'] as $name) {
+    seed_user($pdo, '00000000-0000-4000-8000-000000000000', 'Super Administrator', 'superadmin@oldsagay.gov.ph', 'superadmin', 'SUPERADMIN', null);
+    seed_user($pdo, '11111111-1111-4111-8111-111111111111', 'Demo Student', 'student@sunn.edu.ph', null, 'STUDENT', null);
+    seed_user($pdo, '22222222-2222-4222-8222-222222222222', 'Rogelio D. Santos', 'driver@oldsagay-toda.ph', null, 'DRIVER', null);
+    seed_user($pdo, '33333333-3333-4333-8333-333333333333', 'Authorized Personnel', 'authorized@oldsagay.gov.ph', 'authorized-personnel', 'AUTHORIZED_PERSONNEL', '00000000-0000-4000-8000-000000000000');
+    seed_user($pdo, '44444444-4444-4444-8444-444444444444', 'TODA President', 'president@oldsagay-toda.ph', 'toda-president', 'TODA_PRESIDENT', '33333333-3333-4333-8333-333333333333');
+    seed_user($pdo, '55555555-5555-4555-8555-555555555555', 'PNP Reviewer', 'pnp@oldsagay.gov.ph', 'pnp-reviewer', 'PNP', '00000000-0000-4000-8000-000000000000');
+
+    $pdo->exec("INSERT IGNORE INTO todas (id, name, barangay, city, province, president_user_id) VALUES (1, 'Old Sagay TODA', 'Old Sagay', 'Sagay City', 'Negros Occidental', '44444444-4444-4444-8444-444444444444')");
+    foreach (['Overcharging', 'Reckless Driving', 'Refusal to Transport', 'Discourteous Behavior', 'Unsafe Driving', 'Vehicle Condition', 'Other'] as $name) {
         $stmt = $pdo->prepare('INSERT IGNORE INTO complaint_categories (name) VALUES (?)');
         $stmt->execute([$name]);
     }
+    $stmt = $pdo->prepare("INSERT IGNORE INTO authorized_personnel (user_id, personnel_type, office_name, position_title) VALUES (?, ?, ?, ?)");
+    $stmt->execute(['33333333-3333-4333-8333-333333333333', 'BARANGAY_STAFF', 'Barangay Old Sagay', 'Authorized Personnel']);
+    $stmt->execute(['55555555-5555-4555-8555-555555555555', 'PNP_REVIEWER', 'Sagay City PNP', 'PNP Reviewer']);
+
+    $stmt = $pdo->prepare("INSERT IGNORE INTO students (user_id, student_id, program, year_level, campus) VALUES (?, 'SUNN-2026-0001', 'Capstone Testing Program', '4th year', 'SUNN')");
+    $stmt->execute(['11111111-1111-4111-8111-111111111111']);
+
     $drivers = [
-        ['Rogelio D. Santos', 'DRV-OS-4821', 'OS-4821', 'Old Sagay Market loop'],
-        ['Maribel A. Cruz', 'DRV-OS-3176', 'OS-3176', 'Old Sagay Campus loop'],
-        ['Jonas P. Villanueva', 'DRV-OS-9084', 'OS-9084', 'Old Sagay Riverside loop'],
+        ['22222222-2222-4222-8222-222222222222', 'Rogelio D. Santos', 'DRV-OS-4821', 'OS-4821', 'Old Sagay Market loop', '44444444-4444-4444-8444-444444444444', 'TODA_CREATED_NO_PHONE'],
+        [null, 'Maribel A. Cruz', 'DRV-OS-3176', 'OS-3176', 'Old Sagay Campus loop', null, 'AUTHORIZED_CREATED'],
+        [null, 'Jonas P. Villanueva', 'DRV-OS-9084', 'OS-9084', 'Old Sagay Riverside loop', null, 'AUTHORIZED_CREATED'],
     ];
     foreach ($drivers as $driver) {
-        $stmt = $pdo->prepare('INSERT IGNORE INTO drivers (toda_id, full_name, driver_code, tricycle_identifier, route_area) VALUES (1, ?, ?, ?, ?)');
+        $stmt = $pdo->prepare('INSERT IGNORE INTO drivers (user_id, toda_id, full_name, driver_code, tricycle_identifier, route_area, account_created_by, account_creation_reason) VALUES (?, 1, ?, ?, ?, ?, ?, ?)');
         $stmt->execute($driver);
     }
-    seed_student($pdo);
-    seed_driver_user($pdo);
-    seed_user($pdo, 'Admin User', 'admin@oldsagay.gov.ph', 'ADMIN');
-    seed_user($pdo, 'TODA Officer', 'officer@oldsagay.gov.ph', 'TODA_OFFICER');
 }
 
-function seed_user(PDO $pdo, string $name, string $email, string $role): void {
-    $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ?');
-    $stmt->execute([$email]);
+function seed_user(PDO $pdo, string $id, string $name, ?string $email, ?string $username, string $role, ?string $createdBy): void {
+    $stmt = $pdo->prepare('SELECT id FROM users WHERE id = ?');
+    $stmt->execute([$id]);
     if ($stmt->fetch()) return;
-    $stmt = $pdo->prepare('INSERT INTO users (id, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)');
-    $stmt->execute([uuidv4(), $name, $email, password_hash('Password123!', PASSWORD_DEFAULT), $role]);
-}
-
-function seed_student(PDO $pdo): void {
-    $email = 'student@sunn.edu.ph';
-    $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ?');
-    $stmt->execute([$email]);
-    $existing = $stmt->fetch();
-    $userId = $existing['id'] ?? uuidv4();
-    if (!$existing) {
-        $stmt = $pdo->prepare("INSERT INTO users (id, full_name, email, password_hash, role) VALUES (?, 'Demo Student', ?, ?, 'STUDENT')");
-        $stmt->execute([$userId, $email, password_hash('Password123!', PASSWORD_DEFAULT)]);
-    }
-    $stmt = $pdo->prepare("INSERT IGNORE INTO students (user_id, student_id, program, year_level) VALUES (?, 'SUNN-2026-0001', 'Capstone Testing Program', '4th year')");
-    $stmt->execute([$userId]);
-}
-
-function seed_driver_user(PDO $pdo): void {
-    $email = 'driver@oldsagay-toda.ph';
-    $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ?');
-    $stmt->execute([$email]);
-    $existing = $stmt->fetch();
-    $userId = $existing['id'] ?? uuidv4();
-    if (!$existing) {
-        $stmt = $pdo->prepare("INSERT INTO users (id, full_name, email, password_hash, role) VALUES (?, 'Rogelio D. Santos', ?, ?, 'DRIVER')");
-        $stmt->execute([$userId, $email, password_hash('Password123!', PASSWORD_DEFAULT)]);
-    }
-    $stmt = $pdo->prepare("UPDATE drivers SET user_id = ? WHERE driver_code = 'DRV-OS-4821'");
-    $stmt->execute([$userId]);
+    $stmt = $pdo->prepare('INSERT INTO users (id, full_name, email, username, password_hash, role, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$id, $name, $email, $username, password_hash('Password123!', PASSWORD_DEFAULT), $role, $createdBy]);
 }
