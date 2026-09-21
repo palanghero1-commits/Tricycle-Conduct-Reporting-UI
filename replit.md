@@ -56,15 +56,9 @@ Web and mobile-based PWA for SUNN students to submit tricycle driver conduct rep
 - Admin management endpoints for users, drivers, and complaint categories.
 - PWA installability and static offline fallback.
 
-## Local Testing Accounts
+## Initial administrator account
 
-After calling `POST /seed`, these accounts are available:
-
-- Student: `student@sunn.edu.ph`
-- Driver: `driver@oldsagay-toda.ph`
-- Admin: `admin@oldsagay.gov.ph`
-- TODA Officer: `officer@oldsagay.gov.ph`
-- Password for all seeded accounts: `Password123!`
+After calling `POST /seed`, only the superadmin account is created. Create student, driver, authorized personnel, TODA president, and PNP accounts through their application workflows.
 
 ## User Preferences
 
