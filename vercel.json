@@ -1,9 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "framework": "vite",
   "installCommand": "npm install --workspaces --include=dev",
-  "buildCommand": "npm install --workspace @workspace/mockup-sandbox --include=dev && npm run build --workspace @workspace/mockup-sandbox && node -e \"require('fs').cpSync('artifacts/mockup-sandbox/dist', 'dist', { recursive: true })\"",
+  "buildCommand": "node scripts/vercel-build.mjs",
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
