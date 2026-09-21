@@ -1,7 +1,7 @@
 {
   "version": 2,
   "installCommand": "npm install --workspaces --include=dev",
-  "buildCommand": "npm run build --workspace @workspace/mockup-sandbox",
+  "buildCommand": "npm install --workspace @workspace/mockup-sandbox --include=dev && npm run build --workspace @workspace/mockup-sandbox",
   "outputDirectory": "artifacts/mockup-sandbox/dist",
   "functions": {
     "api/index.js": {
