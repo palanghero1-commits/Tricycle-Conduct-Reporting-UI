@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "installCommand": "npm install --workspaces --include=dev",
-  "buildCommand": "node scripts/vercel-build.mjs",
+  "installCommand": "node artifacts/api-server/scripts/vercel-build.mjs --install-only",
+  "buildCommand": "node artifacts/api-server/scripts/vercel-build.mjs",
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
