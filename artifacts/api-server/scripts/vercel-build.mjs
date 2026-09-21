@@ -40,7 +40,7 @@ const sandboxDist = path.join(
   "dist",
 );
 const rootApiEntry = path.join(monorepoRoot, "api", "index.js");
-const deployDist = path.join(vercelProjectRoot, "dist");
+const deployPublic = path.join(vercelProjectRoot, "public");
 const deployApiDir = path.join(vercelProjectRoot, "api");
 const deployApiEntry = path.join(deployApiDir, "index.js");
 
@@ -66,10 +66,10 @@ if (!existsSync(path.join(sandboxDist, "index.html"))) {
   );
 }
 
-if (existsSync(deployDist)) {
-  rmSync(deployDist, { recursive: true, force: true });
+if (existsSync(deployPublic)) {
+  rmSync(deployPublic, { recursive: true, force: true });
 }
-cpSync(sandboxDist, deployDist, { recursive: true });
+cpSync(sandboxDist, deployPublic, { recursive: true });
 
 if (!existsSync(rootApiEntry)) {
   throw new Error(`Missing serverless API entry: ${rootApiEntry}`);
@@ -79,5 +79,5 @@ if (path.resolve(rootApiEntry) !== path.resolve(deployApiEntry)) {
   cpSync(rootApiEntry, deployApiEntry);
 }
 
-console.log(`Vercel static output: ${deployDist}`);
+console.log(`Vercel static output: ${deployPublic}`);
 console.log(`Vercel API entry: ${deployApiEntry}`);

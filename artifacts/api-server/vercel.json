@@ -4,7 +4,7 @@
   "framework": "vite",
   "installCommand": "node scripts/vercel-build.mjs --install-only",
   "buildCommand": "node scripts/vercel-build.mjs",
-  "outputDirectory": "dist",
+  "outputDirectory": "public",
   "functions": {
     "api/index.js": {
       "maxDuration": 30

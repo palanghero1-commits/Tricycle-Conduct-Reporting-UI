@@ -2,6 +2,7 @@
 
 # compiled output
 dist
+public
 artifacts/api-server/dist
 artifacts/api-server/api/index.js
 tmp
