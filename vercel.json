@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
+  "framework": "vite",
   "installCommand": "node artifacts/api-server/scripts/vercel-build.mjs --install-only",
   "buildCommand": "node artifacts/api-server/scripts/vercel-build.mjs",
   "outputDirectory": "dist",
