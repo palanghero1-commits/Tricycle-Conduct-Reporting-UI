@@ -3,8 +3,8 @@
   "version": 2,
   "framework": "vite",
   "installCommand": "npm install --workspaces --include=dev",
-  "buildCommand": "npm install --workspace @workspace/mockup-sandbox --include=dev && npm run build --workspace @workspace/mockup-sandbox",
-  "outputDirectory": "artifacts/mockup-sandbox/dist",
+  "buildCommand": "npm install --workspace @workspace/mockup-sandbox --include=dev && npm run build --workspace @workspace/mockup-sandbox && node -e \"require('fs').cpSync('artifacts/mockup-sandbox/dist', 'dist', { recursive: true })\"",
+  "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
       "maxDuration": 30
