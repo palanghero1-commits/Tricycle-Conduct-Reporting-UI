@@ -1,0 +1,91 @@
+ The system has a deployable structure:
+
+  - React/Vite frontend → deploy as static files.
+  - PHP API → deploy on Apache/Nginx hosting with PHP.
+  - MySQL database → use a hosted MySQL database.
+  - Frontend API URL → set VITE_API_BASE_URL to your online PHP API.
+
+  Recommended setup:
+
+  1. Deploy the frontend to Vercel, Netlify, or similar.
+  2. Deploy api-php to shared PHP hosting, cPanel, or a VPS.
+  3. Create a production MySQL database and import schema.mysql.sql.
+  4. Configure api-php/config.php with:
+      - production database credentials
+      - a strong random jwt_secret
+      - the real frontend domain instead of '*'
+      - a protected upload directory
+
+  5. Set the frontend environment variable:
+
+  VITE_API_BASE_URL=https://api.yourdomain.com/index.php
+
+  Before public deployment, fix or verify these issues:
+
+  - Replace frontend_origin => '*' in api-php/config.example.php.
+  - Never expose or use the default demo seed password in production.
+  - Enable HTTPS.
+  - Do not upload api-php/config.php to GitHub.
+  - Ensure database backups are configured.
+  - Fix the UI bugs already identified, especially the React hook-order bug and inactive mobile menu.
+  - Test role access using api-php/security-test-scenarios.md.
+
+  So the answer is: yes, it can go online, but deploy it first as a controlled test/staging system. Do not
+  expose it publicly until the security and UI issues are fully tested.
+
+
+
+For this system, I recommend:
+
+   Part                   Recommended hosting
+  ━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   React/Vite frontend    Vercel
+  ─────────────────────  ──────────────────────────────────────────────────
+   PHP API                Hostinger/cPanel PHP hosting or another PHP host
+  ─────────────────────  ──────────────────────────────────────────────────
+   Online database        Supabase PostgreSQL
+
+  Vercel supports Vite deployments and VITE_ environment variables for the frontend API URL. Vercel Vite
+  documentation
+
+  Use a PHP host for api-php because the current backend is a traditional PHP application with file uploads.
+  Confirm that the host supports:
+
+  - PHP 8+
+  - pdo_pgsql
+  - HTTPS
+  - writable storage/uploads
+  - custom CORS configuration
+
+  Supabase provides PostgreSQL connection strings with SSL support. Supabase database connection documentation
+
+  Set the deployments like this:
+
+  Vercel frontend
+      ↓
+  https://api.yourdomain.com/index.php
+      ↓
+  PHP hosting
+      ↓
+  Supabase PostgreSQL
+
+
+  For the PHP server, use:
+
+  api-php/config.supabase.example.php
+
+  I would not deploy the PHP API to Vercel because the current API expects a normal PHP server and persistent
+  file storage.
+
+  For a more advanced setup, you can deploy the PHP API in Docker on Render or a VPS. Render supports Docker-
+  based web services and persistent disks, but it requires more configuration. Render web services
+  documentation
+
+  My recommendation for your capstone is:
+
+  1. Vercel for the frontend.
+  2. Hostinger or another cPanel PHP host for the API.
+  3. Supabase for PostgreSQL.
+  4. Cloudflare for the domain and HTTPS.
+
+  Do not deploy until you verify that the PHP host has the pdo_pgsql extension and supports persistent uploads.

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Bell,
@@ -14,12 +14,13 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { getCurrentUser } from "../../../lib/api";
+import { apiRequest, getCurrentUser } from "../../../lib/api";
 import { AppLayout } from "./_shared/AppLayout";
 
 type ReportStatus = "Under review" | "Resolved" | "Received";
 
 type Report = {
+  complaintId?: string;
   id: string;
   date: string;
   dateShort: string;
@@ -33,6 +34,7 @@ type Report = {
 
 const reports: Report[] = [
   {
+    complaintId: "",
     id: "TR-2408-017",
     date: "August 28, 2024",
     dateShort: "Aug 28",
@@ -97,13 +99,54 @@ function StatusPill({ status }: { status: ReportStatus }) {
 
 export function StudentDashboard() {
   const currentUser = getCurrentUser();
+  const isDriver = currentUser?.role === "DRIVER";
   const firstName = currentUser?.fullName?.trim().split(/\s+/)[0] || "Student";
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showAllReports, setShowAllReports] = useState(false);
   const [unreadNotification, setUnreadNotification] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [studentReports, setStudentReports] = useState<Report[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const visibleReports = useMemo(() => (showAllReports ? reports : reports.slice(0, 3)), [showAllReports]);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; incidentDate: string; location: string; description: string; driverId: number; driverName: string; categoryId: number; categoryName: string }> }>("/complaints"),
+      apiRequest<{ unread: number }>("/notifications"),
+    ])
+      .then(([complaints, notifications]) => {
+        if (!active) return;
+        const mapped = complaints.complaints.map((item) => ({
+          complaintId: item.id,
+          id: item.referenceNumber,
+          date: new Date(`${item.incidentDate}T00:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
+          dateShort: new Date(`${item.incidentDate}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+          driver: item.driverName,
+          category: item.categoryName,
+          location: item.location,
+          status: item.status === "RESOLVED" || item.status === "CLOSED" ? "Resolved" : item.status === "SUBMITTED" ? "Received" : "Under review",
+          updated: `Submitted ${new Date(`${item.incidentDate}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`,
+          summary: item.description,
+        } as Report));
+        setStudentReports(mapped);
+        setUnreadCount(notifications.unread);
+        setUnreadNotification(notifications.unread > 0);
+      })
+      .catch(() => showNotice("Unable to load your reports. Check that the API is running."))
+      .finally(() => active && setIsLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  const visibleReports = useMemo(() => {
+    return showAllReports ? studentReports : studentReports.slice(0, 3);
+  }, [showAllReports, studentReports]);
+
+  const routeSummary = useMemo(() => {
+    const counts = new Map<string, number>();
+    studentReports.forEach((report) => counts.set(report.location, (counts.get(report.location) ?? 0) + 1));
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  }, [studentReports]);
 
   const showNotice = (message: string) => {
     setNotice(message);
@@ -111,7 +154,7 @@ export function StudentDashboard() {
   };
 
   return (
-    <AppLayout active="Dashboard" title={`Good morning, ${firstName}`} eyebrow="Student dashboard">
+      <AppLayout active="Dashboard" title={`Good morning, ${firstName}`} eyebrow={isDriver ? "Driver dashboard" : "Student dashboard"}>
       <div className="relative">
         <section className="relative overflow-hidden rounded-[28px] bg-[#0d4f86] px-6 py-7 text-white shadow-[0_18px_44px_rgba(20,82,130,0.16)] sm:px-8 lg:px-10 lg:py-9">
           <div className="pointer-events-none absolute -right-8 -top-20 h-64 w-64 rounded-full border-[32px] border-[#43b9aa]/20" />
@@ -129,15 +172,15 @@ export function StudentDashboard() {
             <p className="mt-4 max-w-[520px] text-[14px] leading-6 text-[#d4e9f5]">
               Share what you experienced and follow the review journey in one place. Your details are handled for authorized review.
             </p>
-            <button
+            {!isDriver ? <button
               type="button"
-              onClick={() => showNotice("Report form preview is ready for your next submission.")}
+              onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/SubmitReport`; }}
               className="mt-7 inline-flex min-h-12 items-center gap-3 rounded-2xl bg-[#f3c969] px-5 text-[13px] font-extrabold text-[#163958] shadow-[0_8px_20px_rgba(5,38,68,0.16)] transition hover:-translate-y-0.5 hover:bg-[#f8d781] focus:outline-none focus:ring-4 focus:ring-[#f3c969]/30"
             >
               <FilePlus2 size={18} />
               Submit a new report
               <ArrowRight size={16} />
-            </button>
+            </button> : null}
           </div>
           <div className="relative z-[1] mt-8 flex items-center gap-3 border-t border-white/15 pt-4 text-[11px] text-[#cae1ee] sm:absolute sm:bottom-8 sm:right-8 sm:mt-0 sm:border-0 sm:pt-0">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#49b8a9] text-[#073d57]">
@@ -155,7 +198,7 @@ export function StudentDashboard() {
                 <FilePlus2 size={16} />
               </span>
             </div>
-            <p className="mt-5 text-[32px] font-extrabold tracking-[-0.05em] text-[#164e65]">4</p>
+            <p className="mt-5 text-[32px] font-extrabold tracking-[-0.05em] text-[#164e65]">{studentReports.length}</p>
             <p className="mt-1 text-[11px] font-semibold text-[#5e8d8b]">Since your first report</p>
           </div>
           <div className="rounded-[22px] border border-[#dbe5f0] bg-white p-5 shadow-[0_5px_16px_rgba(38,74,110,0.04)]">
@@ -165,7 +208,7 @@ export function StudentDashboard() {
                 <Clock3 size={16} />
               </span>
             </div>
-            <p className="mt-5 text-[32px] font-extrabold tracking-[-0.05em] text-[#193b5c]">2</p>
+            <p className="mt-5 text-[32px] font-extrabold tracking-[-0.05em] text-[#193b5c]">{studentReports.filter((report) => report.status === "Under review" || report.status === "Received").length}</p>
             <p className="mt-1 text-[11px] font-semibold text-[#8b9bb0]">In the review process</p>
           </div>
           <div className="rounded-[22px] border border-[#dbe5f0] bg-white p-5 shadow-[0_5px_16px_rgba(38,74,110,0.04)]">
@@ -175,14 +218,15 @@ export function StudentDashboard() {
                 <CheckCircle2 size={16} />
               </span>
             </div>
-            <p className="mt-5 text-[32px] font-extrabold tracking-[-0.05em] text-[#193b5c]">2</p>
+            <p className="mt-5 text-[32px] font-extrabold tracking-[-0.05em] text-[#193b5c]">{studentReports.filter((report) => report.status === "Resolved").length}</p>
             <p className="mt-1 text-[11px] font-semibold text-[#8b9bb0]">With a review update</p>
           </div>
           <button
             type="button"
             onClick={() => {
-              setUnreadNotification(false);
-              showNotice("Notifications marked as read.");
+              apiRequest("/notifications/read-all", { method: "PATCH" })
+                .then(() => { setUnreadNotification(false); setUnreadCount(0); showNotice("Notifications marked as read."); })
+                .catch(() => showNotice("Unable to update notifications."));
             }}
             className="rounded-[22px] border border-[#f0d8c6] bg-[#fff8f1] p-5 text-left shadow-[0_5px_16px_rgba(130,83,45,0.04)] transition hover:border-[#e6b993] focus:outline-none focus:ring-4 focus:ring-[#eeb782]/20"
           >
@@ -193,7 +237,7 @@ export function StudentDashboard() {
                 {unreadNotification ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#d65d43]" /> : null}
               </span>
             </div>
-            <p className="mt-5 text-[32px] font-extrabold tracking-[-0.05em] text-[#674a3b]">{unreadNotification ? "3" : "0"}</p>
+            <p className="mt-5 text-[32px] font-extrabold tracking-[-0.05em] text-[#674a3b]">{unreadCount}</p>
             <p className="mt-1 text-[11px] font-semibold text-[#a28571]">{unreadNotification ? "Tap to mark as read" : "You are all caught up"}</p>
           </button>
         </section>
@@ -216,6 +260,8 @@ export function StudentDashboard() {
             </div>
 
             <div className="mt-5 space-y-2">
+              {isLoading ? <p className="px-3 py-5 text-sm text-[#8196aa]">Loading your reports…</p> : null}
+              {!isLoading && visibleReports.length === 0 ? <p className="px-3 py-5 text-sm text-[#8196aa]">You have not submitted a report yet.</p> : null}
               {visibleReports.map((report) => (
                 <button
                   type="button"
@@ -285,14 +331,12 @@ export function StudentDashboard() {
                 <MapPin size={18} className="text-[#2c9c92]" />
               </div>
               <div className="mt-5 space-y-3">
-                <div className="flex items-center justify-between rounded-2xl bg-[#f5f8fc] px-3.5 py-3">
-                  <span className="text-[12px] font-bold text-[#45627e]">Old Sagay</span>
-                  <span className="text-[11px] font-extrabold text-[#7790a9]">3 reports</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl bg-[#f5f8fc] px-3.5 py-3">
-                  <span className="text-[12px] font-bold text-[#45627e]">SUNN campus</span>
-                  <span className="text-[11px] font-extrabold text-[#7790a9]">1 report</span>
-                </div>
+                {routeSummary.length ? routeSummary.map(([location, count]) => (
+                  <div key={location} className="flex items-center justify-between gap-3 rounded-2xl bg-[#f5f8fc] px-3.5 py-3">
+                    <span className="truncate text-[12px] font-bold text-[#45627e]">{location}</span>
+                    <span className="shrink-0 text-[11px] font-extrabold text-[#7790a9]">{count} {count === 1 ? "report" : "reports"}</span>
+                  </div>
+                )) : <p className="rounded-2xl bg-[#f5f8fc] px-3.5 py-4 text-[11px] text-[#8aa0b6]">No report locations recorded yet.</p>}
               </div>
               <p className="mt-4 text-[11px] leading-4 text-[#8aa0b6]">Locations are shown to help you recognize a report, not to track your movement.</p>
             </div>
@@ -329,7 +373,7 @@ export function StudentDashboard() {
               <StatusPill status={selectedReport.status} />
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f4f7fb] px-2.5 py-1 text-[11px] font-bold text-[#6e849d]">
                 <CalendarDays size={12} />
-                {selectedReport.dateShort} 2024
+                {selectedReport.date}
               </span>
             </div>
             <p className="mt-6 text-[14px] leading-6 text-[#526f89]">{selectedReport.summary}</p>

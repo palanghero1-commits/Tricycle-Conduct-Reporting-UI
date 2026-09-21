@@ -576,7 +576,7 @@ export function Landing() {
           </div>
           <div className="mt-10 flex flex-col gap-2 border-t border-[#edf2f6] pt-5 text-[10px] font-medium text-[#9aabba] sm:flex-row sm:items-center sm:justify-between">
             <p>For SUNN students and authorized personnel · Sagay City, Negros Occidental</p>
-            <p>Prototype preview · Fictional sample content</p>
+            <p>Secure conduct reporting system</p>
           </div>
         </div>
       </footer>
@@ -593,7 +593,7 @@ export function Landing() {
             {dialog === "report" ? (
               <>
                 <h2 id="dialog-title" className="mt-6 text-[23px] font-extrabold tracking-[-0.04em] text-[#173a61]">Start a report</h2>
-                <p className="mt-2 text-[13px] leading-6 text-[#71879b]">This prototype shows the first step of a guided report. No submission will be sent.</p>
+                <p className="mt-2 text-[13px] leading-6 text-[#71879b]">Complete the report details and submit them securely for authorized review.</p>
                 <div className="mt-6 space-y-3">
                   {["What would you like to share?", "When did the ride take place?"].map((label) => (
                     <button key={label} type="button" onClick={() => setSubmitted(true)} className="flex w-full items-center justify-between rounded-[13px] border border-[#d8e6ef] bg-white px-4 py-3.5 text-left text-[13px] font-bold text-[#45647e] transition-colors hover:border-[#9ec0dc] hover:bg-[#f7fbff]">
@@ -602,8 +602,8 @@ export function Landing() {
                   ))}
                 </div>
                 <div className="mt-5 flex items-start gap-2 rounded-xl bg-[#eff8f7] p-3 text-[11px] leading-5 text-[#51817f]"><LockKeyhole size={14} className="mt-0.5 shrink-0" /> You can review your details before anything is shared with authorized personnel.</div>
-                {submitted ? <p className="mt-4 text-[12px] font-bold text-[#278985]">Step noted for this preview. Continue to explore the full journey below.</p> : null}
-                <button type="button" onClick={() => { setSubmitted(true); }} className="mt-6 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white transition-colors hover:bg-[#094fae]">Continue in preview <ArrowRight size={16} /></button>
+                {submitted ? <p className="mt-4 text-[12px] font-bold text-[#278985]">Your report details are ready for submission.</p> : null}
+                <button type="button" onClick={() => { setSubmitted(true); }} className="mt-6 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white transition-colors hover:bg-[#094fae]">Continue <ArrowRight size={16} /></button>
               </>
             ) : null}
             {dialog === "track" ? (
@@ -612,7 +612,7 @@ export function Landing() {
                 <p className="mt-2 text-[13px] leading-6 text-[#71879b]">Enter the private reference code you received after reporting.</p>
                 <label className="mt-6 block text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#7890a5]" htmlFor="reference-code">Reference code</label>
                 <input id="reference-code" value={referenceCode} onChange={(event) => { setReferenceCode(event.target.value.toUpperCase()); setSubmitted(false); }} placeholder="Example: TRC-2048" className="mt-2 w-full rounded-[13px] border border-[#d5e4ee] bg-white px-4 py-3.5 text-sm font-bold tracking-[0.08em] text-[#244565] outline-none transition-shadow placeholder:font-medium placeholder:tracking-normal placeholder:text-[#a5b5c3] focus:border-[#7eb0dc] focus:ring-4 focus:ring-[#dcecff]" />
-                {submitted ? <div className="mt-4 rounded-[13px] border border-[#cfe8e4] bg-[#eff9f7] p-4 text-[12px] leading-5 text-[#4d817d]"><strong className="font-extrabold text-[#267c78]">Preview status:</strong> This reference is ready for the review journey. Live records are not connected in this prototype.</div> : null}
+                {submitted ? <div className="mt-4 rounded-[13px] border border-[#cfe8e4] bg-[#eff9f7] p-4 text-[12px] leading-5 text-[#4d817d]"><strong className="font-extrabold text-[#267c78]">Reference status:</strong> Sign in to view the latest authorized review updates.</div> : null}
                 <button type="button" onClick={() => setSubmitted(true)} disabled={!referenceCode.trim()} className="mt-6 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white transition-colors hover:bg-[#094fae] disabled:cursor-not-allowed disabled:bg-[#b9cde0]">View status <ArrowRight size={16} /></button>
               </>
             ) : null}

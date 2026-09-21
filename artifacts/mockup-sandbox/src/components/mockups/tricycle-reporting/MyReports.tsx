@@ -1,10 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
   Clock3,
-  Eye,
   FileSearch,
   FileText,
   Info,
@@ -16,12 +15,14 @@ import {
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest, formatPhilippineDate, formatPhilippineDateTime } from "../../../lib/api";
 
 type ReportStatus = "Under Review" | "Resolved" | "Closed";
 type ReportCategory = "Fare concern" | "Route concern" | "Driver conduct" | "Vehicle condition";
 
 type ReportRecord = {
   id: string;
+  complaintId?: string;
   date: string;
   submittedAt: string;
   category: ReportCategory;
@@ -31,6 +32,7 @@ type ReportRecord = {
   lastUpdate: string;
   updateNote: string;
   confirmedViolation: boolean;
+  reviewNotes?: Array<{ id: number; authorName: string; authorRole: string; description: string; createdAt: string }>;
 };
 
 const records: ReportRecord[] = [
@@ -234,6 +236,28 @@ function ReportDetails({
               </div>
             </div>
           </div>
+          {report.reviewNotes?.length ? (
+            <div className="rounded-2xl border border-[#dbe5f0] bg-white p-4">
+              <div className="flex items-center gap-2">
+                <FileText size={16} className="text-[#0c5bce]" />
+                <p className="text-[12px] font-extrabold text-[#234b7c]">Authorized personnel notes</p>
+              </div>
+              <div className="mt-3 space-y-3">
+                {report.reviewNotes.map((note) => (
+                  <div key={note.id} className="border-t border-[#eef2f6] pt-3 first:border-0 first:pt-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[#8295aa]">
+                      <span className="font-bold text-[#4a6580]">{note.authorName || "Authorized reviewer"}</span>
+                      <span>·</span>
+                      <span>{note.authorRole.replaceAll("_", " ")}</span>
+                      <span>·</span>
+                      <span>{formatPhilippineDateTime(note.createdAt)}</span>
+                    </div>
+                    <p className="mt-1.5 text-[12px] leading-5 text-[#657d94]">{note.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="flex items-start gap-3 rounded-2xl border border-[#eadfc8] bg-[#fffaf0] p-4">
             <ShieldCheck size={17} className="mt-0.5 shrink-0 text-[#a4762a]" />
             <p className="text-[11px] leading-5 text-[#735e37]">
@@ -252,8 +276,26 @@ export function MyReports() {
   const [category, setCategory] = useState("All categories");
   const [dateRange, setDateRange] = useState("Any date");
   const [sortDescending, setSortDescending] = useState(true);
-  const [showEmptyState, setShowEmptyState] = useState(false);
   const [selectedReport, setSelectedReport] = useState<ReportRecord | null>(null);
+  const [liveRecords, setLiveRecords] = useState<ReportRecord[]>([]);
+
+  useEffect(() => {
+    apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; incidentTime: string; location: string; description: string; createdAt: string }> }>("/complaints")
+      .then(({ complaints }) => setLiveRecords(complaints.map((item) => ({
+        id: item.referenceNumber,
+        complaintId: item.id,
+        date: item.incidentDate,
+        submittedAt: `${item.incidentDate} · ${item.incidentTime}`,
+        category: item.categoryName as ReportCategory,
+        status: item.status === "CLOSED" ? "Closed" : item.status === "RESOLVED" ? "Resolved" : "Under Review",
+        location: item.location,
+        summary: item.description,
+        lastUpdate: formatPhilippineDate(item.createdAt),
+        updateNote: "Current status is shown from the review record.",
+        confirmedViolation: false,
+      } as ReportRecord))))
+      .catch(() => setLiveRecords([]));
+  }, []);
 
   const filteredRecords = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -265,7 +307,7 @@ export function MyReports() {
           ? new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
           : null;
 
-    return records
+    return liveRecords
       .filter((report) => {
         const searchable = `${report.id} ${report.category} ${report.location} ${report.summary}`.toLowerCase();
         const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
@@ -278,7 +320,7 @@ export function MyReports() {
         const difference = new Date(`${a.date}T00:00:00`).getTime() - new Date(`${b.date}T00:00:00`).getTime();
         return sortDescending ? -difference : difference;
       });
-  }, [category, dateRange, query, sortDescending, status]);
+  }, [category, dateRange, liveRecords, query, sortDescending, status]);
 
   const activeFilterCount = [status !== "All statuses", category !== "All categories", dateRange !== "Any date"].filter(Boolean).length;
   const hasFilters = Boolean(query.trim()) || activeFilterCount > 0;
@@ -288,6 +330,23 @@ export function MyReports() {
     setStatus("All statuses");
     setCategory("All categories");
     setDateRange("Any date");
+  };
+
+  const openReport = (report: ReportRecord) => {
+    setSelectedReport({ ...report, reviewNotes: [] });
+    if (!report.complaintId) return;
+    apiRequest<{ actions: Array<{ id: number; description: string; authorName?: string; authorRole?: string; created_at: string; createdAt?: string }> }>(`/complaints/${report.complaintId}`)
+      .then(({ actions }) => setSelectedReport((current) => current?.id === report.id ? {
+        ...current,
+        reviewNotes: actions.map((action) => ({
+          id: action.id,
+          authorName: action.authorName ?? "Authorized reviewer",
+          authorRole: action.authorRole ?? "AUTHORIZED_PERSONNEL",
+          description: action.description,
+          createdAt: action.createdAt ?? action.created_at,
+        })),
+      } : current))
+      .catch(() => undefined);
   };
 
   return (
@@ -312,7 +371,7 @@ export function MyReports() {
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8ca0b6]">Total reports</p>
-              <p className="mt-0.5 text-[17px] font-extrabold tracking-[-0.03em] text-[#23405f]">{records.length}</p>
+              <p className="mt-0.5 text-[17px] font-extrabold tracking-[-0.03em] text-[#23405f]">{liveRecords.length}</p>
             </div>
           </div>
         </div>
@@ -356,7 +415,7 @@ export function MyReports() {
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-[11px] font-semibold text-[#8295aa]">
-            Showing <span className="font-extrabold text-[#46617d]">{showEmptyState ? 0 : filteredRecords.length}</span> of {records.length} reports
+            Showing <span className="font-extrabold text-[#46617d]">{filteredRecords.length}</span> of {liveRecords.length} reports
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {hasFilters ? (
@@ -365,19 +424,11 @@ export function MyReports() {
                 Clear filters
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setShowEmptyState((current) => !current)}
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition ${showEmptyState ? "border-[#b7cfee] bg-[#eaf2ff] text-[#0c5bce]" : "border-[#dbe5f0] bg-white text-[#71859e] hover:bg-[#f4f8fd]"}`}
-            >
-              <Eye size={13} />
-              {showEmptyState ? "Show sample records" : "Preview empty state"}
-            </button>
           </div>
         </div>
 
         <div className="mt-3 rounded-[22px] border border-[#dbe5f0] bg-white shadow-[0_6px_24px_rgba(35,64,95,0.045)]">
-          {!showEmptyState && filteredRecords.length > 0 ? (
+          {filteredRecords.length > 0 ? (
             <>
               <div className="hidden grid-cols-[1.2fr_1fr_1fr_1.15fr_0.65fr] items-center gap-4 border-b border-[#e4ebf3] px-6 py-3.5 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#91a3b7] lg:grid">
                 <span>Report</span>
@@ -431,7 +482,7 @@ export function MyReports() {
                       </p>
                       <button
                         type="button"
-                        onClick={() => setSelectedReport(report)}
+                        onClick={() => openReport(report)}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-[#dbe5f0] bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#0c5bce] transition hover:border-[#9dbde3] hover:bg-[#eaf2ff]"
                       >
                         View details
@@ -449,19 +500,17 @@ export function MyReports() {
                 <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-[#e8794f]" />
               </div>
               <h3 className="mt-5 text-[17px] font-extrabold tracking-[-0.025em] text-[#23405f]">
-                {showEmptyState ? "No reports in this view" : "No matching reports"}
+                {liveRecords.length === 0 ? "No reports yet" : "No matching reports"}
               </h3>
               <p className="mt-2 max-w-[390px] text-[12px] leading-5 text-[#8295aa]">
-                {showEmptyState
-                  ? "This is a local preview of the empty state students see before submitting their first report."
-                  : "Try a different keyword or remove one of your filters to see more report records."}
+                {liveRecords.length === 0 ? "Reports submitted from your account will appear here." : "Try a different keyword or remove one of your filters to see more report records."}
               </p>
               <button
                 type="button"
-                onClick={showEmptyState ? () => setShowEmptyState(false) : clearFilters}
+                onClick={clearFilters}
                 className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0c5bce] px-4 py-2.5 text-[11px] font-extrabold text-white shadow-[0_6px_16px_rgba(12,91,206,0.18)] transition hover:bg-[#084eaf]"
               >
-                {showEmptyState ? "Show sample records" : "Clear filters"}
+                Clear filters
                 <ChevronDown size={14} className="-rotate-90" />
               </button>
             </div>

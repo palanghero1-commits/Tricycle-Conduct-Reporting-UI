@@ -116,7 +116,7 @@ const roleConfig: Record<RoleKey, RoleLandingConfig> = {
       "A restricted starting point for authorized PNP personnel reviewing submitted reports, evidence, and internal notes.",
     primaryAction: "Open PNP review",
     secondaryAction: "Authorized sign in",
-    dashboardPath: "PNPReview",
+    dashboardPath: "OfficerDashboard",
     authRole: "personnel",
     icon: ShieldCheck,
     accent: "bg-[#557ba4]",

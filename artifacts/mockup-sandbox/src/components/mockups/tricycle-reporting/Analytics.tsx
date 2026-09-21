@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   BarChart3,
@@ -14,12 +14,13 @@ import {
   UsersRound,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest, philippineDateKey } from "../../../lib/api";
 
 type ReportStatus = "Open" | "In review" | "Resolved";
 type ReportCategory = "Unsafe driving" | "Overcharging" | "Route concern" | "Vehicle condition";
 type PeriodFilter = "30d" | "90d" | "year";
 
-type MockReport = {
+type AnalyticsReport = {
   id: string;
   date: string;
   category: ReportCategory;
@@ -27,35 +28,6 @@ type MockReport = {
   driver: string;
   resolutionDays: number | null;
 };
-
-const reports: MockReport[] = [
-  { id: "R-104", date: "2025-01-08", category: "Route concern", status: "Resolved", driver: "Rogelio M.", resolutionDays: 3 },
-  { id: "R-105", date: "2025-01-14", category: "Unsafe driving", status: "Resolved", driver: "Cesar P.", resolutionDays: 5 },
-  { id: "R-106", date: "2025-01-21", category: "Vehicle condition", status: "In review", driver: "Rogelio M.", resolutionDays: null },
-  { id: "R-107", date: "2025-01-26", category: "Overcharging", status: "Resolved", driver: "Nestor B.", resolutionDays: 4 },
-  { id: "R-108", date: "2025-02-03", category: "Unsafe driving", status: "Resolved", driver: "Rogelio M.", resolutionDays: 6 },
-  { id: "R-109", date: "2025-02-10", category: "Route concern", status: "Open", driver: "Edgar T.", resolutionDays: null },
-  { id: "R-110", date: "2025-02-15", category: "Overcharging", status: "Resolved", driver: "Nestor B.", resolutionDays: 2 },
-  { id: "R-111", date: "2025-02-23", category: "Vehicle condition", status: "Resolved", driver: "Cesar P.", resolutionDays: 8 },
-  { id: "R-112", date: "2025-03-02", category: "Unsafe driving", status: "In review", driver: "Rogelio M.", resolutionDays: null },
-  { id: "R-113", date: "2025-03-06", category: "Route concern", status: "Resolved", driver: "Edgar T.", resolutionDays: 3 },
-  { id: "R-114", date: "2025-03-12", category: "Overcharging", status: "Resolved", driver: "Nestor B.", resolutionDays: 4 },
-  { id: "R-115", date: "2025-03-20", category: "Vehicle condition", status: "Open", driver: "Cesar P.", resolutionDays: null },
-  { id: "R-116", date: "2025-03-27", category: "Unsafe driving", status: "Resolved", driver: "Rogelio M.", resolutionDays: 7 },
-  { id: "R-117", date: "2025-04-04", category: "Route concern", status: "Resolved", driver: "Edgar T.", resolutionDays: 2 },
-  { id: "R-118", date: "2025-04-09", category: "Overcharging", status: "In review", driver: "Nestor B.", resolutionDays: null },
-  { id: "R-119", date: "2025-04-18", category: "Unsafe driving", status: "Resolved", driver: "Rogelio M.", resolutionDays: 5 },
-  { id: "R-120", date: "2025-04-26", category: "Vehicle condition", status: "Resolved", driver: "Cesar P.", resolutionDays: 4 },
-  { id: "R-121", date: "2025-05-03", category: "Route concern", status: "Open", driver: "Edgar T.", resolutionDays: null },
-  { id: "R-122", date: "2025-05-11", category: "Unsafe driving", status: "Resolved", driver: "Rogelio M.", resolutionDays: 6 },
-  { id: "R-123", date: "2025-05-15", category: "Overcharging", status: "Resolved", driver: "Nestor B.", resolutionDays: 3 },
-  { id: "R-124", date: "2025-05-22", category: "Vehicle condition", status: "In review", driver: "Cesar P.", resolutionDays: null },
-  { id: "R-125", date: "2025-06-02", category: "Unsafe driving", status: "Resolved", driver: "Rogelio M.", resolutionDays: 4 },
-  { id: "R-126", date: "2025-06-08", category: "Route concern", status: "Resolved", driver: "Edgar T.", resolutionDays: 3 },
-  { id: "R-127", date: "2025-06-16", category: "Overcharging", status: "Open", driver: "Nestor B.", resolutionDays: null },
-  { id: "R-128", date: "2025-06-22", category: "Vehicle condition", status: "Resolved", driver: "Cesar P.", resolutionDays: 5 },
-  { id: "R-129", date: "2025-06-27", category: "Unsafe driving", status: "In review", driver: "Rogelio M.", resolutionDays: null },
-];
 
 const months = [
   { key: "01", label: "Jan" },
@@ -119,23 +91,48 @@ function ChartLegend({ color, children }: { color: string; children: ReactNode }
 }
 
 export function Analytics() {
+  const [liveReports, setLiveReports] = useState<AnalyticsReport[]>([]);
   const [period, setPeriod] = useState<PeriodFilter>("year");
   const [category, setCategory] = useState<"All" | ReportCategory>("All");
   const [status, setStatus] = useState<"All" | ReportStatus>("All");
 
-  const filteredReports = useMemo(() => {
-    const thresholdByPeriod: Record<PeriodFilter, string> = {
-      "30d": "2025-06-01",
-      "90d": "2025-04-01",
-      year: "2025-01-01",
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; driverName: string; categoryName: string; createdAt: string; resolvedAt: string | null }> }>("/complaints")
+        .then(({ complaints }) => {
+          if (!active) return;
+          setLiveReports(complaints.map((item) => ({
+            id: item.referenceNumber || item.id,
+            date: philippineDateKey(item.createdAt),
+            category: (item.categoryName as ReportCategory) || "Route concern",
+            status: item.status === "CLOSED" || item.status === "RESOLVED" ? "Resolved" : item.status === "UNDER_REVIEW" || item.status === "REFERRED" ? "In review" : "Open",
+            driver: item.driverName || "Unknown driver",
+            resolutionDays: item.resolvedAt ? Math.max(0, (new Date(item.resolvedAt.replace(" ", "T")).getTime() - new Date(item.createdAt.replace(" ", "T")).getTime()) / 86400000) : null,
+          })));
+        })
+        .catch(() => { if (active) setLiveReports([]); });
     };
-    return reports.filter((report) => {
+    load();
+    const timer = window.setInterval(load, 10000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+
+  const filteredReports = useMemo(() => {
+    const todayKey = philippineDateKey();
+    const today = new Date(`${todayKey}T00:00:00+08:00`);
+    const thresholdByPeriod: Record<PeriodFilter, string> = {
+      "30d": philippineDateKey(new Date(today.getTime() - 30 * 86400000)),
+      "90d": philippineDateKey(new Date(today.getTime() - 90 * 86400000)),
+      year: `${todayKey.slice(0, 4)}-01-01`,
+    };
+    return liveReports.filter((report) => {
       const inDateRange = report.date >= thresholdByPeriod[period];
       const matchesCategory = category === "All" || report.category === category;
       const matchesStatus = status === "All" || report.status === status;
       return inDateRange && matchesCategory && matchesStatus;
     });
-  }, [category, period, status]);
+  }, [category, liveReports, period, status]);
 
   const metrics = useMemo(() => {
     const resolved = filteredReports.filter((report) => report.status === "Resolved");
@@ -220,7 +217,7 @@ export function Analytics() {
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-[#dbe5f0] bg-white px-3 py-2 text-[11px] font-semibold text-[#71859e] shadow-[0_4px_15px_rgba(39,72,108,0.04)]">
             <span className="h-2 w-2 rounded-full bg-[#56a886]" />
-            Sample data · updated 30 Jun 2025
+            Live data · refreshed every 10 seconds
           </div>
         </section>
 

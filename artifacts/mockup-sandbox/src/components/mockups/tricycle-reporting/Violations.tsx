@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -19,11 +19,13 @@ import {
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest, getCurrentUser } from "../../../lib/api";
 
 type ViolationStatus = "Action pending" | "Action recorded" | "Closed for review";
 
 type Violation = {
   id: string;
+  complaintId: string;
   driver: string;
   driverInitials: string;
   relatedReport: string;
@@ -36,7 +38,8 @@ type Violation = {
   evidence: string;
 };
 
-const initialViolations: Violation[] = [
+const initialViolations: Violation[] = [];
+/*
   {
     id: "VIO-0427",
     driver: "Rogelio Manalo",
@@ -103,6 +106,7 @@ const initialViolations: Violation[] = [
     evidence: "Officer review and an updated operator record.",
   },
 ];
+*/
 
 const statusOptions: Array<"All statuses" | ViolationStatus> = [
   "All statuses",
@@ -137,7 +141,8 @@ function InitialsAvatar({ initials }: { initials: string }) {
 }
 
 export function Violations() {
-  const [violations, setViolations] = useState(initialViolations);
+  const isDriver = getCurrentUser()?.role === "DRIVER";
+  const [violations, setViolations] = useState<Violation[]>([]);
   const [activeTab, setActiveTab] = useState("All confirmed");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All statuses" | ViolationStatus>("All statuses");
@@ -147,7 +152,26 @@ export function Violations() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [actionNotice, setActionNotice] = useState("");
 
-  const types = useMemo(() => ["All types", ...Array.from(new Set(initialViolations.map((item) => item.type)))], []);
+  useEffect(() => {
+    apiRequest<{ violations: Array<{ id: number; complaintId: string; driver: string; relatedReport: string; type: string; dateValue: string; summary: string; action: string }> }>("/violations")
+      .then(({ violations: rows }) => setViolations(rows.map((row) => ({
+        id: `VIO-${row.id}`,
+        complaintId: row.complaintId,
+        driver: row.driver,
+        driverInitials: row.driver.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
+        relatedReport: row.relatedReport,
+        type: row.type,
+        date: new Date(`${row.dateValue}T00:00:00`).toLocaleDateString(),
+        dateValue: row.dateValue,
+        status: row.action ? "Action recorded" : "Action pending",
+        action: row.action || "Review pending",
+        summary: row.summary,
+        evidence: "Authorized review record.",
+      } as Violation))))
+      .catch(() => setViolations([]));
+  }, []);
+
+  const types = useMemo(() => ["All types", ...Array.from(new Set(violations.map((item) => item.type)))], [violations]);
 
   const filteredViolations = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -169,24 +193,34 @@ export function Violations() {
   const pendingCount = violations.filter((item) => item.status === "Action pending").length;
   const recordedCount = violations.filter((item) => item.status === "Action recorded").length;
 
-  function recordAction(id: string) {
-    setViolations((current) =>
-      current.map((item) => (item.id === id ? { ...item, status: "Action recorded" } : item)),
-    );
-    setSelectedViolation((current) => (current?.id === id ? { ...current, status: "Action recorded" } : current));
-    setActionNotice("Authorized action recorded locally for this prototype.");
+  async function recordAction(id: string) {
+    const violation = violations.find((item) => item.id === id);
+    if (!violation) return;
+    try {
+      await apiRequest(`/complaints/${violation.complaintId}/actions`, { method: "POST", body: JSON.stringify({ actionType: "Authorized action", description: "Authorized action recorded for the confirmed violation." }) });
+      setViolations((current) => current.map((item) => (item.id === id ? { ...item, status: "Action recorded" } : item)));
+      setSelectedViolation((current) => (current?.id === id ? { ...current, status: "Action recorded" } : current));
+      setActionNotice("Authorized action saved to the database.");
+    } catch (error) {
+      setActionNotice(error instanceof Error ? error.message : "Unable to save the authorized action.");
+    }
   }
 
-  function closeForReview(id: string) {
-    setViolations((current) =>
-      current.map((item) => (item.id === id ? { ...item, status: "Closed for review" } : item)),
-    );
-    setSelectedViolation((current) => (current?.id === id ? { ...current, status: "Closed for review" } : current));
-    setActionNotice("Record marked closed for review locally.");
+  async function closeForReview(id: string) {
+    const violation = violations.find((item) => item.id === id);
+    if (!violation) return;
+    try {
+      await apiRequest(`/complaints/${violation.complaintId}/status`, { method: "PATCH", body: JSON.stringify({ status: "CLOSED", remarks: "Violation record closed for review." }) });
+      setViolations((current) => current.map((item) => (item.id === id ? { ...item, status: "Closed for review" } : item)));
+      setSelectedViolation((current) => (current?.id === id ? { ...current, status: "Closed for review" } : current));
+      setActionNotice("Report status saved as closed.");
+    } catch (error) {
+      setActionNotice(error instanceof Error ? error.message : "Unable to close the report.");
+    }
   }
 
   return (
-    <AppLayout officer active="Violations" title="Confirmed violations" eyebrow="Review center">
+    <AppLayout officer active="Violations" title="Confirmed violations" eyebrow={isDriver ? "Driver space" : "Review center"}>
       <div className="space-y-7">
         <section className="relative overflow-hidden rounded-[24px] border border-[#d8e4f1] bg-white px-6 py-6 shadow-[0_14px_34px_rgba(33,66,106,0.05)] lg:px-8 lg:py-7">
           <div className="absolute right-[-34px] top-[-45px] h-44 w-44 rounded-full border-[22px] border-[#edf4ff]" />
@@ -233,7 +267,7 @@ export function Violations() {
               <div>
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#aac7ed]">Record overview</p>
                 <p className="mt-2 text-[31px] font-black tracking-[-0.05em]">{violations.length}</p>
-                <p className="mt-1 text-[12px] font-semibold text-[#c3d4ea]">confirmed records in the prototype</p>
+                <p className="mt-1 text-[12px] font-semibold text-[#c3d4ea]">confirmed records in the system</p>
               </div>
               <div className="rounded-xl bg-white/10 p-2.5 text-[#b9d5ff]">
                 <ClipboardCheck size={19} />
@@ -455,14 +489,14 @@ export function Violations() {
                 <p className="mt-3 border-t border-[#e8eef4] pt-3 text-[11px] leading-5 text-[#8497aa]"><span className="font-extrabold text-[#647b93]">Review basis:</span> {selectedViolation.evidence}</p>
               </div>
               <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
-                {selectedViolation.status === "Action pending" ? (
+                {!isDriver && selectedViolation.status === "Action pending" ? (
                   <button type="button" onClick={() => recordAction(selectedViolation.id)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1768c5] px-4 py-3 text-[12px] font-extrabold text-white shadow-[0_8px_16px_rgba(23,104,197,0.2)] transition hover:bg-[#1258aa]"><CheckCircle2 size={15} />Record authorized action</button>
                 ) : null}
-                {selectedViolation.status !== "Closed for review" ? (
+                {!isDriver && selectedViolation.status !== "Closed for review" ? (
                   <button type="button" onClick={() => closeForReview(selectedViolation.id)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#d8e4f1] px-4 py-3 text-[12px] font-extrabold text-[#4d6781] transition hover:bg-[#f6f9fc]"><ArrowUpRight size={15} />Close for review</button>
                 ) : null}
               </div>
-              <p className="mt-4 flex items-start gap-2 text-[10px] leading-4 text-[#8a9caf]"><UserRound size={13} className="mt-0.5 shrink-0" />Actions shown here are local prototype interactions and do not change a live record.</p>
+              <p className="mt-4 flex items-start gap-2 text-[10px] leading-4 text-[#8a9caf]"><UserRound size={13} className="mt-0.5 shrink-0" />{isDriver ? "This record is read-only for your account." : "Actions are recorded for authorized review."}</p>
             </aside>
           </div>
         ) : null}

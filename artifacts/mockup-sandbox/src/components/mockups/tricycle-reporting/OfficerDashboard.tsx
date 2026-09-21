@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  Activity,
   BarChart3,
   CalendarDays,
   Check,
@@ -11,19 +12,20 @@ import {
   Download,
   FileCheck2,
   Flag,
+  Gauge,
   Info,
-  ListFilter,
   MapPin,
   RefreshCw,
   Search,
-  ShieldAlert,
   ShieldCheck,
-  SlidersHorizontal,
   TimerReset,
   TrendingUp,
+  UsersRound,
   X,
+  UserPlus,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest, formatPhilippineDate, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
 
 type ReportStatus = "Needs review" | "In review" | "Resolved";
 type Report = {
@@ -37,6 +39,15 @@ type Report = {
   summary: string;
   reports: string;
 };
+
+function previewUrl(component: string) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  return `${base}/preview/tricycle-reporting/${component}`;
+}
+
+function navigateTo(component: string) {
+  window.location.href = previewUrl(component);
+}
 
 const reports: Report[] = [
   {
@@ -162,16 +173,108 @@ function MetricCard({
 }
 
 export function OfficerDashboard() {
+  const currentUser = getCurrentUser();
+  const isAuthorizedPersonnel = currentUser?.role === "AUTHORIZED_PERSONNEL";
+  const isTodaPresident = currentUser?.role === "TODA_PRESIDENT";
+  const isPnpReviewer = currentUser?.role === "PNP";
+  const [activeSection, setActiveSection] = useState(() => window.location.hash === "#todas" ? "TODAs" : "Dashboard");
+  const [activePanel, setActivePanel] = useState<"Overview" | "People" | "Activity">(() => window.location.hash === "#todas" ? "People" : "Overview");
   const [statusFilter, setStatusFilter] = useState<"All" | ReportStatus>("All");
   const [timeRange, setTimeRange] = useState("Last 7 days");
   const [selectedId, setSelectedId] = useState("RPT-2418");
   const [searchTerm, setSearchTerm] = useState("");
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [notice, setNotice] = useState("");
+  const [liveReports, setLiveReports] = useState<Report[]>([]);
+  const [showPresidentForm, setShowPresidentForm] = useState(false);
+  const [showTodaForm, setShowTodaForm] = useState(false);
+  const [todaForm, setTodaForm] = useState({ name: "", barangay: "", city: "Sagay City", province: "Negros Occidental" });
+  const [todas, setTodas] = useState<Array<{ id: number; name: string; barangay: string; city: string; province: string; presidentUserId: string | null }>>([]);
+  const [presidentForm, setPresidentForm] = useState<{ fullName: string; email: string; password: string; todaId: string; status?: string }>({ fullName: "", email: "", password: "", todaId: "1", status: "ACTIVE" });
+  const [presidents, setPresidents] = useState<Array<{ id: string; fullName: string; email: string; todaId: number; todaName: string; status: string }>>([]);
+  const [editingPresidentId, setEditingPresidentId] = useState<string | null>(null);
+
+  const loadReports = () =>
+    apiRequest<{ complaints: Array<{ referenceNumber: string; status: string; location: string; categoryName: string; description: string; createdAt: string; driverName: string }> }>("/complaints")
+      .then(({ complaints }) => setLiveReports(complaints.map((item) => ({
+        id: item.referenceNumber,
+        time: formatPhilippineDateTime(item.createdAt),
+        relative: formatPhilippineDate(item.createdAt),
+        location: item.location,
+        category: item.categoryName,
+        status: item.status === "RESOLVED" || item.status === "CLOSED" ? "Resolved" : item.status === "UNDER_REVIEW" || item.status === "REFERRED" ? "In review" : "Needs review",
+        reference: item.driverName,
+        summary: item.description,
+        reports: "1 report",
+      } as Report))));
+
+  useEffect(() => {
+    void loadReports().catch(() => setLiveReports([]));
+    const timer = window.setInterval(() => { void loadReports().catch(() => undefined); }, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const syncSection = () => {
+      const isTODASection = window.location.hash === "#todas";
+      setActiveSection(isTODASection ? "TODAs" : "Dashboard");
+      if (isTODASection) setActivePanel("People");
+    };
+    syncSection();
+    window.addEventListener("hashchange", syncSection);
+    return () => window.removeEventListener("hashchange", syncSection);
+  }, []);
+
+  const loadTodaAdministration = async () => {
+    const [todaData, presidentData] = await Promise.all([
+      apiRequest<{ todas: Array<{ id: number; name: string; barangay: string; city: string; province: string; presidentUserId: string | null }> }>("/todas"),
+      apiRequest<{ presidents: Array<{ id: string; fullName: string; email: string; todaId: number; todaName: string; status: string }> }>("/users/toda-presidents"),
+    ]);
+    setTodas(todaData.todas);
+    setPresidents(presidentData.presidents);
+    if (todaData.todas[0]) setPresidentForm((form) => ({ ...form, todaId: String(todaData.todas[0].id) }));
+  };
+
+  useEffect(() => {
+    if (isAuthorizedPersonnel) {
+      void loadTodaAdministration().catch(() => { setTodas([]); setPresidents([]); });
+    } else if (isTodaPresident) {
+      void apiRequest<{ todas: Array<{ id: number; name: string; barangay: string; city: string; province: string; presidentUserId: string | null }> }>("/todas")
+        .then(({ todas: assignedTodas }) => setTodas(assignedTodas))
+        .catch(() => setTodas([]));
+    }
+  }, [isAuthorizedPersonnel, isTodaPresident]);
+
+  const createPresident = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      await apiRequest(editingPresidentId ? `/users/toda-presidents/${editingPresidentId}` : "/users/toda-presidents", { method: editingPresidentId ? "PATCH" : "POST", body: JSON.stringify({ ...presidentForm, todaId: Number(presidentForm.todaId) }) });
+      await loadTodaAdministration();
+      setPresidentForm({ fullName: "", email: "", password: "", todaId: todas[0] ? String(todas[0].id) : "1", status: "ACTIVE" });
+      setEditingPresidentId(null);
+      setShowPresidentForm(false);
+      announce(editingPresidentId ? "TODA President account updated." : "TODA President account created.");
+    } catch (error) {
+      announce(error instanceof Error ? error.message : "Unable to save account.");
+    }
+  };
+
+  const createToda = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      await apiRequest("/todas", { method: "POST", body: JSON.stringify(todaForm) });
+      await loadTodaAdministration();
+      setTodaForm({ name: "", barangay: "", city: "Sagay City", province: "Negros Occidental" });
+      setShowTodaForm(false);
+      announce("Designated location saved.");
+    } catch (error) {
+      announce(error instanceof Error ? error.message : "Unable to save TODA.");
+    }
+  };
 
   const filteredReports = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    return reports.filter((report) => {
+    return liveReports.filter((report) => {
       const matchesStatus = statusFilter === "All" || report.status === statusFilter;
       const matchesSearch =
         !term ||
@@ -180,16 +283,95 @@ export function OfficerDashboard() {
     });
   }, [searchTerm, statusFilter]);
 
-  const selectedReport = reports.find((report) => report.id === selectedId) ?? filteredReports[0];
-  const visibleActivity = showAllActivity ? activity : activity.slice(0, 3);
+  const metrics = useMemo(() => {
+    const awaiting = liveReports.filter((report) => report.status === "Needs review").length;
+    const inReview = liveReports.filter((report) => report.status === "In review").length;
+    const resolved = liveReports.filter((report) => report.status === "Resolved").length;
+    return { total: liveReports.length, awaiting, inReview, resolved };
+  }, [liveReports]);
+
+  const categoryMetrics = useMemo(() => {
+    const counts = liveReports.reduce<Record<string, number>>((accumulator, report) => {
+      accumulator[report.category] = (accumulator[report.category] ?? 0) + 1;
+      return accumulator;
+    }, {});
+    const colors = ["bg-[#2e78ad]", "bg-[#6c9a7d]", "bg-[#c18a48]", "bg-[#7b6b93]", "bg-[#d16f5b]"];
+    const total = Math.max(liveReports.length, 1);
+    return Object.entries(counts)
+      .sort(([, left], [, right]) => right - left)
+      .slice(0, 5)
+      .map(([label, count], index) => ({
+        label,
+        count,
+        color: colors[index % colors.length],
+        width: `${Math.max(8, Math.round((count / total) * 100))}%`,
+      }));
+  }, [liveReports]);
+
+  const liveActivity = useMemo(
+    () =>
+      liveReports.slice(0, 6).map((report) => ({
+        label: `${report.id} ${report.status.toLowerCase()}`,
+        meta: `${report.category} / ${report.relative}`,
+        color:
+          report.status === "Resolved"
+            ? "bg-[#65a07e]"
+            : report.status === "In review"
+              ? "bg-[#4381ad]"
+              : "bg-[#d58b3d]",
+      })),
+    [liveReports],
+  );
+
+  const dailyMetrics = useMemo(() => {
+    const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const counts = Array.from({ length: 7 }, () => 0);
+    liveReports.forEach((report) => {
+      const created = new Date(report.time);
+      if (!Number.isNaN(created.getTime())) {
+        counts[created.getDay()] += 1;
+      }
+    });
+    const max = Math.max(...counts, 1);
+    return counts.map((count, index) => ({
+      label: labels[index],
+      count,
+      height: `${Math.max(count ? 12 : 3, Math.round((count / max) * 100))}%`,
+    }));
+  }, [liveReports]);
+
+  const selectedReport = liveReports.find((report) => report.id === selectedId) ?? filteredReports[0];
+  const selectedToda = todas.find((toda) => String(toda.id) === presidentForm.todaId);
+  const visibleActivity = showAllActivity ? liveActivity : liveActivity.slice(0, 3);
 
   const announce = (message: string) => {
     setNotice(message);
     window.setTimeout(() => setNotice(""), 2600);
   };
 
+  const exportView = () => {
+    const snapshot = {
+      exportedAt: new Date().toISOString(),
+      statusFilter,
+      timeRange,
+      reports: filteredReports,
+    };
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `officer-report-view-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    announce("Live report view exported.");
+  };
+
   return (
-    <AppLayout officer active="Dashboard" title="Officer dashboard" eyebrow="Authorized review · Old Sagay / SUNN">
+    <AppLayout officer active={isAuthorizedPersonnel ? activeSection : "Dashboard"} title={isAuthorizedPersonnel && activeSection === "TODAs" ? "TODA administration" : isPnpReviewer ? "PNP review dashboard" : "TODA officer dashboard"} eyebrow={isAuthorizedPersonnel && activeSection === "TODAs" ? "TODA accounts · Authorized personnel" : isPnpReviewer ? "PNP review center · Old Sagay" : "TODA operations · Old Sagay / SUNN"}>
       <div className="space-y-7">
         <section className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
           <div>
@@ -209,14 +391,18 @@ export function OfficerDashboard() {
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => announce("Dashboard snapshot refreshed")}
+              onClick={() =>
+                loadReports()
+                  .then(() => announce("Dashboard refreshed."))
+                  .catch(() => announce("Unable to refresh dashboard data."))
+              }
               className="inline-flex items-center gap-2 rounded-xl border border-[#d5e0ea] bg-white px-3.5 py-2.5 text-[12px] font-bold text-[#55708d] transition hover:border-[#a9c2d8] hover:text-[#245d8e]"
             >
               <RefreshCw size={15} /> Refresh
             </button>
             <button
               type="button"
-              onClick={() => announce("Export prepared for this prototype view")}
+              onClick={exportView}
               className="inline-flex items-center gap-2 rounded-xl bg-[#1e638d] px-3.5 py-2.5 text-[12px] font-bold text-white shadow-[0_5px_14px_rgba(30,99,141,0.2)] transition hover:bg-[#194f72]"
             >
               <Download size={15} /> Export view
@@ -224,11 +410,127 @@ export function OfficerDashboard() {
           </div>
         </section>
 
+        {isTodaPresident ? (
+          <section className="rounded-2xl border border-[#c9ddec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#eaf4ff] text-[#2671b1]"><MapPin size={17} /></div>
+              <div>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#6e8ca8]">Assigned TODA account</p>
+                <h3 className="mt-1 text-[19px] font-extrabold text-[#173f50]">{todas[0]?.name ?? "No TODA assignment"}</h3>
+                <p className="mt-1 text-[12px] text-[#6d8499]">Your TODA and designated location are assigned by Authorized Personnel and cannot be edited from this account.</p>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3 border-t border-[#e5edf3] pt-4 sm:grid-cols-3">
+              <div><p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#8a9daf]">Barangay</p><p className="mt-1 text-[12px] font-bold text-[#345570]">{todas[0]?.barangay ?? "Not assigned"}</p></div>
+              <div><p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#8a9daf]">City</p><p className="mt-1 text-[12px] font-bold text-[#345570]">{todas[0]?.city ?? "Not assigned"}</p></div>
+              <div><p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#8a9daf]">Province</p><p className="mt-1 text-[12px] font-bold text-[#345570]">{todas[0]?.province ?? "Not assigned"}</p></div>
+            </div>
+          </section>
+        ) : null}
+
+        {isAuthorizedPersonnel ? (
+          <div className="flex items-center gap-1 border-b border-[#dbe5ed]">
+            {(["Overview", "People", "Activity"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActivePanel(tab)}
+                className={`relative px-3 pb-3 pt-1 text-[12px] font-extrabold transition ${activePanel === tab ? "text-[#1f638d]" : "text-[#8b9caf] hover:text-[#4f6e89]"}`}
+              >
+                {tab === "Activity" ? (
+                  <Activity size={14} className="mr-1.5 inline" />
+                ) : tab === "People" ? (
+                  <UsersRound size={14} className="mr-1.5 inline" />
+                ) : (
+                  <Gauge size={14} className="mr-1.5 inline" />
+                )}
+                {tab}
+                {activePanel === tab ? (
+                  <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-[#2d759c]" />
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {isAuthorizedPersonnel && activePanel === "People" ? (
+          <>
+            {activeSection === "TODAs" ? (
+              <>
+                <div className="mb-5 grid gap-3 sm:grid-cols-3">
+                  {[
+                    { label: "Registered locations", value: todas.length, tone: "text-[#256c8d]", background: "bg-[#eaf5fa]" },
+                    { label: "Assigned presidents", value: presidents.length, tone: "text-[#2d8478]", background: "bg-[#eaf8f4]" },
+                    { label: "Needs assignment", value: Math.max(todas.filter((toda) => !toda.presidentUserId).length, 0), tone: "text-[#ad7332]", background: "bg-[#fff6e9]" },
+                  ].map((metric) => (
+                    <div key={metric.label} className="rounded-2xl border border-[#d9e3ec] bg-white p-4 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
+                      <div className={`mb-4 flex h-8 w-8 items-center justify-center rounded-xl ${metric.background} ${metric.tone}`}><UsersRound size={16} /></div>
+                      <p className="font-mono text-[25px] font-bold tracking-[-0.05em] text-[#183654]">{metric.value}</p>
+                      <p className="mt-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#8193a8]">{metric.label}</p>
+                    </div>
+                  ))}
+                </div>
+                <section className="mb-5 rounded-2xl border border-[#c9ddec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                    <div>
+                      <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#397a91]">Designated location directory</p>
+                      <h3 className="mt-1 text-[18px] font-extrabold text-[#173f50]">Register a location in Sagay City</h3>
+                      <p className="mt-1 text-[12px] text-[#6d8499]">Choose the city first, then record the barangay where the TODA operates.</p>
+                    </div>
+                    <button type="button" onClick={() => setShowTodaForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1e638d] px-4 py-2.5 text-[12px] font-bold text-white hover:bg-[#194f72]"><MapPin size={15} /> {showTodaForm ? "Close form" : "Add location"}</button>
+                  </div>
+                  {showTodaForm ? (
+                    <form onSubmit={createToda} className="mt-5 grid gap-3 border-t border-[#dbe8ef] pt-5 sm:grid-cols-2">
+                      <input required value={todaForm.city} onChange={(event) => setTodaForm({ ...todaForm, city: event.target.value })} placeholder="City / Municipality" className="rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px]" />
+                      <input required value={todaForm.barangay} onChange={(event) => setTodaForm({ ...todaForm, barangay: event.target.value })} placeholder="Barangay under the city" className="rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px]" />
+                      <input required value={todaForm.province} onChange={(event) => setTodaForm({ ...todaForm, province: event.target.value })} placeholder="Province" className="rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px]" />
+                      <button type="submit" className="rounded-xl bg-[#1e638d] px-4 py-2.5 text-[12px] font-bold text-white sm:col-span-2">Save location</button>
+                    </form>
+                  ) : null}
+                </section>
+              </>
+            ) : null}
+          <section className="rounded-2xl border border-[#b9dcd4] bg-[#effaf7] p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+              <div>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#398178]">Personnel administration</p>
+                <h3 className="mt-1 text-[18px] font-extrabold text-[#173f50]">Manage TODA leadership accounts</h3>
+                <p className="mt-1 text-[12px] text-[#5a7f83]">Create a live TODA President account and assign it to a registered TODA.</p>
+              </div>
+              <button type="button" onClick={() => { setEditingPresidentId(null); setPresidentForm({ fullName: "", email: "", password: "", todaId: todas[0] ? String(todas[0].id) : "1", status: "ACTIVE" }); setShowPresidentForm((value) => !value); }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#238d80] px-4 py-2.5 text-[12px] font-bold text-white hover:bg-[#1b756b]"><UserPlus size={15} /> {showPresidentForm ? "Close form" : "Create TODA President"}</button>
+            </div>
+            {showPresidentForm ? (
+              <form onSubmit={createPresident} className="mt-5 grid gap-3 border-t border-[#cde8e2] pt-5 sm:grid-cols-2">
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#6b8b8d] sm:col-span-2">User account data</p>
+                <input required value={presidentForm.fullName} onChange={(event) => setPresidentForm({ ...presidentForm, fullName: event.target.value })} placeholder="Full name" className="rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px]" />
+                <input required type="email" value={presidentForm.email} onChange={(event) => setPresidentForm({ ...presidentForm, email: event.target.value })} placeholder="Email address" className="rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px]" />
+                <input required={!editingPresidentId} minLength={8} type="password" value={presidentForm.password} onChange={(event) => setPresidentForm({ ...presidentForm, password: event.target.value })} placeholder={editingPresidentId ? "New password (optional)" : "Temporary password"} className="rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px]" />
+                <select required value={presidentForm.status} onChange={(event) => setPresidentForm({ ...presidentForm, status: event.target.value })} className="rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px]"><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select>
+                <div className="sm:col-span-2">
+                  <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#6b8b8d]">Designated location</p>
+                  <select required disabled={!todas.length} value={todas.length ? presidentForm.todaId : ""} onChange={(event) => setPresidentForm({ ...presidentForm, todaId: event.target.value })} className="w-full rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px] disabled:cursor-not-allowed disabled:bg-[#f3f7f7]">{todas.length ? todas.map((toda) => <option key={toda.id} value={toda.id}>{toda.name}{toda.presidentUserId ? " · replace president" : ""}</option>) : <option value="">No TODA assignments available</option>}</select>
+                  <div className="mt-2 rounded-xl border border-[#cde8e2] bg-[#f7fcfb] px-3 py-2.5 text-[11px] text-[#52777a]">
+                    <span className="font-extrabold text-[#35686a]">Read-only designated location:</span>{" "}
+                    {selectedToda ? `${selectedToda.barangay}, ${selectedToda.city}, ${selectedToda.province}` : "No address available"}
+                  </div>
+                </div>
+                <button type="submit" className="rounded-xl bg-[#238d80] px-4 py-2.5 text-[12px] font-bold text-white sm:col-span-2">{editingPresidentId ? "Save changes" : "Create account"}</button>
+              </form>
+            ) : null}
+            <div className="mt-5 space-y-2 border-t border-[#cde8e2] pt-4">
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#6b8b8d]">Current TODA presidents ({presidents.length})</p>
+              {presidents.length ? presidents.map((president) => <div key={president.id} className="flex flex-col justify-between gap-2 rounded-xl bg-white px-3 py-2.5 text-[12px] sm:flex-row sm:items-center"><span><strong className="text-[#244b5d]">{president.fullName}</strong><span className="ml-2 text-[#789397]">{president.todaName} · {president.email}</span></span><span className="flex gap-3"><button type="button" onClick={() => { setEditingPresidentId(president.id); setPresidentForm({ fullName: president.fullName, email: president.email, password: "", todaId: String(todas.find((toda) => toda.name === president.todaName)?.id ?? "1") }); setShowPresidentForm(true); }} className="font-bold text-[#287b78] hover:underline">Edit</button><button type="button" onClick={() => { if (window.confirm(`Delete ${president.fullName}'s account?`)) void apiRequest(`/users/toda-presidents/${president.id}`, { method: "DELETE" }).then(() => setPresidents((items) => items.filter((item) => item.id !== president.id))).catch((error) => announce(error instanceof Error ? error.message : "Unable to delete account.")); }} className="font-bold text-[#b45e55] hover:underline">Delete</button></span></div>) : <p className="text-[12px] text-[#6c898d]">No TODA President accounts registered yet.</p>}
+            </div>
+          </section>
+          </>
+        ) : null}
+
+        {(!isAuthorizedPersonnel || activePanel === "Overview") ? <>
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Reports received" value="43" detail="+8.4%" accent="bg-[#2675b7]" icon={FileCheck2} direction="up" />
-          <MetricCard label="Awaiting review" value="12" detail="+2.1%" accent="bg-[#bc7a35]" icon={TimerReset} direction="up" />
-          <MetricCard label="In review" value="7" detail="−11.3%" accent="bg-[#5c8b83]" icon={Search} direction="down" />
-          <MetricCard label="Average first review" value="1h 42m" detail="−18 min" accent="bg-[#806c8f]" icon={Clock3} direction="down" />
+          <MetricCard label="Reports received" value={String(metrics.total)} detail="Live complaints" accent="bg-[#2675b7]" icon={FileCheck2} direction="up" />
+          <MetricCard label="Awaiting review" value={String(metrics.awaiting)} detail="Needs action" accent="bg-[#bc7a35]" icon={TimerReset} direction="up" />
+          <MetricCard label="In review" value={String(metrics.inReview)} detail="Active review" accent="bg-[#5c8b83]" icon={Search} direction="up" />
+          <MetricCard label="Resolved" value={String(metrics.resolved)} detail="Closed or resolved" accent="bg-[#806c8f]" icon={Clock3} direction="up" />
         </section>
 
         <section className="rounded-2xl border border-[#cfdfeb] bg-[#eaf4f8] px-4 py-3.5 sm:px-5">
@@ -244,7 +546,7 @@ export function OfficerDashboard() {
             </div>
             <button
               type="button"
-              onClick={() => announce("Review guidance opened")}
+              onClick={() => navigateTo("Violations")}
               className="shrink-0 self-start rounded-lg px-2 py-1 text-[11px] font-bold text-[#35758c] hover:bg-[#d9edf2] sm:self-center"
             >
               Review guidance <ChevronRight size={13} className="ml-1 inline" />
@@ -274,13 +576,6 @@ export function OfficerDashboard() {
                       className="h-9 w-full rounded-lg border border-[#dce5ed] bg-[#fbfcfd] pl-8 pr-3 text-[11px] font-medium text-[#36536f] outline-none placeholder:text-[#9aaaba] focus:border-[#8fb6cf] sm:w-[145px]"
                     />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => announce("Queue filters are shown in the status control")}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#dce5ed] bg-[#fbfcfd] px-2.5 text-[11px] font-bold text-[#658098] hover:border-[#aac2d4]"
-                  >
-                    <ListFilter size={14} /> Filter
-                  </button>
                 </div>
               </div>
               <div className="mt-4 flex items-center gap-1 overflow-x-auto">
@@ -344,8 +639,8 @@ export function OfficerDashboard() {
               )}
             </div>
             <div className="flex items-center justify-between border-t border-[#edf1f5] px-5 py-3.5">
-              <p className="text-[10px] font-semibold text-[#97a7b6]">Showing recent activity · fictional data</p>
-              <button type="button" onClick={() => announce("Reports workspace opened")} className="text-[11px] font-extrabold text-[#2d6e9b] hover:text-[#1d5278]">
+              <p className="text-[10px] font-semibold text-[#97a7b6]">Showing recent activity from the review system</p>
+              <button type="button" onClick={() => navigateTo("PNPReview")} className="text-[11px] font-extrabold text-[#2d6e9b] hover:text-[#1d5278]">
                 Open reports <ChevronRight size={13} className="ml-1 inline" />
               </button>
             </div>
@@ -373,7 +668,7 @@ export function OfficerDashboard() {
                     <div className="flex items-center gap-2 text-[10px] text-[#8193a4]"><MapPin size={13} className="text-[#6c99ad]" /> {selectedReport.location}</div>
                     <div className="flex items-center gap-2 text-[10px] text-[#8193a4]"><Flag size={13} className="text-[#b88759]" /> {selectedReport.category} · {selectedReport.reports}</div>
                   </div>
-                  <button type="button" onClick={() => announce(`${selectedReport.id} marked ready for review`)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#edf4f8] px-3 py-2.5 text-[11px] font-extrabold text-[#2d6e91] hover:bg-[#e1eef4]">
+                  <button type="button" onClick={() => navigateTo("PNPReview")} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#edf4f8] px-3 py-2.5 text-[11px] font-extrabold text-[#2d6e91] hover:bg-[#e1eef4]">
                     <FileCheck2 size={14} /> Open review details
                   </button>
                 </>
@@ -382,20 +677,6 @@ export function OfficerDashboard() {
               )}
             </div>
 
-            <div className="rounded-2xl border border-[#e2d9e1] bg-[#faf7fa] p-5">
-              <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#eadde8] text-[#806178]"><ShieldAlert size={16} /></div>
-                <div>
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#987f94]">Separate record type</p>
-                  <h3 className="mt-1 text-[14px] font-extrabold text-[#5e4660]">Confirmed violations</h3>
-                </div>
-              </div>
-              <p className="mt-3 text-[11px] leading-5 text-[#806f7e]">Only findings completed through the authorized review process appear here. This is separate from ordinary reports and complaints.</p>
-              <div className="mt-4 flex items-center justify-between border-t border-[#eadfe8] pt-3">
-                <span className="font-mono text-[20px] font-bold tracking-[-0.04em] text-[#604b61]">4</span>
-                <button type="button" onClick={() => announce("Confirmed violations workspace opened")} className="text-[11px] font-extrabold text-[#806178] hover:text-[#644c66]">View separate record <ChevronRight size={13} className="ml-1 inline" /></button>
-              </div>
-            </div>
           </aside>
         </section>
 
@@ -417,18 +698,18 @@ export function OfficerDashboard() {
               </div>
             </div>
             <div className="mt-7 flex h-[126px] items-end gap-2.5 border-b border-[#e5edf2] px-1 sm:gap-4">
-              {[28, 44, 37, 63, 48, 74, 57, 82, 65, 91, 72, 86].map((height, index) => (
-                <div key={`${height}-${index}`} className="group flex h-full flex-1 flex-col justify-end">
+              {dailyMetrics.map((day, index) => (
+                <div key={day.label} className="group flex h-full flex-1 flex-col justify-end">
                   <div className="relative flex flex-1 items-end">
-                    <div className={`w-full rounded-t-[5px] transition group-hover:opacity-80 ${index === 9 ? "bg-[#d18a3c]" : "bg-[#8db8ca]"}`} style={{ height: `${height}%` }}>
-                      <span className="absolute -top-5 left-1/2 hidden -translate-x-1/2 rounded bg-[#264d69] px-1.5 py-0.5 font-mono text-[9px] text-white group-hover:block">{Math.round(height / 4)}</span>
+                    <div className={`w-full rounded-t-[5px] transition group-hover:opacity-80 ${index === new Date().getDay() ? "bg-[#d18a3c]" : "bg-[#8db8ca]"}`} style={{ height: day.height }}>
+                      <span className="absolute -top-5 left-1/2 hidden -translate-x-1/2 rounded bg-[#264d69] px-1.5 py-0.5 font-mono text-[9px] text-white group-hover:block">{day.count}</span>
                     </div>
                   </div>
-                  <span className="mt-2 text-center text-[9px] font-semibold text-[#9aaaba]">{["M", "T", "W", "T", "F", "S", "S", "M", "T", "W", "T", "F"][index]}</span>
+                  <span className="mt-2 text-center text-[9px] font-semibold text-[#9aaaba]">{day.label}</span>
                 </div>
               ))}
             </div>
-            <div className="mt-3 flex items-center gap-2 text-[10px] text-[#889aaa]"><span className="h-2 w-2 rounded-sm bg-[#d18a3c]" /> Selected day · 9 reports</div>
+            <div className="mt-3 flex items-center gap-2 text-[10px] text-[#889aaa]"><span className="h-2 w-2 rounded-sm bg-[#d18a3c]" /> Today / {dailyMetrics[new Date().getDay()]?.count ?? 0} reports</div>
           </div>
 
           <div className="rounded-2xl border border-[#d9e3ec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
@@ -440,7 +721,7 @@ export function OfficerDashboard() {
               <BarChart3 size={17} className="text-[#87a0b4]" />
             </div>
             <div className="mt-6 space-y-4">
-              {categories.map((category) => (
+              {categoryMetrics.length ? categoryMetrics.map((category) => (
                 <div key={category.label}>
                   <div className="mb-1.5 flex items-center justify-between text-[10px] font-bold">
                     <span className="text-[#617b92]">{category.label}</span>
@@ -448,9 +729,11 @@ export function OfficerDashboard() {
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-[#edf2f5]"><div className={`h-full rounded-full ${category.color}`} style={{ width: category.width }} /></div>
                 </div>
-              ))}
+              )) : (
+                <p className="rounded-xl bg-[#f7f9fb] p-4 text-[11px] text-[#8294a4]">No report categories recorded yet.</p>
+              )}
             </div>
-            <button type="button" onClick={() => announce("Category analytics opened")} className="mt-5 text-[11px] font-extrabold text-[#2d6e9b] hover:text-[#1d5278]">See category detail <ChevronRight size={13} className="ml-1 inline" /></button>
+            <button type="button" onClick={() => navigateTo("Analytics")} className="mt-5 text-[11px] font-extrabold text-[#2d6e9b] hover:text-[#1d5278]">See category detail <ChevronRight size={13} className="ml-1 inline" /></button>
           </div>
 
           <div className="rounded-2xl border border-[#d9e3ec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
@@ -459,10 +742,9 @@ export function OfficerDashboard() {
                 <h3 className="text-[15px] font-extrabold tracking-[-0.02em] text-[#1a3856]">Recent activity</h3>
                 <p className="mt-1 text-[11px] text-[#8396a9]">Desk updates and routing</p>
               </div>
-              <button type="button" onClick={() => announce("Activity filters opened")} className="rounded-lg p-1.5 text-[#89a0b2] hover:bg-[#f2f6f8] hover:text-[#4c718e]" aria-label="Filter recent activity"><SlidersHorizontal size={15} /></button>
             </div>
             <div className="mt-5 space-y-4">
-              {visibleActivity.map((item) => (
+              {visibleActivity.length ? visibleActivity.map((item) => (
                 <div key={item.label} className="flex gap-2.5">
                   <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.color}`} />
                   <div>
@@ -470,17 +752,43 @@ export function OfficerDashboard() {
                     <p className="mt-1 text-[10px] text-[#9aaaba]">{item.meta}</p>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <p className="rounded-xl bg-[#f7f9fb] p-4 text-[11px] text-[#8294a4]">No report activity recorded yet.</p>
+              )}
             </div>
             <button type="button" onClick={() => setShowAllActivity((current) => !current)} className="mt-5 text-[11px] font-extrabold text-[#2d6e9b] hover:text-[#1d5278]">
               {showAllActivity ? "Show less" : "View all activity"} <ChevronRight size={13} className="ml-1 inline" />
             </button>
           </div>
         </section>
+        </> : null}
+
+        {isAuthorizedPersonnel && activePanel === "Activity" ? (
+          <section className="rounded-2xl border border-[#d9e3ec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-[15px] font-extrabold tracking-[-0.02em] text-[#1a3856]">System activity</h3>
+                <p className="mt-1 text-[11px] text-[#8396a9]">Recent report and review updates from the desk</p>
+              </div>
+              <Activity size={17} className="text-[#87a0b4]" />
+            </div>
+            <div className="mt-5 divide-y divide-[#edf1f5]">
+              {liveActivity.length ? liveActivity.map((item) => (
+                <div key={item.label} className="flex gap-3 py-3 first:pt-0 last:pb-0">
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.color}`} />
+                  <div>
+                    <p className="text-[11px] font-bold leading-4 text-[#5c748b]">{item.label}</p>
+                    <p className="mt-1 text-[10px] text-[#9aaaba]">{item.meta}</p>
+                  </div>
+                </div>
+              )) : <p className="rounded-xl bg-[#f7f9fb] p-4 text-[11px] text-[#8294a4]">No report activity recorded yet.</p>}
+            </div>
+          </section>
+        ) : null}
 
         <footer className="flex flex-col justify-between gap-2 border-t border-[#dbe5ed] pt-4 text-[10px] font-semibold text-[#93a4b3] sm:flex-row">
           <span>Old Sagay · SUNN transport conduct review center</span>
-          <span className="inline-flex items-center gap-1.5"><CalendarDays size={12} /> Snapshot: 14 June 2024, 11:00 AM</span>
+          <span className="inline-flex items-center gap-1.5"><CalendarDays size={12} /> Snapshot: {formatPhilippineDateTime(new Date())}</span>
         </footer>
       </div>
       {notice ? (

@@ -127,20 +127,13 @@ http://localhost:5000/
 
 The homepage appears first. Use the login/register button to open the login and registration form.
 
-## Demo Accounts
+## Initial account
 
-These accounts are created by `api-php/seed.mysql.sql`.
+The seed process creates only the super admin account. Students, drivers, authorized personnel, TODA presidents, and PNP accounts must be created through the application workflows.
 
 | Role | Email | Password |
 | --- | --- | --- |
-| Student | `student@sunn.edu.ph` | `Password123!` |
-| Driver | `driver@oldsagay-toda.ph` | `Password123!` |
 | Superadmin | `superadmin@oldsagay.gov.ph` | `Password123!` |
-| Authorized personnel | `authorized@oldsagay.gov.ph` | `Password123!` |
-| TODA president | `president@oldsagay-toda.ph` | `Password123!` |
-| PNP reviewer | `pnp@oldsagay.gov.ph` | `Password123!` |
-
-These credentials are for development only. Students and drivers may self-register. Authorized personnel and PNP accounts are created by the superadmin. TODA president accounts are created by authorized personnel or the superadmin. A TODA president may create a driver account through `POST /drivers/accounts` only when the driver has no phone number.
 
 ## Important Local URLs
 
@@ -251,3 +244,26 @@ Build the full project:
 ```bash
 npm run build
 ```
+
+## Local MySQL and Online Supabase Deployment
+
+The PHP API supports both database environments. Local development keeps using MySQL with `api-php/config.php` copied from `config.example.php`. The hosted API can use Supabase PostgreSQL with `config.supabase.example.php`.
+
+For Supabase:
+
+1. Open the Supabase SQL Editor and run `api-php/schema.supabase.sql`.
+2. Copy `api-php/config.supabase.example.php` to `api-php/config.php` on the PHP server.
+3. Replace the Supabase host, database password, JWT secret, and frontend origin.
+4. Keep the frontend local `.env` pointed at the local API:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000/index.php
+```
+
+5. Set the hosted frontend environment variable to the hosted PHP API:
+
+```env
+VITE_API_BASE_URL=https://api.yourdomain.com/index.php
+```
+
+The frontend never connects directly to Supabase. The PHP API owns database credentials and connects to either MySQL or PostgreSQL based on `db_driver`. The PHP server must have the `pdo_pgsql` extension enabled for the Supabase deployment.

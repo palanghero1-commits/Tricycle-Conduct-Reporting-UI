@@ -16,11 +16,12 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { login, registerStudent, type ApiUser } from "../../../lib/api";
+import { clearAuthToken, login, registerStudent, type ApiUser } from "../../../lib/api";
 
 type AuthMode = "login" | "register";
 type RegistrationStep = 1 | 2 | 3;
 type AccountRole = "student" | "driver" | "personnel";
+type PersonnelRole = "AUTHORIZED_PERSONNEL" | "TODA_PRESIDENT";
 type Notice = { type: "error" | "success"; message: string } | null;
 
 const registrationSteps = [
@@ -146,7 +147,7 @@ function previewUrl(component: string) {
 
 function getWorkspaceAfterLogin(email: string, role: AccountRole, user?: ApiUser) {
   if (user?.role === "SUPERADMIN") return "AdminDashboard";
-  if (user?.role === "PNP") return "PNPReview";
+  if (user?.role === "PNP") return "OfficerDashboard";
   if (user?.role === "TODA_PRESIDENT" || user?.role === "AUTHORIZED_PERSONNEL") return "OfficerDashboard";
   if (user?.role === "DRIVER") return "Profile";
   if (user?.role === "STUDENT") return "StudentDashboard";
@@ -154,7 +155,7 @@ function getWorkspaceAfterLogin(email: string, role: AccountRole, user?: ApiUser
   const normalizedEmail = email.trim().toLowerCase();
 
   if (normalizedEmail.includes("superadmin") || normalizedEmail.includes("admin")) return "AdminDashboard";
-  if (normalizedEmail.includes("pnp")) return "PNPReview";
+  if (normalizedEmail.includes("pnp")) return "OfficerDashboard";
   if (normalizedEmail.includes("authorized") || normalizedEmail.includes("officer") || normalizedEmail.includes("president") || normalizedEmail.includes("toda-president")) return "OfficerDashboard";
   if (normalizedEmail.includes("driver")) return "Profile";
 
@@ -165,6 +166,7 @@ function getWorkspaceAfterLogin(email: string, role: AccountRole, user?: ApiUser
 export function Auth() {
   const [mode, setMode] = useState<AuthMode>(getInitialAuthMode);
   const [role, setRole] = useState<AccountRole>(getInitialAccountRole);
+  const [personnelRole, setPersonnelRole] = useState<PersonnelRole>("AUTHORIZED_PERSONNEL");
   const [registrationStep, setRegistrationStep] = useState<RegistrationStep>(1);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -202,7 +204,7 @@ export function Auth() {
   };
 
   const validateEmail = () => {
-    if (!form.email.trim()) return "Enter the email or account identifier for this preview.";
+    if (!form.email.trim()) return "Enter your email or account identifier.";
     if (!form.email.includes("@") && role !== "personnel") return "Use a valid email address, such as name@sunn.edu.ph.";
     return null;
   };
@@ -223,6 +225,13 @@ export function Auth() {
     setIsLoading(true);
     login(form.email, form.password)
       .then((data) => {
+        const expectedRole = role === "student" ? "STUDENT" : role === "driver" ? "DRIVER" : personnelRole;
+        if (data.user?.role !== expectedRole) {
+          clearAuthToken();
+          const actualRole = data.user?.role === "STUDENT" ? "Student" : data.user?.role === "DRIVER" ? "Driver" : data.user?.role === "TODA_PRESIDENT" ? "TODA President" : data.user?.role === "AUTHORIZED_PERSONNEL" ? "Authorized Personnel" : data.user?.role === "PNP" ? "PNP reviewer" : "another account type";
+          const selectedRole = expectedRole === "STUDENT" ? "Student" : expectedRole === "DRIVER" ? "Driver" : expectedRole === "TODA_PRESIDENT" ? "TODA President" : "Authorized Personnel";
+          throw new Error(`This account is registered as ${actualRole}. Select ${selectedRole} to continue.`);
+        }
         window.location.href = previewUrl(getWorkspaceAfterLogin(form.email, role, data.user));
       })
       .catch((error) => {
@@ -346,7 +355,7 @@ export function Auth() {
           <BrandMark compact />
           <div className="hidden items-center gap-2 text-[11px] font-semibold text-[#8299ad] sm:flex">
             <span className="h-1.5 w-1.5 rounded-full bg-[#56a895]" />
-            Demo mode · fictional data
+            Secure account access
           </div>
         </div>
 
@@ -357,7 +366,7 @@ export function Auth() {
                   <CheckCircle2 size={27} strokeWidth={1.8} />
                 </div>
                 <p className="mt-8 text-[10px] font-extrabold uppercase tracking-[0.17em] text-[#5a9c95]">
-                  Preview complete
+                  Account ready
                 </p>
                 <h2 className="mt-3 text-[clamp(1.65rem,5vw,31px)] font-extrabold tracking-[-0.055em] text-[#173b5d]">
                   You can keep exploring.
@@ -400,7 +409,7 @@ export function Auth() {
                   Reset your password
                 </h2>
                 <p className="mt-3 max-w-[430px] text-[13px] leading-6 text-[#71889e]">
-                  Enter the email or account identifier you use for this preview. We will show the next step without sending anything.
+                  Enter the email or account identifier associated with your account.
                 </p>
                 <form onSubmit={handleForgotPassword} className="mt-8">
                   <NoticeBanner notice={notice} />
@@ -443,7 +452,7 @@ export function Auth() {
                 <p className="mt-3 max-w-[440px] text-[13px] leading-6 text-[#71889e]">
                   {mode === "login"
                     ? "Use your account details to view your reports and updates."
-                    : "The account is for this prototype only. You can review every detail before the flow is completed."}
+                    : "Create your account to access the conduct reporting system. Review your details before completing registration."}
                 </p>
 
                 {mode === "register" ? (
@@ -500,6 +509,25 @@ export function Auth() {
                   </div>
                 </div>
 
+                {mode === "login" && role === "personnel" ? (
+                  <div className="mt-3 grid grid-cols-2 gap-1 rounded-[11px] border border-[#dce9ef] bg-[#f5fafc] p-1" aria-label="Personnel role">
+                    <button
+                      type="button"
+                      onClick={() => setPersonnelRole("AUTHORIZED_PERSONNEL")}
+                      className={`rounded-[9px] px-2 py-2 text-[10px] font-extrabold transition-colors ${personnelRole === "AUTHORIZED_PERSONNEL" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
+                    >
+                      Authorized personnel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPersonnelRole("TODA_PRESIDENT")}
+                      className={`rounded-[9px] px-2 py-2 text-[10px] font-extrabold transition-colors ${personnelRole === "TODA_PRESIDENT" ? "bg-white text-[#1c5b75] shadow-sm" : "text-[#7c99a7] hover:text-[#38677e]"}`}
+                    >
+                      TODA President
+                    </button>
+                  </div>
+                ) : null}
+
                 <form onSubmit={mode === "login" ? handleLogin : handleRegistrationNext} className="mt-6">
                   <NoticeBanner notice={notice} />
 
@@ -516,7 +544,7 @@ export function Auth() {
                           value={form.email}
                           onChange={(event) => updateForm("email", event.target.value)}
                           className="w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] py-3.5 pl-10 pr-4 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]"
-                          placeholder={role === "personnel" ? "authorized@oldsagay.gov.ph" : role === "driver" ? "driver@oldsagay-toda.ph" : "student@sunn.edu.ph"}
+                          placeholder="name@example.com"
                           autoComplete="email"
                         />
                       </div>
@@ -540,46 +568,6 @@ export function Auth() {
                       <button type="submit" disabled={isLoading} className="mt-6 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white shadow-[0_9px_20px_rgba(12,91,206,0.16)] transition-[transform,background-color] hover:-translate-y-0.5 hover:bg-[#094fae] disabled:cursor-wait disabled:bg-[#7da5cb]">
                         {isLoading ? <LoadingLabel>Checking details</LoadingLabel> : <>Sign in <ArrowRight size={16} /></>}
                       </button>
-                      <div className="mt-5 rounded-[14px] border border-[#d8e8ee] bg-white p-4">
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#eef4fb] text-[#0c5bce]">
-                            <KeyRound size={15} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#7c99ab]">Testing accounts</p>
-                            <div className="mt-3 space-y-2 text-[12px]">
-                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#315574]">Student</span>
-                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">student@sunn.edu.ph</span>
-                              </div>
-                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#315574]">Driver</span>
-                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">driver@oldsagay-toda.ph</span>
-                              </div>
-                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#315574]">Superadmin</span>
-                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">superadmin@oldsagay.gov.ph</span>
-                              </div>
-                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#315574]">Authorized Personnel</span>
-                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">authorized@oldsagay.gov.ph</span>
-                              </div>
-                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#315574]">TODA President</span>
-                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">president@oldsagay-toda.ph</span>
-                              </div>
-                              <div className="flex flex-col gap-1 rounded-xl bg-[#f7fbff] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#315574]">PNP Reviewer</span>
-                                <span className="font-mono text-[11px] font-bold text-[#0c5bce]">pnp@oldsagay.gov.ph</span>
-                              </div>
-                              <div className="flex flex-col gap-1 rounded-xl bg-[#fff9eb] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-bold text-[#82652d]">Password</span>
-                                <span className="font-mono text-[11px] font-extrabold text-[#9b6011]">Password123!</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
                     </>
                   ) : registrationStep === 1 ? (
                     <>
@@ -658,7 +646,7 @@ export function Auth() {
                       </div>
                       <label className="mt-5 flex cursor-pointer items-start gap-2.5 rounded-[13px] border border-[#dbe8ee] bg-[#f1f8f8] p-3.5 text-[11px] leading-5 text-[#6c8796]">
                         <input type="checkbox" checked={form.hasReadNotice} onChange={(event) => updateForm("hasReadNotice", event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#c6d8e4] accent-[#278b7d]" />
-                        <span>I understand that this prototype uses the information only to demonstrate the registration flow.</span>
+                        <span>I understand that my information will be used to create my account and support the conduct reporting process.</span>
                       </label>
                       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                         <button type="button" onClick={() => { setRegistrationStep(1); setNotice(null); }} className="flex items-center justify-center gap-2 rounded-[12px] border border-[#d3e2ed] bg-white px-4 py-3.5 text-[12px] font-extrabold text-[#62809a] transition-colors hover:bg-[#f2f7fb] sm:shrink-0">
@@ -716,7 +704,7 @@ export function Auth() {
                           <ArrowLeft size={15} /> Edit
                         </button>
                         <button type="submit" disabled={isLoading} className="flex flex-1 items-center justify-center gap-2 rounded-[12px] bg-[#278b7d] py-3.5 text-[13px] font-extrabold text-white shadow-[0_9px_20px_rgba(39,139,125,0.16)] transition-[transform,background-color] hover:-translate-y-0.5 hover:bg-[#20786d] disabled:cursor-wait disabled:bg-[#8abeb5]">
-                          {isLoading ? <LoadingLabel>Completing preview</LoadingLabel> : <>Complete registration <Check size={16} /></>}
+                          {isLoading ? <LoadingLabel>Creating account</LoadingLabel> : <>Complete registration <Check size={16} /></>}
                         </button>
                       </div>
                     </>
@@ -726,7 +714,7 @@ export function Auth() {
                 <div className="mt-8 border-t border-[#dce8ef] pt-6 text-center text-[12px] font-semibold text-[#8299ad]">
                   {mode === "login" ? (
                     <>
-                      New to this prototype?{" "}
+                      New to the system?{" "}
                       <button type="button" onClick={() => switchMode("register")} className="font-extrabold text-[#0c5bce] hover:text-[#084b9e]">Create a student or driver account <ChevronRight className="inline" size={13} /></button>
                     </>
                   ) : (

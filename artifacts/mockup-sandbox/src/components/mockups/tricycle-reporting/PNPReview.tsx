@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   AlertCircle,
@@ -22,8 +22,9 @@ import {
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest, fetchAttachment, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
 
-type ReviewStatus = "For review" | "Needs follow-up" | "Resolved";
+type ReviewStatus = "For review" | "Received" | "Under review" | "Verified" | "Needs follow-up" | "Resolved";
 
 type ReviewNote = {
   id: number;
@@ -41,6 +42,7 @@ type Report = {
   location: string;
   summary: string;
   status: ReviewStatus;
+  rawStatus?: string;
   reference: string;
   reporter: string;
   driver: {
@@ -50,11 +52,12 @@ type Report = {
     route: string;
     contact: string;
   };
-  evidence: { name: string; type: "image" | "document"; meta: string }[];
+  evidence: { id: string; name: string; type: "image" | "document"; meta: string }[];
   notes: ReviewNote[];
 };
 
-const reports: Report[] = [
+// Live reports are loaded from the database below.
+/*
   {
     id: "OS-24018",
     category: "Passenger safety",
@@ -159,16 +162,39 @@ const reports: Report[] = [
         author: "A. Reyes",
         role: "PNP reviewer",
         time: "16 Jun 2024, 14:10",
-        note: "Parties were informed of the review outcome. No further action recorded in this prototype.",
+        note: "Parties were informed of the review outcome. No further action recorded.",
       },
     ],
   },
 ];
+*/
 
 const statusStyles: Record<ReviewStatus, string> = {
   "For review": "bg-[#fff5e8] text-[#a76419] ring-[#f4d8ad]",
+  Received: "bg-[#eef6ff] text-[#326da8] ring-[#cfe2f7]",
+  "Under review": "bg-[#edf1ff] text-[#4d5ca8] ring-[#d7ddfa]",
+  Verified: "bg-[#eaf7f1] text-[#25765d] ring-[#c8e8d8]",
   "Needs follow-up": "bg-[#edf1ff] text-[#4d5ca8] ring-[#d7ddfa]",
   Resolved: "bg-[#eaf7f1] text-[#25765d] ring-[#c8e8d8]",
+};
+
+function statusLabel(status: string): ReviewStatus {
+  if (status === "RECEIVED") return "Received";
+  if (status === "UNDER_REVIEW") return "Under review";
+  if (status === "VERIFIED") return "Verified";
+  if (status === "REFERRED") return "Needs follow-up";
+  if (status === "RESOLVED" || status === "CLOSED") return "Resolved";
+  return "For review";
+}
+
+const statusOptions: Record<string, Array<{ value: string; label: string }>> = {
+  SUBMITTED: [{ value: "RECEIVED", label: "Received" }, { value: "UNDER_REVIEW", label: "Under review" }, { value: "CLOSED", label: "Closed" }],
+  RECEIVED: [{ value: "UNDER_REVIEW", label: "Under review" }, { value: "REFERRED", label: "Referred" }, { value: "CLOSED", label: "Closed" }],
+  UNDER_REVIEW: [{ value: "VERIFIED", label: "Verified" }, { value: "REFERRED", label: "Referred" }, { value: "RESOLVED", label: "Resolved" }, { value: "CLOSED", label: "Closed" }],
+  VERIFIED: [{ value: "REFERRED", label: "Referred" }, { value: "RESOLVED", label: "Resolved" }, { value: "CLOSED", label: "Closed" }],
+  REFERRED: [{ value: "RESOLVED", label: "Resolved" }, { value: "CLOSED", label: "Closed" }],
+  RESOLVED: [{ value: "CLOSED", label: "Closed" }],
+  CLOSED: [],
 };
 
 function StatusBadge({ status }: { status: ReviewStatus }) {
@@ -181,29 +207,142 @@ function StatusBadge({ status }: { status: ReviewStatus }) {
 }
 
 export function PNPReview() {
-  const [selectedId, setSelectedId] = useState(reports[0].id);
+  const currentUser = getCurrentUser();
+  const canAddReviewNote = ["AUTHORIZED_PERSONNEL", "PNP", "SUPERADMIN"].includes(currentUser?.role ?? "");
+  const [selectedId, setSelectedId] = useState("");
   const [query, setQuery] = useState("");
   const [noteText, setNoteText] = useState("");
   const [isNoteComposerOpen, setIsNoteComposerOpen] = useState(false);
   const [showOpenReportsOnly, setShowOpenReportsOnly] = useState(false);
   const [showChecklist, setShowChecklist] = useState(false);
   const [localNotes, setLocalNotes] = useState<Record<string, ReviewNote[]>>({});
+  const [liveReports, setLiveReports] = useState<Report[]>([]);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusNotice, setStatusNotice] = useState("");
+  const [pendingStatus, setPendingStatus] = useState("");
+  const [violationSaving, setViolationSaving] = useState(false);
+  const [violationNotice, setViolationNotice] = useState("");
+  const [evidencePreview, setEvidencePreview] = useState<{ name: string; type: "image" | "document"; url: string } | null>(null);
 
-  const selectedReport = reports.find((report) => report.id === selectedId) ?? reports[0];
+  useEffect(() => {
+    apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; location: string; description: string; driverName: string }> }>("/complaints")
+      .then(({ complaints }) => setLiveReports(complaints.map((item) => ({
+        id: item.id,
+        category: item.categoryName,
+        submitted: item.incidentDate,
+        age: "Current",
+        location: item.location,
+        summary: item.description,
+        status: statusLabel(item.status),
+        rawStatus: item.status,
+        reference: item.referenceNumber,
+        reporter: "Student reporter · identity protected",
+        driver: { name: item.driverName, plate: "Not recorded", unit: "Registered TODA", route: "Not recorded", contact: "Not recorded" },
+        evidence: [],
+        notes: [],
+      } as Report))))
+      .catch(() => setLiveReports([]));
+  }, []);
+
+  useEffect(() => {
+    if (!liveReports.length) return;
+    apiRequest<{ complaints: Array<{ id: string }> }>("/complaints")
+      .then(async ({ complaints }) => {
+        const details = await Promise.all(complaints.map(async (item) => ({
+          id: item.id,
+          data: await apiRequest<{
+            actions: Array<{ id: number; action_type: string; description: string; created_at: string }>;
+            attachments: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number }>;
+          }>(`/complaints/${item.id}`),
+        })));
+        setLiveReports((current) => current.map((report) => {
+          const detail = details.find((item) => item.id === report.id)?.data;
+          if (!detail) return report;
+          return {
+            ...report,
+            evidence: detail.attachments.map((attachment) => ({ id: attachment.id, name: attachment.originalName, type: attachment.mimeType.startsWith("image/") ? "image" as const : "document" as const, meta: `${Math.round(attachment.sizeBytes / 1024)} KB` })),
+            notes: detail.actions.map((action) => ({ id: action.id, author: "Authorized reviewer", role: action.action_type, time: formatPhilippineDateTime(action.created_at), note: action.description })),
+          };
+        }));
+      })
+      .catch(() => undefined);
+  }, [liveReports.length]);
+
+  const availableReports = liveReports;
+  const selectedReport = availableReports.find((report) => report.id === selectedId) ?? availableReports[0];
+  const nextStatusOptions = selectedReport ? [{ value: selectedReport.rawStatus ?? "SUBMITTED", label: `${selectedReport.status} (current)` }, ...(statusOptions[selectedReport.rawStatus ?? "SUBMITTED"] ?? [])] : [];
+  useEffect(() => {
+    setPendingStatus(selectedReport?.rawStatus ?? "");
+  }, [selectedReport?.id, selectedReport?.rawStatus]);
   const filteredReports = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    const availableReports = showOpenReportsOnly ? reports.filter((report) => report.status !== "Resolved") : reports;
-    if (!normalizedQuery) return availableReports;
-    return availableReports.filter((report) =>
+    const currentReports = liveReports;
+    const visibleReports = showOpenReportsOnly ? currentReports.filter((report) => report.status !== "Resolved") : currentReports;
+    if (!normalizedQuery) return visibleReports;
+    return visibleReports.filter((report) =>
       [report.id, report.category, report.location, report.driver.name].some((value) =>
         value.toLowerCase().includes(normalizedQuery),
       ),
     );
-  }, [query, showOpenReportsOnly]);
+  }, [liveReports, query, showOpenReportsOnly]);
+
+  if (!selectedReport) {
+    return <AppLayout officer active="Reports" title="Reports" eyebrow="Restricted review center"><div className="rounded-2xl border border-[#dbe5f0] bg-white p-8 text-center text-sm text-[#71859e]">No reports are currently available for review.</div></AppLayout>;
+  }
 
   const selectedNotes = [...selectedReport.notes, ...(localNotes[selectedReport.id] ?? [])];
 
-  function addReviewNote(event: FormEvent<HTMLFormElement>) {
+  async function changeStatus(nextStatus: string) {
+    setStatusSaving(true);
+    setStatusNotice("");
+    try {
+      await apiRequest(`/complaints/${selectedReport.id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: nextStatus, remarks: "Status updated from the PNP review queue." }),
+      });
+      const nextLabel = statusLabel(nextStatus);
+      setLiveReports((current) => current.map((report) => report.id === selectedReport.id ? { ...report, rawStatus: nextStatus, status: nextLabel } : report));
+      setPendingStatus(nextStatus);
+      setStatusNotice("Status saved to the review record.");
+    } catch (error) {
+      setStatusNotice(error instanceof Error ? error.message : "Unable to save the report status.");
+    } finally {
+      setStatusSaving(false);
+    }
+  }
+
+  async function confirmViolation() {
+    if (!selectedReport || !["VERIFIED", "RESOLVED", "CLOSED"].includes(selectedReport.rawStatus ?? "")) return;
+    setViolationSaving(true);
+    setViolationNotice("");
+    try {
+      await apiRequest(`/complaints/${selectedReport.id}/violations`, {
+        method: "POST",
+        body: JSON.stringify({ violationCategory: selectedReport.category, description: selectedReport.summary, remarks: "Confirmed by authorized review." }),
+      });
+      setViolationNotice("Confirmed violation saved to the database.");
+    } catch (error) {
+      setViolationNotice(error instanceof Error ? error.message : "Unable to create the violation.");
+    } finally {
+      setViolationSaving(false);
+    }
+  }
+
+  async function previewEvidence(item: Report["evidence"][number]) {
+    try {
+      const blob = await fetchAttachment(item.id);
+      setEvidencePreview({ name: item.name, type: item.type, url: URL.createObjectURL(blob) });
+    } catch (error) {
+      setStatusNotice(error instanceof Error ? error.message : "Unable to open the evidence file.");
+    }
+  }
+
+  function closeEvidencePreview() {
+    if (evidencePreview) URL.revokeObjectURL(evidencePreview.url);
+    setEvidencePreview(null);
+  }
+
+  async function addReviewNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedNote = noteText.trim();
     if (!trimmedNote) return;
@@ -216,12 +355,14 @@ export function PNPReview() {
       note: trimmedNote,
     };
 
-    setLocalNotes((current) => ({
-      ...current,
-      [selectedReport.id]: [...(current[selectedReport.id] ?? []), newNote],
-    }));
-    setNoteText("");
-    setIsNoteComposerOpen(false);
+    try {
+      await apiRequest(`/complaints/${selectedReport.id}/actions`, { method: "POST", body: JSON.stringify({ actionType: "PNP review note", description: trimmedNote }) });
+      setLocalNotes((current) => ({ ...current, [selectedReport.id]: [...(current[selectedReport.id] ?? []), newNote] }));
+      setNoteText("");
+      setIsNoteComposerOpen(false);
+    } catch (error) {
+      setStatusNotice(error instanceof Error ? error.message : "Unable to save the review note.");
+    }
   }
 
   return (
@@ -241,13 +382,13 @@ export function PNPReview() {
                   </span>
                 </div>
                 <p className="mt-1.5 max-w-2xl text-[12px] leading-5 text-[#5e748d]">
-                  This workspace contains restricted mock records for review by authorized personnel only. Handle student and driver information with care.
+                  This workspace contains restricted records for review by authorized personnel only. Handle student and driver information with care.
                 </p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2 text-[11px] font-semibold text-[#66809c] sm:pr-1">
               <ShieldCheck size={15} className="text-[#557ba4]" />
-              <span>Access logged for prototype</span>
+              <span>Access logged</span>
             </div>
           </div>
         </section>
@@ -270,7 +411,7 @@ export function PNPReview() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-[14px] font-extrabold text-[#213d5b]">Authorized reports</h3>
-                  <p className="mt-1 text-[11px] text-[#8799ad]">{reports.length} mock records in queue</p>
+                  <p className="mt-1 text-[11px] text-[#8799ad]">{filteredReports.length} records in queue</p>
                 </div>
                 <button
                   type="button"
@@ -392,7 +533,39 @@ export function PNPReview() {
                     Review state
                   </div>
                   <p className="mt-3 text-[13px] font-bold text-[#36536e]">{selectedReport.status}</p>
-                  <p className="mt-1 text-[11px] leading-4 text-[#8295a9]">Status shown for this fictional record. No determination has been made.</p>
+                  <p className="mt-1 text-[11px] leading-4 text-[#8295a9]">Status shown for this record. No determination has been made.</p>
+                  <label className="mt-4 block text-[10px] font-bold uppercase tracking-[0.12em] text-[#91a2b4]">Change report status</label>
+                  <div className="mt-2 flex gap-2">
+                    <select
+                      value={pendingStatus || selectedReport.rawStatus || "SUBMITTED"}
+                      onChange={(event) => {
+                        setPendingStatus(event.target.value);
+                        setStatusNotice("");
+                      }}
+                      disabled={statusSaving}
+                      className="min-w-0 flex-1 rounded-lg border border-[#dbe5ef] bg-white px-2.5 py-2 text-[11px] font-bold text-[#36536e] outline-none focus:border-[#7d9fbe]"
+                    >
+                      {nextStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void changeStatus(pendingStatus || selectedReport.rawStatus || "SUBMITTED")}
+                      disabled={statusSaving || !pendingStatus || pendingStatus === selectedReport.rawStatus}
+                      className="shrink-0 rounded-lg bg-[#1768c5] px-3 py-2 text-[10px] font-extrabold text-white transition hover:bg-[#1258aa] disabled:cursor-not-allowed disabled:bg-[#b8c8d8]"
+                    >
+                      {statusSaving ? "Saving…" : "Save status"}
+                    </button>
+                  </div>
+                  {statusNotice ? <p className="mt-2 text-[10px] font-semibold text-[#557797]">{statusNotice}</p> : null}
+                  <button
+                    type="button"
+                    onClick={() => void confirmViolation()}
+                    disabled={violationSaving || !["VERIFIED", "RESOLVED", "CLOSED"].includes(selectedReport.rawStatus ?? "")}
+                    className="mt-3 w-full rounded-lg bg-[#25825b] px-3 py-2.5 text-[10px] font-extrabold text-white transition hover:bg-[#1d6d4c] disabled:cursor-not-allowed disabled:bg-[#b8c8d8]"
+                  >
+                    {violationSaving ? "Saving violation…" : "Confirm violation"}
+                  </button>
+                  {violationNotice ? <p className="mt-2 text-[10px] font-semibold text-[#25825b]">{violationNotice}</p> : null}
                   <button
                     type="button"
                     onClick={() => setShowChecklist((current) => !current)}
@@ -422,11 +595,11 @@ export function PNPReview() {
                     <Paperclip size={14} />
                     Evidence
                   </div>
-                  <span className="text-[10px] font-semibold text-[#9aabba]">Mock files only</span>
+                  <span className="text-[10px] font-semibold text-[#9aabba]">No uploaded evidence</span>
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {selectedReport.evidence.map((item) => (
-                    <div key={item.name} className="flex items-center gap-3 rounded-xl border border-[#e5ebf2] bg-[#fbfcfe] px-3 py-3">
+                    <button key={item.id} type="button" onClick={() => void previewEvidence(item)} className="flex items-center gap-3 rounded-xl border border-[#e5ebf2] bg-[#fbfcfe] px-3 py-3 text-left transition hover:border-[#9dbde3] hover:bg-[#f4f8fd]">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e8f0f8] text-[#6685a2]">
                         {item.type === "image" ? <FileImage size={15} /> : <FileText size={15} />}
                       </div>
@@ -434,7 +607,8 @@ export function PNPReview() {
                         <p className="truncate text-[11px] font-bold text-[#4b6680]">{item.name}</p>
                         <p className="mt-0.5 text-[10px] text-[#9aabba]">{item.meta}</p>
                       </div>
-                    </div>
+                      <span className="ml-auto text-[10px] font-bold text-[#0c5bce]">Open</span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -447,16 +621,18 @@ export function PNPReview() {
                     <MessageSquareText size={14} />
                     Review notes
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsNoteComposerOpen((open) => !open)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#edf4fb] px-2.5 py-2 text-[10px] font-bold text-[#4b7192] transition hover:bg-[#e2eef9]"
-                  >
-                    {isNoteComposerOpen ? <X size={13} /> : <Plus size={13} />}
-                    {isNoteComposerOpen ? "Close" : "Add note"}
-                  </button>
+                  {canAddReviewNote ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsNoteComposerOpen((open) => !open)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#edf4fb] px-2.5 py-2 text-[10px] font-bold text-[#4b7192] transition hover:bg-[#e2eef9]"
+                    >
+                      {isNoteComposerOpen ? <X size={13} /> : <Plus size={13} />}
+                      {isNoteComposerOpen ? "Close" : "Add note"}
+                    </button>
+                  ) : null}
                 </div>
-                {isNoteComposerOpen ? (
+                {canAddReviewNote && isNoteComposerOpen ? (
                   <form onSubmit={addReviewNote} className="border-b border-[#e8eef5] bg-[#fbfcfe] px-5 py-4 sm:px-6">
                     <label htmlFor="review-note" className="text-[11px] font-bold text-[#516d86]">Add an internal review note</label>
                     <textarea
@@ -468,7 +644,7 @@ export function PNPReview() {
                       className="mt-2 w-full resize-none rounded-xl border border-[#dce6f0] bg-white px-3 py-2.5 text-[12px] leading-5 text-[#3c5872] outline-none placeholder:text-[#a3b2c1] focus:border-[#8eacc9] focus:ring-2 focus:ring-[#e6eff8]"
                     />
                     <div className="mt-2.5 flex items-center justify-between gap-3">
-                      <span className="text-[10px] text-[#9aabba]">Saved locally in this prototype.</span>
+                      <span className="text-[10px] text-[#9aabba]">Saved to the review record.</span>
                       <button type="submit" disabled={!noteText.trim()} className="rounded-lg bg-[#315b84] px-3 py-2 text-[10px] font-bold text-white transition hover:bg-[#274b6d] disabled:cursor-not-allowed disabled:opacity-40">
                         Save note
                       </button>
@@ -556,6 +732,19 @@ export function PNPReview() {
           </section>
         </div>
       </div>
+      {evidencePreview ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#102943]/60 px-4 py-6 backdrop-blur-sm" onClick={closeEvidencePreview}>
+          <div role="dialog" aria-modal="true" aria-label={`Evidence preview: ${evidencePreview.name}`} onClick={(event) => event.stopPropagation()} className="flex max-h-[90vh] w-full max-w-[900px] flex-col overflow-hidden rounded-2xl border border-[#dbe5f0] bg-white shadow-[0_24px_90px_rgba(10,35,64,0.3)]">
+            <div className="flex items-center justify-between gap-3 border-b border-[#e5edf4] px-4 py-3">
+              <p className="truncate text-[12px] font-extrabold text-[#294765]">{evidencePreview.name}</p>
+              <button type="button" onClick={closeEvidencePreview} className="rounded-lg p-2 text-[#8092a6] hover:bg-[#f2f6fa]" aria-label="Close evidence preview"><X size={18} /></button>
+            </div>
+            <div className="flex min-h-[300px] items-center justify-center overflow-auto bg-[#f5f8fc] p-4">
+              {evidencePreview.type === "image" ? <img src={evidencePreview.url} alt={evidencePreview.name} className="max-h-[72vh] max-w-full rounded-lg object-contain" /> : <iframe src={evidencePreview.url} title={evidencePreview.name} className="h-[72vh] w-full rounded-lg border border-[#dbe5f0] bg-white" />}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </AppLayout>
   );
 }

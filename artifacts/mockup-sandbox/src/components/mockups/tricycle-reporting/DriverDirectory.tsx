@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   BadgeCheck,
@@ -16,16 +16,17 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
-  UserRound,
   UsersRound,
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest } from "../../../lib/api";
 
 type DriverStatus = "Active" | "Review hold" | "On leave";
 
 type Driver = {
   id: string;
+  databaseId?: number;
   name: string;
   initials: string;
   vehicleId: string;
@@ -58,6 +59,15 @@ type Driver = {
     tone: "blue" | "amber" | "green" | "slate";
   }>;
 };
+
+function previewUrl(component: string) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  return `${base}/preview/tricycle-reporting/${component}`;
+}
+
+function navigateTo(component: string) {
+  window.location.href = previewUrl(component);
+}
 
 const drivers: Driver[] = [
   {
@@ -342,21 +352,69 @@ function EmptyReports({ message }: { message: string }) {
 export function DriverDirectory() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"All statuses" | DriverStatus>("All statuses");
-  const [selectedId, setSelectedId] = useState(drivers[0].id);
+  const [selectedId, setSelectedId] = useState("");
   const [notice, setNotice] = useState("");
   const [showAllReports, setShowAllReports] = useState(false);
+  const [liveDrivers, setLiveDrivers] = useState<Driver[]>([]);
+
+  useEffect(() => {
+    const loadDrivers = () => apiRequest<{ drivers: Array<{ id: number; fullName: string; driverCode: string; tricycleIdentifier: string; plateNumber: string | null; routeArea: string | null; contactNumber: string | null; reportCount: number; confirmedViolationCount: number }> }>("/drivers")
+      .then(({ drivers: rows }) => setLiveDrivers(rows.map((driver) => ({
+        id: driver.driverCode,
+        databaseId: driver.id,
+        name: driver.fullName,
+        initials: driver.fullName.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
+        vehicleId: driver.tricycleIdentifier,
+        plate: driver.plateNumber ?? "Not recorded",
+        status: "Active",
+        association: "Registered TODA",
+        route: driver.routeArea ?? "Route not recorded",
+        phone: driver.contactNumber ?? "Not recorded",
+        registered: "Registered account",
+        lastReviewed: "No review recorded",
+        reports: Number(driver.reportCount),
+        confirmedViolations: Number(driver.confirmedViolationCount),
+        reportsHistory: [],
+        violations: [],
+        activity: [],
+      }))));
+    void loadDrivers().catch(() => setLiveDrivers([]));
+  }, []);
+
+  useEffect(() => {
+    if (!liveDrivers.length) return;
+    Promise.all(liveDrivers.map(async (driver) => {
+      if (!driver.databaseId) return { id: driver.id, details: null };
+      const details = await apiRequest<{
+        reports: Array<{ id: string; date: string; category: string; summary: string; status: string }>;
+        violations: Array<{ reference: string; date: string; finding: string; action: string }>;
+      }>(`/drivers/${driver.id}`);
+      return { id: driver.id, details };
+    })).then((records) => {
+      setLiveDrivers((current) => current.map((driver) => {
+        const record = records.find((item) => item.id === driver.id);
+        if (!record || !record.details) return driver;
+        return {
+          ...driver,
+          reportsHistory: record.details.reports.map((report) => ({ ...report, status: report.status === "RESOLVED" || report.status === "CLOSED" ? "Resolved" : report.status === "SUBMITTED" ? "Received" : "Under review" } as Driver["reportsHistory"][number])),
+          violations: record.details.violations,
+          activity: [],
+        };
+      }));
+    }).catch(() => undefined);
+  }, [liveDrivers.length]);
 
   const filteredDrivers = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return drivers.filter((driver) => {
+    return liveDrivers.filter((driver) => {
       const searchable = `${driver.name} ${driver.id} ${driver.vehicleId} ${driver.plate} ${driver.association} ${driver.route}`.toLowerCase();
       const matchesSearch = !normalizedQuery || searchable.includes(normalizedQuery);
       const matchesStatus = status === "All statuses" || driver.status === status;
       return matchesSearch && matchesStatus;
     });
-  }, [query, status]);
+  }, [liveDrivers, query, status]);
 
-  const selectedDriver = drivers.find((driver) => driver.id === selectedId) ?? filteredDrivers[0] ?? null;
+  const selectedDriver = liveDrivers.find((driver) => driver.id === selectedId) ?? filteredDrivers[0] ?? null;
   const activeFilterCount = Number(status !== "All statuses") + Number(Boolean(query.trim()));
   const visibleReports = showAllReports ? selectedDriver?.reportsHistory ?? [] : selectedDriver?.reportsHistory.slice(0, 2) ?? [];
 
@@ -386,7 +444,7 @@ export function DriverDirectory() {
               Know the record before reviewing the report.
             </h2>
             <p className="mt-3 max-w-[700px] text-[13px] leading-6 text-[#71859e]">
-              Browse fictional TODA registry profiles connected to student and community reports in Barangay Old Sagay. Report counts and confirmed findings are shown as separate records.
+              Browse registered TODA driver profiles connected to student and community reports in Barangay Old Sagay. Report counts and confirmed findings are shown as separate records.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 rounded-2xl border border-[#dbe5f0] bg-white px-3.5 py-3 shadow-[0_5px_18px_rgba(33,68,101,0.04)]">
@@ -395,7 +453,7 @@ export function DriverDirectory() {
             </div>
             <div>
               <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#8ca0b6]">Registered drivers</p>
-              <p className="mt-0.5 font-mono text-[17px] font-bold tracking-[-0.04em] text-[#23405f]">{drivers.length}</p>
+              <p className="mt-0.5 font-mono text-[17px] font-bold tracking-[-0.04em] text-[#23405f]">{liveDrivers.length}</p>
             </div>
           </div>
         </section>
@@ -438,11 +496,11 @@ export function DriverDirectory() {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-[11px] font-semibold text-[#8295aa]">
-            Showing <span className="font-extrabold text-[#46617d]">{filteredDrivers.length}</span> of {drivers.length} driver records
+            Showing <span className="font-extrabold text-[#46617d]">{filteredDrivers.length}</span> of {liveDrivers.length} driver records
           </p>
           <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#91a2b2]">
             <ShieldCheck size={13} className="text-[#2d9369]" />
-            Fictional sample data · no live registry connection
+            Live registry data
           </p>
         </div>
 
@@ -511,7 +569,7 @@ export function DriverDirectory() {
               )}
             </div>
             <div className="border-t border-[#edf1f5] px-5 py-3.5">
-              <p className="text-[10px] leading-4 text-[#98a7b5]">Counts represent records in this fictional review workspace. A report is not a confirmed violation.</p>
+              <p className="text-[10px] leading-4 text-[#98a7b5]">Counts represent records in the review workspace. A report is not a confirmed violation.</p>
             </div>
           </Card>
 
@@ -565,10 +623,6 @@ export function DriverDirectory() {
                   <div className="flex items-center gap-2 text-[10px] font-semibold text-[#8194a7]"><CalendarDays size={13} className="text-[#728ba3]" /> Registered {selectedDriver.registered}</div>
                   <div className="flex items-start gap-2 text-[10px] font-semibold leading-4 text-[#8194a7]"><ShieldCheck size={13} className="mt-0.5 text-[#2d9369]" /> {selectedDriver.lastReviewed}</div>
                 </div>
-                <button type="button" onClick={() => announce(`${selectedDriver.name}'s local profile view is already open`)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#edf5fb] px-3 py-2.5 text-[11px] font-extrabold text-[#286a96] transition hover:bg-[#e1eff8]">
-                  <UserRound size={14} />
-                  Profile details open
-                </button>
               </div>
             </Card>
           ) : (
@@ -599,7 +653,7 @@ export function DriverDirectory() {
                   <button
                     key={report.id}
                     type="button"
-                    onClick={() => announce(`${report.id} context opened in this local preview`)}
+                    onClick={() => navigateTo("PNPReview")}
                     className="group w-full rounded-2xl border border-[#e2eaf1] bg-[#fbfdff] p-4 text-left transition hover:border-[#bcd5e9] hover:bg-[#f5faff]"
                   >
                     <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
@@ -625,7 +679,7 @@ export function DriverDirectory() {
                 {selectedDriver.violations.length ? (
                   <div className="space-y-3">
                     {selectedDriver.violations.map((violation) => (
-                      <button key={violation.reference} type="button" onClick={() => announce(`${violation.reference} finding details opened in this local preview`)} className="w-full rounded-2xl border border-[#eadbc5] bg-[#fffaf1] p-4 text-left transition hover:border-[#dfc79f] hover:bg-[#fff7e7]">
+                      <button key={violation.reference} type="button" onClick={() => navigateTo("Violations")} className="w-full rounded-2xl border border-[#eadbc5] bg-[#fffaf1] p-4 text-left transition hover:border-[#dfc79f] hover:bg-[#fff7e7]">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="font-mono text-[11px] font-extrabold text-[#89602e]">{violation.reference}</p>
@@ -660,7 +714,6 @@ export function DriverDirectory() {
           <Card className="p-5 lg:p-6">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
               <SectionTitle icon={Clock3} eyebrow="Recent record activity" title="Short activity timeline" detail={`Latest local updates connected to ${selectedDriver.name}.`} />
-              <button type="button" onClick={() => announce("Full activity history is represented by this short prototype timeline")} className="inline-flex shrink-0 items-center gap-1 text-[11px] font-extrabold text-[#286e9d] hover:text-[#1d5278]">View activity note <ChevronRight size={14} /></button>
             </div>
             <div className="relative mt-7 grid gap-6 md:grid-cols-3 md:gap-5">
               <div className="absolute left-[14px] right-[14px] top-3 hidden h-px bg-[#dce7ef] md:block" />
@@ -685,7 +738,7 @@ export function DriverDirectory() {
 
         <footer className="flex flex-col justify-between gap-2 border-t border-[#dbe5ed] pt-4 text-[10px] font-semibold text-[#93a4b3] sm:flex-row">
           <span>Old Sagay · SUNN transport conduct review center</span>
-          <span className="inline-flex items-center gap-1.5"><CarFront size={12} /> Registry snapshot · fictional sample</span>
+          <span className="inline-flex items-center gap-1.5"><CarFront size={12} /> Live registry</span>
         </footer>
       </div>
 

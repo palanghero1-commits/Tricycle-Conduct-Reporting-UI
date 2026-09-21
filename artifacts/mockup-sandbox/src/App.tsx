@@ -124,6 +124,9 @@ function getPreviewPath(): string | null {
     basePath && pathname.startsWith(basePath)
       ? pathname.slice(basePath.length) || "/"
       : pathname;
+  if (local === "/admin" || local === "/admin/") {
+    return "tricycle-reporting/AdminAccess";
+  }
   const match = local.match(/^\/preview\/(.+)$/);
   return match ? match[1] : null;
 }

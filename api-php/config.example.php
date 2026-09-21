@@ -1,5 +1,6 @@
 <?php
 return [
+    'db_driver' => 'mysql',
     'db_host' => '127.0.0.1',
     'db_name' => 'tricycle_conduct',
     'db_user' => 'root',

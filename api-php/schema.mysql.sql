@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS drivers;
 DROP TABLE IF EXISTS students;
 DROP TABLE IF EXISTS authorized_personnel;
 DROP TABLE IF EXISTS todas;
+DROP TABLE IF EXISTS user_preferences;
 DROP TABLE IF EXISTS users;
 
 CREATE TABLE todas (
@@ -39,13 +40,21 @@ CREATE TABLE users (
   created_by CHAR(36),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT users_creator_fk FOREIGN KEY (created_by) REFERENCES users(id),
+  CONSTRAINT users_creator_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX users_role_idx (role),
   INDEX users_status_idx (status)
 );
 
+CREATE TABLE user_preferences (
+  user_id CHAR(36) PRIMARY KEY,
+  report_updates TINYINT(1) NOT NULL DEFAULT 1,
+  reminders TINYINT(1) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT user_preferences_user_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 ALTER TABLE todas
-  ADD CONSTRAINT todas_president_fk FOREIGN KEY (president_user_id) REFERENCES users(id);
+  ADD CONSTRAINT todas_president_fk FOREIGN KEY (president_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 CREATE TABLE authorized_personnel (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -54,7 +63,7 @@ CREATE TABLE authorized_personnel (
   office_name VARCHAR(180) NOT NULL,
   position_title VARCHAR(120),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT authorized_personnel_user_fk FOREIGN KEY (user_id) REFERENCES users(id)
+  CONSTRAINT authorized_personnel_user_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE students (
@@ -65,7 +74,7 @@ CREATE TABLE students (
   year_level VARCHAR(40),
   campus VARCHAR(120) DEFAULT 'SUNN',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT students_user_fk FOREIGN KEY (user_id) REFERENCES users(id)
+  CONSTRAINT students_user_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE drivers (
@@ -83,9 +92,9 @@ CREATE TABLE drivers (
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT drivers_user_fk FOREIGN KEY (user_id) REFERENCES users(id),
+  CONSTRAINT drivers_user_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT drivers_toda_fk FOREIGN KEY (toda_id) REFERENCES todas(id),
-  CONSTRAINT drivers_creator_fk FOREIGN KEY (account_created_by) REFERENCES users(id),
+  CONSTRAINT drivers_creator_fk FOREIGN KEY (account_created_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX drivers_toda_idx (toda_id),
   INDEX drivers_active_idx (is_active)
 );
@@ -101,7 +110,7 @@ CREATE TABLE complaint_categories (
 CREATE TABLE complaints (
   id CHAR(36) PRIMARY KEY,
   reference_number VARCHAR(40) NOT NULL UNIQUE,
-  student_user_id CHAR(36) NOT NULL,
+  student_user_id CHAR(36),
   driver_id INT NOT NULL,
   category_id INT NOT NULL,
   status ENUM('SUBMITTED','RECEIVED','UNDER_REVIEW','VERIFIED','REFERRED','RESOLVED','CLOSED') NOT NULL DEFAULT 'SUBMITTED',
@@ -113,10 +122,10 @@ CREATE TABLE complaints (
   assigned_to CHAR(36),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT complaints_student_fk FOREIGN KEY (student_user_id) REFERENCES users(id),
+  CONSTRAINT complaints_student_fk FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT complaints_driver_fk FOREIGN KEY (driver_id) REFERENCES drivers(id),
   CONSTRAINT complaints_category_fk FOREIGN KEY (category_id) REFERENCES complaint_categories(id),
-  CONSTRAINT complaints_assignee_fk FOREIGN KEY (assigned_to) REFERENCES users(id),
+  CONSTRAINT complaints_assignee_fk FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL,
   INDEX complaints_student_idx (student_user_id),
   INDEX complaints_driver_idx (driver_id),
   INDEX complaints_status_idx (status)
@@ -130,10 +139,10 @@ CREATE TABLE complaint_attachments (
   mime_type VARCHAR(120) NOT NULL,
   size_bytes INT NOT NULL,
   storage_path TEXT NOT NULL,
-  uploaded_by CHAR(36) NOT NULL,
+  uploaded_by CHAR(36),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT attachments_complaint_fk FOREIGN KEY (complaint_id) REFERENCES complaints(id),
-  CONSTRAINT attachments_user_fk FOREIGN KEY (uploaded_by) REFERENCES users(id)
+  CONSTRAINT attachments_user_fk FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE complaint_status_history (
@@ -145,7 +154,7 @@ CREATE TABLE complaint_status_history (
   remarks TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT history_complaint_fk FOREIGN KEY (complaint_id) REFERENCES complaints(id),
-  CONSTRAINT history_user_fk FOREIGN KEY (changed_by) REFERENCES users(id)
+  CONSTRAINT history_user_fk FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE complaint_actions (
@@ -153,10 +162,10 @@ CREATE TABLE complaint_actions (
   complaint_id CHAR(36) NOT NULL,
   action_type VARCHAR(80) NOT NULL,
   description TEXT NOT NULL,
-  action_taken_by CHAR(36) NOT NULL,
+  action_taken_by CHAR(36),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT actions_complaint_fk FOREIGN KEY (complaint_id) REFERENCES complaints(id),
-  CONSTRAINT actions_user_fk FOREIGN KEY (action_taken_by) REFERENCES users(id)
+  CONSTRAINT actions_user_fk FOREIGN KEY (action_taken_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE violations (
@@ -165,12 +174,12 @@ CREATE TABLE violations (
   complaint_id CHAR(36) NOT NULL,
   violation_category VARCHAR(140) NOT NULL,
   description TEXT NOT NULL,
-  confirmed_by CHAR(36) NOT NULL,
+  confirmed_by CHAR(36),
   remarks TEXT,
   confirmation_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT violations_driver_fk FOREIGN KEY (driver_id) REFERENCES drivers(id),
   CONSTRAINT violations_complaint_fk FOREIGN KEY (complaint_id) REFERENCES complaints(id),
-  CONSTRAINT violations_user_fk FOREIGN KEY (confirmed_by) REFERENCES users(id)
+  CONSTRAINT violations_user_fk FOREIGN KEY (confirmed_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE notifications (
@@ -181,7 +190,7 @@ CREATE TABLE notifications (
   related_complaint_id CHAR(36),
   read_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT notifications_user_fk FOREIGN KEY (recipient_user_id) REFERENCES users(id),
+  CONSTRAINT notifications_user_fk FOREIGN KEY (recipient_user_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT notifications_complaint_fk FOREIGN KEY (related_complaint_id) REFERENCES complaints(id)
 );
 
@@ -193,5 +202,5 @@ CREATE TABLE audit_logs (
   target_id VARCHAR(120),
   metadata JSON,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT audit_user_fk FOREIGN KEY (user_id) REFERENCES users(id)
+  CONSTRAINT audit_user_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );

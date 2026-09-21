@@ -400,7 +400,7 @@ export function ReportTracking() {
             </div>
             {showEvidence ? (
               <div className="mt-3 rounded-xl border border-[#cfe5e9] bg-[#f4fbfb] px-3.5 py-3 text-[11px] leading-5 text-[#5c7c8b]">
-                Preview is simulated for this prototype. Authorized personnel can access the original submission during review.
+                Evidence access is controlled by the review workflow. Authorized personnel can access the original submission during review.
               </div>
             ) : null}
           </section>
@@ -441,7 +441,7 @@ export function ReportTracking() {
         </section>
 
         <footer className="flex flex-col gap-2 pb-4 pt-6 text-[10px] font-semibold text-[#93a5b5] sm:flex-row sm:items-center sm:justify-between">
-          <span>Fictional prototype record · Student view</span>
+          <span>Live report record · Student view</span>
           <span>Reference TRC-2026-00124</span>
         </footer>
       </div>

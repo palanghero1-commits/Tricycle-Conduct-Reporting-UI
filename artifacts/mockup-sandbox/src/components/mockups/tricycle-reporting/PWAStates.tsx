@@ -407,7 +407,7 @@ function StateDetails({ activeState, emptyOption }: { activeState: StateKey; emp
           <MapPin size={14} />
           <p className="text-[11px] font-extrabold">Old Sagay • SUNN</p>
         </div>
-        <p className="mt-1.5 text-[10px] leading-4 text-[#8195aa]">Visual-only prototype state. No records are sent or changed.</p>
+        <p className="mt-1.5 text-[10px] leading-4 text-[#8195aa]">Connection state. Records are protected while offline.</p>
       </div>
     </aside>
   );
@@ -454,7 +454,7 @@ export function PWAStates() {
           <div className="absolute right-24 top-10 h-16 w-16 rounded-full bg-[#e8794f]/20 blur-xl" />
           <div className="relative max-w-3xl">
             <div className="flex flex-wrap items-center gap-2">
-              <StatePill tone="orange">Visual-only prototype</StatePill>
+              <StatePill tone="orange">Connection status</StatePill>
               <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#adc4de]">State library / 06 views</span>
             </div>
             <h2 className="mt-5 max-w-2xl text-[30px] font-extrabold leading-[1.04] tracking-[-0.055em] lg:text-[42px]">

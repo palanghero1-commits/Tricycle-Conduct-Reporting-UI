@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/index.php";
+const IS_ONLINE_API = API_BASE.startsWith("/api") || !API_BASE.includes("localhost:8000");
 const TOKEN_KEY = "tricycle_auth_token";
 const USER_KEY = "tricycle_current_user";
 
@@ -48,6 +49,47 @@ export function getUserInitials(user: Pick<ApiUser, "fullName" | "email"> | null
     .toUpperCase();
 }
 
+export function formatPhilippineDateTime(value: string | Date) {
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Manila",
+  }).format(typeof value === "string" ? new Date(value) : value);
+}
+
+export function formatPhilippineDate(value: string | Date) {
+  return new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "medium",
+    timeZone: "Asia/Manila",
+  }).format(typeof value === "string" ? new Date(value) : value);
+}
+
+export function philippineDateKey(value: string | Date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(typeof value === "string" ? new Date(value) : value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+export async function fetchProfilePhoto() {
+  const token = getAuthToken();
+  const response = await fetch(`${API_BASE}/me/photo?account=${encodeURIComponent(getCurrentUser()?.id ?? "unknown")}&t=${Date.now()}`, {
+    cache: "no-store",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error("No profile photo uploaded.");
+  return response.blob();
+}
+
+export async function uploadProfilePhoto(file: File) {
+  const body = new FormData();
+  body.append("photo", file);
+  return apiRequest<{ ok: boolean }>("/me/photo", { method: "POST", body });
+}
+
+export function deleteProfilePhoto() {
+  return apiRequest<{ ok: boolean }>("/me/photo", { method: "DELETE" });
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
   const headers = new Headers(init.headers);
@@ -59,13 +101,33 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   try {
     response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
-    throw new Error("Cannot reach the PHP API. Start it with: php -S localhost:8000 -t api-php");
+    throw new Error(IS_ONLINE_API ? "Cannot reach the online API. Check the deployment and API environment variables." : "Cannot reach the PHP API. Start it with: php -S localhost:8000 -t api-php");
   }
-  const data = await response.json().catch(() => ({}));
+  const rawBody = await response.text();
+  let data: any = {};
+  try {
+    data = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    throw new Error(IS_ONLINE_API ? `The online API returned an invalid response (HTTP ${response.status}).` : `The PHP API returned an invalid response (HTTP ${response.status}). Check that the PHP API is running.`);
+  }
   if (!response.ok) {
     throw new Error(data?.error?.message ?? "Request failed.");
   }
   return data as T;
+}
+
+export async function openAttachment(attachmentId: string) {
+  const blob = await fetchAttachment(attachmentId);
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export async function fetchAttachment(attachmentId: string) {
+  const token = getAuthToken();
+  const response = await fetch(`${API_BASE}/attachments/${attachmentId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) throw new Error("Unable to open the evidence file.");
+  return response.blob();
 }
 
 export async function login(email: string, password: string) {
@@ -73,7 +135,9 @@ export async function login(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  if (!data?.user || !data?.token) throw new Error("The PHP API returned an incomplete login response. Check that the database and API are running.");
+  if (!data?.user || typeof data.token !== "string" || !data.token) {
+    throw new Error(IS_ONLINE_API ? "The online API returned an incomplete login response." : "The PHP API returned an incomplete login response. Check the API terminal for the database error.");
+  }
   setAuthToken(data.token);
   setCurrentUser(data.user);
   return data;
@@ -96,7 +160,9 @@ export async function registerStudent(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
-  if (!data?.user || !data?.token) throw new Error("The PHP API returned an incomplete registration response. Check that the database schema is imported and the API is running.");
+  if (!data?.user || typeof data.token !== "string" || !data.token) {
+    throw new Error(IS_ONLINE_API ? "The online API returned an incomplete registration response." : "The PHP API returned an incomplete registration response. Check the API terminal for the database error.");
+  }
   setAuthToken(data.token);
   setCurrentUser(data.user);
   return data;

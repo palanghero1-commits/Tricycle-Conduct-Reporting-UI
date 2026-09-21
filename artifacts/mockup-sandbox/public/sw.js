@@ -1,4 +1,4 @@
-const STATIC_CACHE = "tricycle-conduct-static-v1";
+const STATIC_CACHE = "tricycle-conduct-static-v2";
 const STATIC_ASSETS = ["/", "/manifest.webmanifest", "/pwa-icon.svg"];
 
 self.addEventListener("install", (event) => {

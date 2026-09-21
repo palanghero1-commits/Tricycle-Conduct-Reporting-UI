@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest, formatPhilippineDateTime } from "../../../lib/api";
 
 type ReviewStatus = "Received" | "Under Review" | "Verification Needed" | "Referred" | "Resolved" | "Closed";
 
@@ -38,7 +39,7 @@ type DialogState = {
   label: string;
 } | null;
 
-const incident = {
+const staticIncident = {
   reportId: "TRC-2026-00124",
   submittedAt: "18 February 2026, 9:42 AM",
   incidentDate: "17 February 2026",
@@ -50,7 +51,7 @@ const incident = {
     "The driver appeared to accept more passengers than the posted seating capacity while the tricycle was waiting near the market entrance. The reporter noted that one passenger was standing beside the driver before the vehicle departed.",
 };
 
-const driver = {
+const staticDriver = {
   name: "Ramon L. Dela Cruz",
   id: "DRV-OS-0187",
   plate: "SAG 4821",
@@ -186,7 +187,54 @@ export function ReviewWorkspace() {
   const [dialog, setDialog] = useState<DialogState>(null);
   const [note, setNote] = useState("");
   const [notice, setNotice] = useState("");
-  const [history, setHistory] = useState(initialHistory);
+  const [lastUpdated, setLastUpdated] = useState("");
+  const [history, setHistory] = useState<typeof initialHistory>([]);
+  const [complaintId, setComplaintId] = useState<string | null>(null);
+  const [incident, setIncident] = useState<typeof staticIncident | null>(null);
+  const [driver, setDriver] = useState<typeof staticDriver | null>(null);
+  const [evidence, setEvidence] = useState<Array<{ label: string; type: string; size: string; icon: typeof FileText }>>([]);
+
+  useEffect(() => {
+    apiRequest<{ complaints: Array<{ id: string }> }>("/complaints")
+      .then(async ({ complaints }) => {
+        const complaint = complaints[0];
+        if (!complaint) return;
+        const details = await apiRequest<{ complaint: Record<string, any>; driver: Record<string, any> | null; category: Record<string, any> | null; history: Array<Record<string, any>>; attachments: Array<Record<string, any>> }>(`/complaints/${complaint.id}`);
+        const record = details.complaint;
+        setComplaintId(complaint.id);
+        setLastUpdated(formatPhilippineDateTime(record.updated_at || record.created_at));
+        const statusMap: Record<string, ReviewStatus> = { SUBMITTED: "Received", RECEIVED: "Received", UNDER_REVIEW: "Under Review", VERIFIED: "Verification Needed", REFERRED: "Referred", RESOLVED: "Resolved", CLOSED: "Closed" };
+        setStatus(statusMap[String(record.status)] ?? "Received");
+        setIncident({
+          reportId: record.reference_number,
+          submittedAt: formatPhilippineDateTime(record.created_at),
+          incidentDate: record.incident_date,
+          incidentTime: record.incident_time,
+          location: record.location,
+          category: details.category?.name ?? "Uncategorized",
+          reporter: "Student reporter",
+          description: record.description,
+        });
+        if (details.driver) {
+          setDriver({
+            name: details.driver.full_name,
+            id: details.driver.driver_code,
+            plate: details.driver.plate_number || "Not provided",
+            association: "Registered operator",
+            route: details.driver.route_area || "Not provided",
+            phone: details.driver.contact_number || "Not provided",
+            lastReview: "No review history available",
+          });
+        }
+        setEvidence(details.attachments.map((item) => ({ label: item.originalName, type: item.mimeType, size: `${Math.round(Number(item.sizeBytes || 0) / 1024)} KB`, icon: Paperclip })));
+        setHistory(details.history.map((item) => ({ date: formatPhilippineDateTime(item.created_at), title: String(item.new_status || "Action recorded").replaceAll("_", " "), detail: item.remarks || "Status recorded in the review history.", actor: "Authorized reviewer", tone: "blue" })));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  if (!incident || !driver) {
+    return <AppLayout officer active="Reports" title="Report review" eyebrow="Reports / Review workspace"><section className="rounded-2xl border border-dashed border-[#b8cade] bg-white px-6 py-16 text-center"><h2 className="text-[18px] font-extrabold text-[#23405f]">No report is available for review</h2><p className="mt-2 text-[12px] text-[#8ca0b6]">Live complaint records will appear here when a student submits a report.</p></section></AppLayout>;
+  }
 
   const latestStatusCopy = useMemo(() => {
     if (status === "Received") return "Awaiting officer review";
@@ -203,7 +251,7 @@ export function ReviewWorkspace() {
     setDialog({ action, label });
   };
 
-  const confirmAction = () => {
+  const confirmAction = async () => {
     if (!dialog) return;
     const actionStatus: Record<ActionType, ReviewStatus> = {
       received: "Received",
@@ -215,7 +263,20 @@ export function ReviewWorkspace() {
       close: "Closed",
     };
     const nextStatus = actionStatus[dialog.action];
+    if (!complaintId) return;
+    const statusValues: Record<string, string> = { received: "RECEIVED", review: "UNDER_REVIEW", verify: "VERIFIED", refer: "REFERRED", resolve: "RESOLVED", close: "CLOSED" };
+    try {
+      if (dialog.action === "record") {
+        await apiRequest(`/complaints/${complaintId}/actions`, { method: "POST", body: JSON.stringify({ actionType: dialog.label, description: note.trim() || dialogCopy[dialog.action].prompt }) });
+      } else {
+        await apiRequest(`/complaints/${complaintId}/status`, { method: "PATCH", body: JSON.stringify({ status: statusValues[dialog.action], remarks: note.trim() || dialogCopy[dialog.action].prompt }) });
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to save the review action.");
+      return;
+    }
     setStatus(nextStatus);
+    setLastUpdated(formatPhilippineDateTime(new Date()));
     setHistory((current) => [
       ...current,
       {
@@ -229,8 +290,8 @@ export function ReviewWorkspace() {
     setDialog(null);
     setNotice(
       dialog.action === "record"
-        ? "The action note was added to this report’s local activity history."
-        : `${dialog.label} was recorded in this prototype workspace.`,
+        ? "The action note was saved to the report."
+        : `${dialog.label} was recorded in the report history.`,
     );
   };
 
@@ -241,14 +302,14 @@ export function ReviewWorkspace() {
           <div>
             <button
               type="button"
-              onClick={() => setNotice("Report queue navigation is represented locally in this prototype.")}
+              onClick={() => setNotice("Use the Reports navigation to return to the review queue.")}
               className="mb-4 inline-flex items-center gap-2 text-[12px] font-bold text-[#66809e] transition hover:text-[#0c5bce]"
             >
               <ArrowLeft size={15} />
               Back to report queue
             </button>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-[28px] font-extrabold tracking-[-0.04em] text-[#163154] lg:text-[34px]">TRC-2026-00124</h1>
+              <h1 className="text-[28px] font-extrabold tracking-[-0.04em] text-[#163154] lg:text-[34px]">{incident.reportId}</h1>
               <StatusPill status={status} />
             </div>
             <p className="mt-2 max-w-2xl text-[13px] leading-6 text-[#71859e]">
@@ -261,7 +322,7 @@ export function ReviewWorkspace() {
               Authorized access
             </div>
             <div className="rounded-xl border border-[#dbe5f0] bg-white px-3 py-2.5 text-[11px] font-semibold text-[#71859e]">
-              Last updated 19 Feb 2026
+              Last updated {lastUpdated || "Not available"}
             </div>
           </div>
         </div>
@@ -364,7 +425,7 @@ export function ReviewWorkspace() {
                   <button
                     type="button"
                     key={label}
-                    onClick={() => setNotice(`${label} preview is available in this local prototype.`)}
+                    onClick={() => setNotice(`${label} details are available in the report record.`)}
                     className="group rounded-2xl border border-[#e2e9f1] bg-[#fbfdff] p-4 text-left transition hover:-translate-y-0.5 hover:border-[#bcd3f5] hover:bg-[#f4f8ff]"
                   >
                     <div className={`flex h-28 items-center justify-center rounded-xl ${index === 1 ? "bg-[#e3edf7]" : "bg-[#eef4fa]"} text-[#6683a1]`}>
@@ -378,7 +439,7 @@ export function ReviewWorkspace() {
               </div>
               <div className="mt-5 flex items-start gap-2 rounded-xl border border-[#dbe5f0] bg-[#f8fafc] px-3 py-3 text-[11px] leading-5 text-[#71859e]">
                 <Info size={15} className="mt-0.5 shrink-0 text-[#7894b4]" />
-                Attachments are shown for authorized review only. This prototype does not upload, download, or persist files.
+                Attachments are shown for authorized review only and are stored with the report record.
               </div>
             </section>
 
@@ -481,7 +542,7 @@ export function ReviewWorkspace() {
           <div role="dialog" aria-modal="true" aria-labelledby="review-dialog-title" className="w-full max-w-[480px] rounded-[24px] border border-[#dbe5f0] bg-white p-5 shadow-[0_24px_80px_rgba(16,45,78,0.22)] sm:p-7">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8ca0b6]">Confirm local action</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8ca0b6]">Confirm review action</p>
                 <h2 id="review-dialog-title" className="mt-2 text-[20px] font-extrabold tracking-[-0.03em] text-[#183657]">{dialogCopy[dialog.action].title}</h2>
               </div>
               <button type="button" onClick={() => setDialog(null)} className="rounded-xl p-2 text-[#8092a6] hover:bg-[#f2f6fa]" aria-label="Close dialog"><X size={18} /></button>

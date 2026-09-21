@@ -1,0 +1,50 @@
+Yes. I spotted several real UI/functionality bugs.
+
+  Findings
+
+  1. artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/ReviewWorkspace.tsx:235 can crash after     live data loads.
+
+  useMemo is called after an early return. First render returns when incident/driver is empty, then a later
+  render reaches useMemo, changing the hook order. React can throw “Rendered more hooks than during the
+  previous render.”
+
+  Move latestStatusCopy before the early return, or make it a plain computed value.
+
+  2. artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/Auth.tsx:24 blocks PNP users from
+     signing in through the normal role selector.
+
+  PersonnelRole only supports AUTHORIZED_PERSONNEL and TODA_PRESIDENT, but login rejects any account whose role  does not match the selected role at artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/
+  Auth.tsx:228. A PNP account can authenticate, then gets immediately logged out with a role mismatch.
+
+  3. artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/_shared/AppLayout.tsx:263 has a dead
+     mobile menu button.
+
+  The hamburger button has no onClick, so mobile users cannot open the full navigation. They only get the
+  bottom nav, which slices to five items and can hide pages like Analytics/TODAs depending on role.
+
+  4. artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/_shared/AppLayout.tsx:72 sends drivers
+     to StudentDashboard.
+
+  Driver navigation defines Dashboard as StudentDashboard, so driver users land on a student-oriented dashboard  instead of a driver dashboard/profile space.
+
+  5. artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/SubmitReport.tsx:221 lets students
+     reach the final submit step without required backend fields.
+
+  The UI only validates driver/date/time before continuing. But the PHP API requires location and description,
+  with description at least 15 chars. Users can click through review and only get an API error after pressing
+  “Send report.”
+
+  6. artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/MyReports.tsx:302 uses a hardcoded date
+     for “Last 30 days” / “Last 90 days”.
+
+  It is fixed to 2026-02-24, so date filters will be wrong now and going forward. It should use the current
+  date or the same Philippine-date helper used elsewhere.
+
+  7. artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/ReviewWorkspace.tsx:197 always reviews
+     the first complaint returned by /complaints.
+
+  There is no route/query-selected complaint ID, so clicking into a specific report from a queue cannot
+  reliably open that report. It just loads complaints[0].
+
+  Verification note: npm run typecheck --workspace @workspace/mockup-sandbox passes, so these are mostly
+  runtime/UX/data-flow bugs rather than TypeScript errors.

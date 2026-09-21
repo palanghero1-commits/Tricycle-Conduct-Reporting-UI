@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
@@ -21,7 +21,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { getCurrentUser, getUserInitials } from "../../../lib/api";
+import { apiRequest, deleteProfilePhoto, fetchProfilePhoto, getCurrentUser, getUserInitials, setCurrentUser, uploadProfilePhoto } from "../../../lib/api";
 import { AppLayout } from "./_shared/AppLayout";
 
 type PreferenceKey = "updates" | "reminders";
@@ -114,13 +114,72 @@ function Modal({
 
 export function Profile() {
   const currentUser = getCurrentUser();
-  const [displayName, setDisplayName] = useState(currentUser?.fullName ?? "Maria Cruz");
-  const [email, setEmail] = useState(currentUser?.email ?? "maria.cruz@sunn.edu.ph");
+  const isDriver = currentUser?.role === "DRIVER";
+  const isReviewRole = ["TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "PNP", "SUPERADMIN"].includes(currentUser?.role ?? "");
+  const roleLabel = currentUser?.role?.replaceAll("_", " ") ?? "Account";
+  const [displayName, setDisplayName] = useState(currentUser?.fullName ?? "");
+  const [email, setEmail] = useState(currentUser?.email ?? "");
+  const [profile, setProfile] = useState<{
+    studentId?: string; program?: string; campus?: string; driverCode?: string;
+    tricycleIdentifier?: string; routeArea?: string; todaName?: string;
+    barangay?: string; city?: string; province?: string; contactNumber?: string;
+  }>({});
   const [draftName, setDraftName] = useState(displayName);
   const [draftEmail, setDraftEmail] = useState(email);
   const [activePanel, setActivePanel] = useState<"edit" | "password" | "notifications" | "privacy" | "sessions" | "signout" | null>(null);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [passwordNotice, setPasswordNotice] = useState("");
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [photoNotice, setPhotoNotice] = useState("");
+  const photoInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    apiRequest<{ user: { fullName: string; email: string | null }; profile: typeof profile; preferences?: Record<PreferenceKey, boolean> }>("/me")
+      .then(({ user, profile: loadedProfile, preferences: loadedPreferences }) => {
+        setDisplayName(user.fullName);
+        setEmail(user.email ?? "");
+        setProfile(loadedProfile ?? {});
+        if (loadedPreferences) setPreferences({ updates: Boolean(loadedPreferences.updates), reminders: Boolean(loadedPreferences.reminders) });
+        if (currentUser) setCurrentUser({ ...currentUser, fullName: user.fullName, email: user.email });
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    fetchProfilePhoto().then((blob) => {
+      if (!active) return;
+      objectUrl = URL.createObjectURL(blob);
+      setProfilePhotoUrl(objectUrl);
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, []);
+
+  const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setPhotoNotice("");
+    uploadProfilePhoto(file).then(async () => {
+      const blob = await fetchProfilePhoto();
+      const nextUrl = URL.createObjectURL(blob);
+      setProfilePhotoUrl((current) => { if (current) URL.revokeObjectURL(current); return nextUrl; });
+      setPhotoNotice("Profile photo updated.");
+    }).catch((error) => setPhotoNotice(error instanceof Error ? error.message : "Unable to upload profile photo."));
+  };
+
+  const removePhoto = () => {
+    deleteProfilePhoto().then(() => {
+      setProfilePhotoUrl((current) => { if (current) URL.revokeObjectURL(current); return null; });
+      setPhotoNotice("Profile photo removed.");
+    }).catch((error) => setPhotoNotice(error instanceof Error ? error.message : "Unable to remove profile photo."));
+  };
 
   const openEdit = () => {
     setDraftName(displayName);
@@ -130,31 +189,43 @@ export function Profile() {
 
   const saveProfile = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setDisplayName(draftName.trim() || displayName);
-    setEmail(draftEmail.trim() || email);
-    setActivePanel(null);
-    setSavedNotice(true);
-    window.setTimeout(() => setSavedNotice(false), 2600);
+    apiRequest<{ user: typeof currentUser }>("/me", { method: "PATCH", body: JSON.stringify({ fullName: draftName.trim(), email: draftEmail.trim() }) })
+      .then(({ user }) => { if (user) { setCurrentUser(user); setDisplayName(user.fullName); setEmail(user.email ?? ""); } setActivePanel(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2600); })
+      .catch(() => setSavedNotice(false));
   };
 
   const togglePreference = (key: PreferenceKey) => {
-    setPreferences((current) => ({ ...current, [key]: !current[key] }));
+    const next = { ...preferences, [key]: !preferences[key] };
+    setPreferences(next);
+    apiRequest("/me/preferences", { method: "PATCH", body: JSON.stringify(next) }).catch(() => setPreferences(preferences));
+  };
+
+  const changePassword = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPasswordNotice("");
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordNotice("New passwords do not match.");
+      return;
+    }
+    apiRequest("/me/password", { method: "POST", body: JSON.stringify({ currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword }) })
+      .then(() => { setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" }); setActivePanel(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2600); })
+      .catch((error) => setPasswordNotice(error instanceof Error ? error.message : "Unable to change password."));
   };
 
   return (
-    <AppLayout active="Profile" title="Your profile" eyebrow={currentUser?.role === "DRIVER" ? "Driver space" : "Student space"}>
+    <AppLayout active="Profile" title="Your profile" eyebrow={isReviewRole ? "Review center / account" : isDriver ? "Driver space" : "Student space"}>
       <div className="mx-auto max-w-[1080px]">
         <div className="mb-7 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
             <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#0c5bce]">A little about you</p>
             <h2 className="text-[28px] font-extrabold tracking-[-0.045em] text-[#173455] sm:text-[34px]">Welcome back, {displayName.split(" ")[0]}.</h2>
             <p className="mt-2 max-w-[510px] text-[13px] leading-6 text-[#71869d]">
-              Keep your details current so the Old Sagay civic desk can connect reports to the right student account.
+              Keep your details current so the civic desk can connect reports to the right account.
             </p>
           </div>
           <div className="flex w-fit items-center gap-2 rounded-full border border-[#dbe9f2] bg-[#f9fcff] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#6e879f]">
             <ShieldCheck size={14} className="text-[#278661]" />
-            Demo account
+            Active account
           </div>
         </div>
 
@@ -163,7 +234,7 @@ export function Profile() {
           <div className="absolute -bottom-24 right-[20%] h-36 w-36 rounded-full bg-[#dff4ed] opacity-75" />
           <div className="relative flex flex-col gap-5 px-5 py-5 sm:flex-row sm:items-center sm:px-7 sm:py-6">
             <div className="relative flex h-[78px] w-[78px] shrink-0 items-center justify-center rounded-[25px] bg-[#f7c9ad] text-[25px] font-extrabold tracking-[-0.05em] text-[#8d4c38] shadow-[0_8px_18px_rgba(141,76,56,0.12)]">
-              {getUserInitials({ fullName: displayName, email })}
+              {profilePhotoUrl ? <img src={profilePhotoUrl} alt="Profile" className="h-full w-full rounded-[25px] object-cover" /> : getUserInitials({ fullName: displayName, email })}
               <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-[3px] border-[#eaf4ff] bg-[#21805c] text-white">
                 <Check size={13} strokeWidth={2.7} />
               </span>
@@ -171,20 +242,26 @@ export function Profile() {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2.5">
                 <h3 className="text-[20px] font-extrabold tracking-[-0.03em] text-[#173455]">{displayName}</h3>
-                <span className="rounded-full bg-[#d8f0e3] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.11em] text-[#247952]">{currentUser?.role === "DRIVER" ? "Driver" : "Student"}</span>
+                <span className="rounded-full bg-[#d8f0e3] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.11em] text-[#247952]">{roleLabel}</span>
               </div>
-              <p className="mt-1.5 text-[12px] font-medium text-[#5e7893]">Student no. 2023-04182</p>
+              <p className="mt-1.5 text-[12px] font-medium text-[#5e7893]">{isDriver ? `Driver code · ${profile.driverCode ?? "Not assigned"}` : `Student no. ${profile.studentId ?? "Not assigned"}`}</p>
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] font-semibold text-[#718aa2]">
-                <span className="inline-flex items-center gap-1.5"><MapPin size={13} className="text-[#0c5bce]" /> Old Sagay, Sagay City</span>
-                <span className="inline-flex items-center gap-1.5"><UsersRound size={13} className="text-[#0c5bce]" /> SUNN community</span>
+                <span className="inline-flex items-center gap-1.5"><MapPin size={13} className="text-[#0c5bce]" /> {isDriver ? [profile.barangay, profile.city].filter(Boolean).join(", ") || "Location not assigned" : profile.campus ?? "Campus not assigned"}</span>
+                <span className="inline-flex items-center gap-1.5"><UsersRound size={13} className="text-[#0c5bce]" /> {isDriver ? profile.todaName ?? "TODA not assigned" : "SUNN community"}</span>
               </div>
             </div>
-            <button type="button" onClick={openEdit} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#c8dceb] bg-[#f9fcff]/80 px-3.5 py-2.5 text-[11px] font-extrabold text-[#0c5bce] transition hover:bg-white sm:w-auto">
-              <PencilLine size={14} />
-              Edit profile
-            </button>
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+              <button type="button" onClick={openEdit} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#c8dceb] bg-[#f9fcff]/80 px-3.5 py-2.5 text-[11px] font-extrabold text-[#0c5bce] transition hover:bg-white sm:w-auto">
+                <PencilLine size={14} />
+                Edit profile
+              </button>
+              <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} className="hidden" />
+              <button type="button" onClick={() => photoInput.current?.click()} className="rounded-lg border border-[#c8dceb] bg-white px-2.5 py-1.5 text-[10px] font-bold text-[#0c5bce] shadow-sm hover:bg-[#f4f9ff]">Change photo</button>
+              {profilePhotoUrl ? <button type="button" onClick={removePhoto} className="rounded-lg border border-[#efd3cf] bg-white px-2.5 py-1.5 text-[10px] font-bold text-[#a65b55] shadow-sm hover:bg-[#fff8f7]">Remove</button> : null}
+            </div>
           </div>
         </section>
+        {photoNotice ? <p className="mt-3 text-right text-[11px] font-semibold text-[#5f7892]">{photoNotice}</p> : null}
 
         <div className="mt-5 grid gap-5 lg:grid-cols-[1.03fr_1fr]">
           <section className="rounded-[22px] border border-[#e0e9f1] bg-[#fbfdff] shadow-[0_8px_26px_rgba(44,78,108,0.035)]">
@@ -192,19 +269,19 @@ export function Profile() {
               <div className="flex items-center gap-2.5">
                 <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-[#eaf2ff] text-[#0c5bce]"><UserRound size={16} /></span>
                 <div>
-                  <h3 className="text-[13px] font-extrabold text-[#28415e]">Student details</h3>
+                  <h3 className="text-[13px] font-extrabold text-[#28415e]">{isDriver ? "Driver details" : "Student details"}</h3>
                   <p className="mt-0.5 text-[10px] text-[#91a2b4]">The basics linked to your account</p>
                 </div>
               </div>
             </div>
             <div className="divide-y divide-[#edf2f6] px-5 sm:px-6">
               <div className="flex items-start justify-between gap-4 py-4">
-                <span className="text-[11px] font-semibold text-[#8598ab]">Course / program</span>
-                <span className="max-w-[195px] text-right text-[12px] font-bold leading-5 text-[#314b68]">Bachelor of Science in Information Technology</span>
+                <span className="text-[11px] font-semibold text-[#8598ab]">{isDriver ? "Tricycle identifier" : "Course / program"}</span>
+                <span className="max-w-[195px] text-right text-[12px] font-bold leading-5 text-[#314b68]">{isDriver ? profile.tricycleIdentifier ?? "Not assigned" : profile.program ?? "Not provided"}</span>
               </div>
               <div className="flex items-start justify-between gap-4 py-4">
-                <span className="text-[11px] font-semibold text-[#8598ab]">Student number</span>
-                <span className="text-[12px] font-bold text-[#314b68]">2023-04182</span>
+                <span className="text-[11px] font-semibold text-[#8598ab]">{isDriver ? "Route area" : "Student number"}</span>
+                <span className="text-[12px] font-bold text-[#314b68]">{isDriver ? profile.routeArea ?? "Not assigned" : profile.studentId ?? "Not assigned"}</span>
               </div>
               <div className="flex items-start justify-between gap-4 py-4">
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#8598ab]"><Mail size={13} /> Account email</span>
@@ -212,12 +289,12 @@ export function Profile() {
               </div>
               <div className="flex items-start justify-between gap-4 py-4">
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#8598ab]"><Phone size={13} /> Contact number</span>
-                <span className="text-[12px] font-bold text-[#314b68]">09•• ••• 1842</span>
+                <span className="text-[12px] font-bold text-[#314b68]">{profile.contactNumber ?? "Not provided"}</span>
               </div>
             </div>
             <div className="mx-5 mb-5 mt-1 flex items-start gap-2.5 rounded-[14px] bg-[#f5f9fc] px-3.5 py-3 sm:mx-6">
               <CircleHelp className="mt-0.5 shrink-0 text-[#7d97b0]" size={14} />
-              <p className="text-[10px] leading-4 text-[#7890a7]">Your student number and program are shown for reference and cannot be changed in this prototype.</p>
+              <p className="text-[10px] leading-4 text-[#7890a7]">{isDriver ? "Your driver assignment and location are managed by authorized personnel." : "Your student number and program are managed by the authorized account administrator."}</p>
             </div>
           </section>
 
@@ -233,7 +310,7 @@ export function Profile() {
             </div>
             <div>
               <SettingRow icon={PencilLine} iconClassName="bg-[#edf4ff] text-[#0c5bce]" title="Edit profile" description="Update your name or account email" onClick={openEdit} />
-              <SettingRow icon={KeyRound} iconClassName="bg-[#fff1e9] text-[#c66846]" title="Change password" description="Password controls are represented in this demo" onClick={() => setActivePanel("password")} />
+              <SettingRow icon={KeyRound} iconClassName="bg-[#fff1e9] text-[#c66846]" title="Change password" description="Keep your account password up to date" onClick={() => setActivePanel("password")} />
               <SettingRow icon={Bell} iconClassName="bg-[#fff7dd] text-[#b47c16]" title="Notification preferences" description="Choose which report updates reach you" status={`${Number(preferences.updates) + Number(preferences.reminders)} enabled`} onClick={() => setActivePanel("notifications")} />
               <SettingRow icon={Eye} iconClassName="bg-[#eaf7f1] text-[#27805b]" title="Privacy" description="Review how your report details are handled" onClick={() => setActivePanel("privacy")} />
               <SettingRow icon={Laptop2} iconClassName="bg-[#f0efff] text-[#645ca9]" title="Active sessions" description="One session is currently open" trailing="status" onClick={() => setActivePanel("sessions")} />
@@ -245,8 +322,8 @@ export function Profile() {
           <div className="flex items-start gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-[#ffe9df] text-[#c66846]"><LockKeyhole size={16} /></span>
             <div>
-              <p className="text-[12px] font-extrabold text-[#704737]">Need to leave this demo?</p>
-              <p className="mt-1 text-[11px] text-[#9b776a]">Sign out only closes this sample view. No account changes are made.</p>
+              <p className="text-[12px] font-extrabold text-[#704737]">Need to leave this account?</p>
+              <p className="mt-1 text-[11px] text-[#9b776a]">Sign out of this account on the current device.</p>
             </div>
           </div>
           <button type="button" onClick={() => setActivePanel("signout")} className="inline-flex items-center gap-2 rounded-xl border border-[#edcfc2] bg-[#fffdfc] px-3.5 py-2.5 text-[11px] font-extrabold text-[#a8593e] transition hover:bg-white">
@@ -257,19 +334,19 @@ export function Profile() {
 
         <div className="mt-7 flex flex-col gap-2 text-[10px] font-medium text-[#91a2b4] sm:flex-row sm:items-center sm:justify-between">
           <span>Profile last reviewed · 14 March 2025</span>
-          <span className="inline-flex items-center gap-1.5"><ShieldCheck size={13} className="text-[#2a845f]" /> Your information stays within the prototype</span>
+          <span className="inline-flex items-center gap-1.5"><ShieldCheck size={13} className="text-[#2a845f]" /> Your information stays within the secure system</span>
         </div>
       </div>
 
       {savedNotice ? (
         <div className="fixed bottom-[86px] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#cce7d8] bg-[#f3fbf6] px-4 py-2.5 text-[11px] font-bold text-[#287652] shadow-[0_10px_25px_rgba(38,99,70,0.12)] lg:bottom-7">
           <Check size={14} />
-          Profile details updated in this demo
+          Profile details updated
         </div>
       ) : null}
 
       {activePanel === "edit" ? (
-        <Modal title="Edit profile" description="Make a small change to your sample profile." onClose={() => setActivePanel(null)}>
+        <Modal title="Edit profile" description="Update the name and email saved to your account." onClose={() => setActivePanel(null)}>
           <form onSubmit={saveProfile} className="mt-5 space-y-4">
             <label className="block">
               <span className="mb-1.5 block text-[11px] font-bold text-[#59718a]">Display name</span>
@@ -288,19 +365,17 @@ export function Profile() {
       ) : null}
 
       {activePanel === "password" ? (
-        <Modal title="Change password" description="This prototype does not process or store passwords." onClose={() => setActivePanel(null)}>
-          <div className="mt-5 rounded-[15px] bg-[#f4f8fc] p-4">
-            <div className="flex gap-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e4efff] text-[#0c5bce]"><LockKeyhole size={15} /></span>
-              <p className="text-[12px] leading-5 text-[#637b92]">In a live system, this action would take you to a secure password flow. Nothing will be changed here.</p>
-            </div>
-          </div>
-          <button type="button" onClick={() => setActivePanel(null)} className="mt-5 w-full rounded-xl bg-[#0c5bce] px-4 py-3 text-[11px] font-extrabold text-white hover:bg-[#0a50b6]">Got it</button>
+        <Modal title="Change password" description="Use a strong password to protect your account." onClose={() => setActivePanel(null)}>
+          <form onSubmit={changePassword} className="mt-5 space-y-3">
+            {(["currentPassword", "newPassword", "confirmPassword"] as const).map((key) => <input key={key} required type="password" minLength={key === "currentPassword" ? 1 : 8} value={passwordForm[key]} onChange={(event) => setPasswordForm((current) => ({ ...current, [key]: event.target.value }))} placeholder={key === "currentPassword" ? "Current password" : key === "newPassword" ? "New password" : "Confirm new password"} className="h-11 w-full rounded-xl border border-[#dbe5f0] bg-white px-3 text-[12px] text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />)}
+            {passwordNotice ? <p className="text-[11px] font-semibold text-[#b45f4d]">{passwordNotice}</p> : null}
+            <button type="submit" className="w-full rounded-xl bg-[#0c5bce] px-4 py-3 text-[11px] font-extrabold text-white hover:bg-[#0a50b6]">Update password</button>
+          </form>
         </Modal>
       ) : null}
 
       {activePanel === "notifications" ? (
-        <Modal title="Notification preferences" description="These switches only change the view in this demo." onClose={() => setActivePanel(null)} widthClass="max-w-[470px]">
+          <Modal title="Notification preferences" description="Choose which account updates you want to receive." onClose={() => setActivePanel(null)} widthClass="max-w-[470px]">
           <div className="mt-5 divide-y divide-[#e6edf3] rounded-[15px] border border-[#e0e9f1] bg-white px-4">
             <div className="flex items-center gap-3 py-4">
               <Bell size={17} className="shrink-0 text-[#b47c16]" />
@@ -318,17 +393,17 @@ export function Profile() {
       ) : null}
 
       {activePanel === "privacy" ? (
-        <Modal title="Privacy" description="A clear view of what this civic reporting prototype keeps in context." onClose={() => setActivePanel(null)}>
+        <Modal title="Privacy" description="A clear view of how this reporting system keeps your information in context." onClose={() => setActivePanel(null)}>
           <div className="mt-5 space-y-3">
             <div className="rounded-[14px] bg-[#edf8f2] px-4 py-3.5"><p className="text-[11px] font-extrabold text-[#287652]">Reports are treated as unconfirmed</p><p className="mt-1 text-[10px] leading-4 text-[#658779]">A report shares an observation for review. It is not a confirmed violation or finding.</p></div>
-            <div className="rounded-[14px] bg-[#f4f8fc] px-4 py-3.5"><p className="text-[11px] font-extrabold text-[#405b75]">Your details stay contextual</p><p className="mt-1 text-[10px] leading-4 text-[#7b90a5]">This sample screen shows only the profile details needed for a student reporting journey.</p></div>
+            <div className="rounded-[14px] bg-[#f4f8fc] px-4 py-3.5"><p className="text-[11px] font-extrabold text-[#405b75]">Your details stay contextual</p><p className="mt-1 text-[10px] leading-4 text-[#7b90a5]">Only the profile details needed for your account are shown here.</p></div>
           </div>
           <button type="button" onClick={() => setActivePanel(null)} className="mt-5 w-full rounded-xl bg-[#0c5bce] px-4 py-3 text-[11px] font-extrabold text-white hover:bg-[#0a50b6]">Close</button>
         </Modal>
       ) : null}
 
       {activePanel === "sessions" ? (
-        <Modal title="Active sessions" description="A quick look at where this sample profile is open." onClose={() => setActivePanel(null)}>
+        <Modal title="Active sessions" description="A quick look at where your account is currently open." onClose={() => setActivePanel(null)}>
           <div className="mt-5 rounded-[15px] border border-[#dce8f1] bg-white p-4">
             <div className="flex items-start gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#f0efff] text-[#645ca9]"><Laptop2 size={17} /></span>
@@ -340,7 +415,7 @@ export function Profile() {
       ) : null}
 
       {activePanel === "signout" ? (
-        <Modal title="Sign out of this demo?" description="You will return to the sample welcome screen. No account or report data will be changed." onClose={() => setActivePanel(null)}>
+        <Modal title="Sign out of this account?" description="You will return to the welcome screen." onClose={() => setActivePanel(null)}>
           <div className="mt-5 flex items-center gap-3 rounded-[15px] bg-[#fff4ef] px-4 py-3.5"><LockKeyhole className="shrink-0 text-[#b96549]" size={17} /><p className="text-[11px] leading-4 text-[#875a4d]">This is a visual confirmation only. There is no active session to end.</p></div>
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setActivePanel(null)} className="rounded-xl px-4 py-2.5 text-[11px] font-extrabold text-[#7890a7] hover:bg-[#f1f6fa]">Stay here</button>

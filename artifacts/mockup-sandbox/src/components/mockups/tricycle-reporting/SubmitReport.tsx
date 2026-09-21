@@ -24,7 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
-import { apiRequest } from "../../../lib/api";
+import { apiRequest, getCurrentUser } from "../../../lib/api";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -46,7 +46,8 @@ type EvidenceItem = {
   status: "uploading" | "ready";
 };
 
-const drivers: Driver[] = [
+const drivers: Driver[] = [];
+/*
   {
     id: 1,
     name: "Rogelio D. Santos",
@@ -72,6 +73,7 @@ const drivers: Driver[] = [
     route: "Old Sagay • Riverside loop",
   },
 ];
+*/
 
 const categories = [
   "Overcharging",
@@ -82,22 +84,25 @@ const categories = [
   "Other",
 ] as const;
 
+const fallbackCategoryDescriptions: Record<string, string> = {
+  Overcharging: "The fare collected differed from the posted or agreed route fare.",
+  "Reckless Driving": "The driver used unsafe speed, sudden stops, or risky vehicle operation.",
+  "Refusal to Transport": "The driver declined a valid route or passenger request.",
+  "Discourteous Behavior": "The driver acted disrespectfully or inappropriately.",
+  "Unsafe Driving": "The incident raised a passenger safety concern during the trip.",
+  Other: "This concern does not match another category.",
+};
+
+function getDescriptionTemplate(categoryName: string, categoryDescription?: string) {
+  const context = categoryDescription || fallbackCategoryDescriptions[categoryName] || "A tricycle conduct concern was observed.";
+  return `I am reporting a concern about ${categoryName.toLowerCase()}. ${context} What I observed was: `;
+}
+
 const stepDetails = [
   { number: 1, label: "Vehicle", caption: "Who and which tricycle" },
   { number: 2, label: "Incident", caption: "What happened" },
   { number: 3, label: "Evidence", caption: "Optional supporting files" },
   { number: 4, label: "Review", caption: "Check before sending" },
-];
-
-const initialEvidence: EvidenceItem[] = [
-  {
-    id: 1,
-    name: "fare-receipt.jpg",
-    size: "1.8 MB",
-    kind: "image",
-    progress: 100,
-    status: "ready",
-  },
 ];
 
 function formatDate(value: string) {
@@ -118,23 +123,28 @@ function formatTime(value: string) {
 }
 
 export function SubmitReport() {
+  useEffect(() => {
+    if (getCurrentUser()?.role !== "STUDENT") {
+      window.location.replace(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Profile`);
+    }
+  }, []);
   const [step, setStep] = useState<Step>(1);
-  const [selectedDriver, setSelectedDriver] = useState<string>("OS-4821");
-  const [liveDrivers, setLiveDrivers] = useState<Driver[]>(drivers);
-  const [liveCategories, setLiveCategories] = useState<{ id: number; name: string }[]>([]);
+  const [selectedDriver, setSelectedDriver] = useState<string>("");
+  const [liveDrivers, setLiveDrivers] = useState<Driver[]>([]);
+  const [liveCategories, setLiveCategories] = useState<{ id: number; name: string; description?: string }[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [vehicleSearch, setVehicleSearch] = useState("");
-  const [category, setCategory] = useState<string>("Overcharging");
+  const [category, setCategory] = useState<string>("");
   const [otherCategory, setOtherCategory] = useState("");
-  const [incidentDate, setIncidentDate] = useState("2025-04-18");
-  const [incidentTime, setIncidentTime] = useState("08:40");
-  const [location, setLocation] = useState("Old Sagay Public Market");
-  const [description, setDescription] = useState(
-    "The posted fare and the amount requested seemed different after I arrived at the market.",
-  );
-  const [evidence, setEvidence] = useState<EvidenceItem[]>(initialEvidence);
+  const [incidentDate, setIncidentDate] = useState("");
+  const [incidentTime, setIncidentTime] = useState("");
+  const [location, setLocation] = useState("");
+  const [description, setDescription] = useState("");
+  const [lastDescriptionTemplate, setLastDescriptionTemplate] = useState("");
+  const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
 
@@ -142,7 +152,7 @@ export function SubmitReport() {
     let cancelled = false;
     Promise.all([
       apiRequest<{ drivers: Array<{ id: number; fullName: string; tricycleIdentifier: string; routeArea: string | null }> }>("/drivers"),
-      apiRequest<{ categories: Array<{ id: number; name: string }> }>("/categories"),
+      apiRequest<{ categories: Array<{ id: number; name: string; description?: string }> }>("/categories"),
     ])
       .then(([driverData, categoryData]) => {
         if (cancelled) return;
@@ -158,7 +168,13 @@ export function SubmitReport() {
         );
         setLiveCategories(categoryData.categories);
         if (driverData.drivers[0]) setSelectedDriver(driverData.drivers[0].tricycleIdentifier);
-        if (categoryData.categories[0]) setCategory(categoryData.categories[0].name);
+        if (categoryData.categories[0]) {
+          const firstCategory = categoryData.categories[0];
+          const template = getDescriptionTemplate(firstCategory.name, firstCategory.description);
+          setCategory(firstCategory.name);
+          setDescription(template);
+          setLastDescriptionTemplate(template);
+        }
       })
       .catch(() => setNotice("Connect to the API and sign in to load official drivers and categories."))
       .finally(() => !cancelled && setIsLoadingData(false));
@@ -176,52 +192,41 @@ export function SubmitReport() {
   );
 
   const selected = liveDrivers.find((driver) => driver.identifier === selectedDriver) ?? liveDrivers[0];
-  const visibleCategories = liveCategories.length ? liveCategories.map((item) => item.name) : [...categories];
+  const visibleCategories = liveCategories.map((item) => item.name);
 
-  useEffect(() => {
-    const pending = evidence.filter((item) => item.status === "uploading");
-    if (!pending.length) return;
-
-    const timer = window.setTimeout(() => {
-      setEvidence((current) =>
-        current.map((item) =>
-          item.status === "uploading"
-            ? { ...item, progress: Math.min(item.progress + 24, 100), status: item.progress + 24 >= 100 ? "ready" : "uploading" }
-            : item,
-        ),
-      );
-    }, 440);
-
-    return () => window.clearTimeout(timer);
-  }, [evidence]);
-
-  const addEvidence = () => {
-    const nextId = evidence.length ? Math.max(...evidence.map((item) => item.id)) + 1 : 1;
-    setEvidence((current) => [
-      ...current,
-      {
-        id: nextId,
-        name: nextId % 2 === 0 ? "tricycle-signage.png" : "trip-details.jpg",
-        size: nextId % 2 === 0 ? "940 KB" : "2.1 MB",
-        kind: "image",
-        progress: 28,
-        status: "uploading",
-      },
-    ]);
+  const selectCategory = (nextCategory: string) => {
+    setCategory(nextCategory);
+    const selectedCategory = liveCategories.find((item) => item.name === nextCategory);
+    const template = getDescriptionTemplate(nextCategory, selectedCategory?.description);
+    if (!description.trim() || description === lastDescriptionTemplate) {
+      setDescription(template);
+      setLastDescriptionTemplate(template);
+    }
   };
 
   const removeEvidence = (id: number) => {
+    const removedIndex = evidence.findIndex((item) => item.id === id);
     setEvidence((current) => current.filter((item) => item.id !== id));
+    if (removedIndex >= 0) setAttachmentFiles((current) => current.filter((_, index) => index !== removedIndex));
   };
 
   const resetReport = () => {
     setStep(1);
     setIsSubmitted(false);
     setReportId("");
-    setEvidence(initialEvidence);
+    setEvidence([]);
+    setAttachmentFiles([]);
   };
 
   const goNext = () => {
+    if (step === 1 && !selected) {
+      setNotice(isLoadingData ? "Loading registered drivers from the database…" : "No registered drivers are available. Ask authorized personnel to register a driver first.");
+      return;
+    }
+    if (step === 2 && (!incidentDate || !incidentTime)) {
+      setNotice("Please provide the date and approximate time of the incident before continuing.");
+      return;
+    }
     if (step < 4) setStep((current) => (current + 1) as Step);
   };
 
@@ -231,6 +236,11 @@ export function SubmitReport() {
 
   const submitReport = async () => {
     if (!selected) return;
+    if (!incidentDate || !incidentTime) {
+      setNotice("Please provide the date and approximate time of the incident before submitting.");
+      setStep(2);
+      return;
+    }
     const categoryRecord = liveCategories.find((item) => item.name === category);
     if (!categoryRecord) {
       setNotice("Official complaint categories are still loading. Please try again.");
@@ -245,6 +255,7 @@ export function SubmitReport() {
     body.append("incidentTime", incidentTime);
     body.append("location", location);
     body.append("description", category === "Other" && otherCategory ? `${otherCategory}\n\n${description}` : description);
+    attachmentFiles.forEach((file) => body.append("attachments[]", file));
     try {
       const data = await apiRequest<{ complaint: { referenceNumber: string } }>("/complaints", { method: "POST", body });
       setReportId(data.complaint.referenceNumber);
@@ -280,7 +291,7 @@ export function SubmitReport() {
             <div className="space-y-5 px-6 py-6 sm:px-12 sm:py-8">
               <div className="flex items-center justify-between rounded-2xl border border-[#e1eaf2] bg-[#fbfdff] px-4 py-4">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a7bb]">Mock report ID</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a7bb]">Database reference</p>
                   <p className="mt-1 font-mono text-[17px] font-bold tracking-[0.08em] text-[#18385e]">{reportId}</p>
                 </div>
                 <BadgeCheck size={23} className="text-[#278b68]" />
@@ -427,17 +438,17 @@ export function SubmitReport() {
                         })}
                       </div>
                       {!visibleDrivers.length ? (
-                        <div className="rounded-2xl border border-dashed border-[#dbe5f0] px-4 py-8 text-center text-[12px] text-[#8195aa]">No matching fictional records. Try the vehicle ID.</div>
+                        <div className="rounded-2xl border border-dashed border-[#dbe5f0] px-4 py-8 text-center text-[12px] text-[#8195aa]">No registered drivers match your search.</div>
                       ) : null}
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="rounded-2xl bg-[#f5f9fd] p-4">
                         <div className="flex items-center gap-2 text-[#6384a5]"><CarFront size={16} /><span className="text-[10px] font-extrabold uppercase tracking-[0.13em]">Vehicle identifier</span></div>
-                        <p className="mt-2 font-mono text-[18px] font-extrabold tracking-[0.08em] text-[#17375d]">{selected.identifier}</p>
+                        <p className="mt-2 font-mono text-[18px] font-extrabold tracking-[0.08em] text-[#17375d]">{selected?.identifier ?? "Not available"}</p>
                       </div>
                       <div className="rounded-2xl bg-[#f5f9fd] p-4">
                         <div className="flex items-center gap-2 text-[#6384a5]"><UserRound size={16} /><span className="text-[10px] font-extrabold uppercase tracking-[0.13em]">Selected driver</span></div>
-                        <p className="mt-2 text-[15px] font-extrabold text-[#17375d]">{selected.name}</p>
+                        <p className="mt-2 text-[15px] font-extrabold text-[#17375d]">{selected?.name ?? "No driver selected"}</p>
                       </div>
                     </div>
                     <div className="flex gap-3 rounded-2xl border border-[#dbeaf7] bg-[#f5faff] px-4 py-3.5 text-[#547493]">
@@ -457,7 +468,7 @@ export function SubmitReport() {
                           <button
                             type="button"
                             key={item}
-                            onClick={() => setCategory(item)}
+                            onClick={() => selectCategory(item)}
                             className={`flex min-h-[48px] items-center justify-between rounded-xl border px-3.5 text-left text-[12px] font-bold transition ${
                               category === item ? "border-[#4d91db] bg-[#f1f7ff] text-[#0c5bce]" : "border-[#e0e8f0] text-[#49647e] hover:border-[#adc9e5]"
                             }`}
@@ -479,11 +490,11 @@ export function SubmitReport() {
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block">
                         <span className="mb-2 flex items-center gap-2 text-[12px] font-extrabold text-[#49647e]"><CalendarDays size={15} className="text-[#7190ad]" />Date</span>
-                        <input type="date" value={incidentDate} onChange={(event) => setIncidentDate(event.target.value)} className="h-11 w-full rounded-xl border border-[#dbe5f0] bg-white px-3 text-[12px] font-medium text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
+                        <input required type="date" value={incidentDate} onChange={(event) => setIncidentDate(event.target.value)} className="h-11 w-full rounded-xl border border-[#dbe5f0] bg-white px-3 text-[12px] font-medium text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                       </label>
                       <label className="block">
                         <span className="mb-2 flex items-center gap-2 text-[12px] font-extrabold text-[#49647e]"><Clock3 size={15} className="text-[#7190ad]" />Approximate time</span>
-                        <input type="time" value={incidentTime} onChange={(event) => setIncidentTime(event.target.value)} className="h-11 w-full rounded-xl border border-[#dbe5f0] bg-white px-3 text-[12px] font-medium text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
+                        <input required type="time" value={incidentTime} onChange={(event) => setIncidentTime(event.target.value)} className="h-11 w-full rounded-xl border border-[#dbe5f0] bg-white px-3 text-[12px] font-medium text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                       </label>
                     </div>
                     <label className="block">
@@ -496,7 +507,7 @@ export function SubmitReport() {
                     </label>
                     <label className="block">
                       <span className="mb-2 block text-[12px] font-extrabold text-[#49647e]">What happened?</span>
-                      <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={5} placeholder="Share only what you observed..." className="w-full resize-none rounded-xl border border-[#dbe5f0] px-3.5 py-3 text-[12px] leading-5 text-[#274563] outline-none placeholder:text-[#a1b0bf] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
+                      <textarea value={description} onChange={(event) => { setDescription(event.target.value); setLastDescriptionTemplate(""); }} rows={5} placeholder="Share only what you observed..." className="w-full resize-none rounded-xl border border-[#dbe5f0] px-3.5 py-3 text-[12px] leading-5 text-[#274563] outline-none placeholder:text-[#a1b0bf] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                       <span className="mt-1.5 block text-right text-[10px] text-[#9aaabd]">{description.length}/500</span>
                     </label>
                   </div>
@@ -516,8 +527,32 @@ export function SubmitReport() {
                     <div className="rounded-2xl border-2 border-dashed border-[#cbdcea] bg-[#fbfdff] px-5 py-7 text-center">
                       <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eaf2ff] text-[#0c5bce]"><Paperclip size={20} /></div>
                       <p className="mt-3 text-[12px] font-extrabold text-[#36516d]">Supporting evidence is optional</p>
-                      <p className="mt-1 text-[11px] text-[#91a2b4]">This prototype simulates an attachment preview.</p>
-                      <button type="button" onClick={addEvidence} className="mt-4 inline-flex items-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-2.5 text-[11px] font-extrabold text-[#0c5bce] transition hover:bg-[#f0f7ff]"><Plus size={15} />Add sample attachment</button>
+                      <p className="mt-1 text-[11px] text-[#91a2b4]">Attachments are prepared securely for submission.</p>
+                      <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-2.5 text-[11px] font-extrabold text-[#0c5bce] transition hover:bg-[#f0f7ff]">
+                        <Plus size={15} />Add attachment
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/jpeg,image/png,image/webp,application/pdf"
+                          className="sr-only"
+                          onChange={(event) => {
+                            const files = Array.from(event.target.files ?? []);
+                            setAttachmentFiles((current) => [...current, ...files]);
+                            setEvidence((current) => [
+                              ...current,
+                              ...files.map((file, index) => ({
+                                id: Date.now() + index,
+                                name: file.name,
+                                size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+                                kind: file.type.startsWith("image/") ? "image" as const : "note" as const,
+                                progress: 100,
+                                status: "ready" as const,
+                              })),
+                            ]);
+                            event.target.value = "";
+                          }}
+                        />
+                      </label>
                     </div>
                     <div className="space-y-2.5">
                       {evidence.map((item) => (
@@ -550,7 +585,7 @@ export function SubmitReport() {
                       <div className="flex gap-3"><ShieldCheck size={18} className="mt-0.5 shrink-0 text-[#2875bb]" /><p className="text-[11px] leading-5 text-[#58758f]">Please check your details. Sending a report shares your account of an experience with the conduct team for review.</p></div>
                     </div>
                     <div className="divide-y divide-[#edf1f5] rounded-2xl border border-[#e1eaf2]">
-                      <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Vehicle</p><p className="mt-1 text-[13px] font-extrabold text-[#294664]">{selected.name}</p><p className="mt-1 font-mono text-[10px] font-bold tracking-[0.08em] text-[#0c5bce]">{selected.identifier}</p></div><CarFront size={18} className="text-[#6d8baa]" /></div>
+                      <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Vehicle</p><p className="mt-1 text-[13px] font-extrabold text-[#294664]">{selected?.name ?? "No driver selected"}</p><p className="mt-1 font-mono text-[10px] font-bold tracking-[0.08em] text-[#0c5bce]">{selected?.identifier ?? "Not available"}</p></div><CarFront size={18} className="text-[#6d8baa]" /></div>
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Concern</p><p className="mt-1 text-[13px] font-extrabold text-[#294664]">{category === "Other" && otherCategory ? otherCategory : category}</p><p className="mt-1 text-[11px] text-[#71859e]">{formatDate(incidentDate)} at {formatTime(incidentTime)}</p></div><ClipboardCheck size={18} className="text-[#6d8baa]" /></div>
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Place and description</p><p className="mt-1 text-[12px] font-bold text-[#294664]">{location}</p><p className="mt-1 max-w-[480px] text-[11px] leading-5 text-[#71859e]">{description || "No description provided."}</p></div><MapPin size={18} className="shrink-0 text-[#6d8baa]" /></div>
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Supporting evidence</p><p className="mt-1 text-[12px] font-extrabold text-[#294664]">{evidence.length ? `${evidence.length} attachment${evidence.length === 1 ? "" : "s"}` : "None added"}</p></div><Paperclip size={18} className="text-[#6d8baa]" /></div>
@@ -570,7 +605,7 @@ export function SubmitReport() {
               </div>
             </div>
             {notice ? <p className="mt-4 rounded-xl border border-[#f1d7c9] bg-[#fff7f2] px-4 py-3 text-center text-[12px] font-semibold text-[#9b6048]">{notice}</p> : null}
-            <p className="mt-4 flex items-center justify-center gap-2 text-center text-[10px] leading-4 text-[#9aabba]"><ShieldCheck size={13} />Your report is shown only to the conduct review team in this prototype.</p>
+            <p className="mt-4 flex items-center justify-center gap-2 text-center text-[10px] leading-4 text-[#9aabba]"><ShieldCheck size={13} />Your report is shown only to the conduct review team.</p>
           </section>
         </div>
       </div>

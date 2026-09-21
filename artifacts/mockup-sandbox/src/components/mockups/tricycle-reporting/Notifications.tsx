@@ -1,30 +1,25 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Archive,
   ArrowUpRight,
   BadgeCheck,
   Bell,
   Check,
   CheckCheck,
   CircleCheck,
-  GitBranch,
+  ChevronLeft,
+  ChevronRight,
   Inbox,
-  PencilLine,
   SearchCheck,
+  X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
+import { apiRequest, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
 
 type NotificationFilter = "all" | "unread";
 
 type NotificationItem = {
-  id: number;
-  title:
-    | "Your report has been received"
-    | "Your report is now under review"
-    | "Your report has been updated"
-    | "Your report has been referred"
-    | "Your report has been resolved"
-    | "Your report has been closed";
+  id: string | number;
+  title: string;
   message: string;
   time: string;
   reportId: string;
@@ -34,84 +29,35 @@ type NotificationItem = {
   iconBackground: string;
 };
 
-const initialNotifications: NotificationItem[] = [
-  {
-    id: 1,
-    title: "Your report has been received",
-    message:
-      "Your report is in the system and ready for an initial check by the authorized review team.",
-    time: "12 minutes ago",
-    reportId: "TR-24018",
-    read: false,
-    icon: Inbox,
-    accent: "#0c5bce",
-    iconBackground: "#e7f0ff",
-  },
-  {
-    id: 2,
-    title: "Your report is now under review",
-    message:
-      "The review team is checking the details you provided. You may receive a follow-up if clarification is needed.",
-    time: "Yesterday, 4:36 PM",
-    reportId: "TR-24012",
-    read: false,
-    icon: SearchCheck,
-    accent: "#a56a12",
-    iconBackground: "#fff2d9",
-  },
-  {
-    id: 3,
-    title: "Your report has been updated",
-    message:
-      "A status note was added to your report. View the report to see the latest information.",
-    time: "Yesterday, 10:08 AM",
-    reportId: "TR-23997",
-    read: false,
-    icon: PencilLine,
-    accent: "#9c4e76",
-    iconBackground: "#f9e8f0",
-  },
-  {
-    id: 4,
-    title: "Your report has been referred",
-    message:
-      "Your report was referred to the appropriate authorized personnel for the next part of the review.",
-    time: "2 days ago",
-    reportId: "TR-23984",
-    read: true,
-    icon: GitBranch,
-    accent: "#5c55a8",
-    iconBackground: "#eeedff",
-  },
-  {
-    id: 5,
-    title: "Your report has been resolved",
-    message:
-      "The review team marked the concern as resolved and recorded the outcome on your report.",
-    time: "5 days ago",
-    reportId: "TR-23941",
-    read: true,
-    icon: BadgeCheck,
-    accent: "#20885d",
-    iconBackground: "#e2f5ea",
-  },
-  {
-    id: 6,
-    title: "Your report has been closed",
-    message:
-      "This report is now closed. A closed report does not indicate a confirmed violation.",
-    time: "8 days ago",
-    reportId: "TR-23908",
-    read: true,
-    icon: Archive,
-    accent: "#587087",
-    iconBackground: "#e9f0f5",
-  },
-];
-
 export function Notifications() {
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const currentUser = getCurrentUser();
+  const isReviewRole = ["TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "PNP", "SUPERADMIN"].includes(currentUser?.role ?? "");
+  const workspaceEyebrow = isReviewRole
+    ? "Review center / updates"
+    : currentUser?.role === "DRIVER"
+      ? "Driver space / updates"
+      : "My space / updates";
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [filter, setFilter] = useState<NotificationFilter>("all");
+  const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 5;
+
+  useEffect(() => {
+    apiRequest<{ notifications: Array<{ id: string; type: string; message: string; relatedComplaintId: string | null; reportReference: string | null; readAt: string | null; createdAt: string }> }>("/notifications")
+      .then(({ notifications: rows }) => setNotifications(rows.map((row) => ({
+        id: row.id,
+        title: row.type.replaceAll("_", " ").toLowerCase().replace(/(^| )\w/g, (match) => match.toUpperCase()),
+        message: row.message,
+        time: formatPhilippineDateTime(row.createdAt),
+        reportId: row.reportReference ?? row.relatedComplaintId ?? "",
+        read: Boolean(row.readAt),
+        icon: row.type.includes("RESOLVED") ? BadgeCheck : row.type.includes("STATUS") ? SearchCheck : Inbox,
+        accent: "#0c5bce",
+        iconBackground: "#e7f0ff",
+      }))))
+      .catch(() => setNotifications([]));
+  }, []);
 
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,
@@ -124,28 +70,33 @@ export function Notifications() {
         : notifications,
     [filter, notifications],
   );
+  const pageCount = Math.max(1, Math.ceil(visibleNotifications.length / pageSize));
+  const paginatedNotifications = visibleNotifications.slice((page - 1) * pageSize, page * pageSize);
 
-  const markAsRead = (notificationId: number) => {
-    setNotifications((current) =>
-      current.map((notification) =>
-        notification.id === notificationId
-          ? { ...notification, read: true }
-          : notification,
-      ),
-    );
+  useEffect(() => {
+    setPage(1);
+  }, [filter]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const markAsRead = (notificationId: string | number) => {
+    apiRequest(`/notifications/${notificationId}/read`, { method: "PATCH" }).then(() => {
+      setNotifications((current) => current.map((notification) => notification.id === notificationId ? { ...notification, read: true } : notification));
+    });
   };
 
   const markAllAsRead = () => {
-    setNotifications((current) =>
-      current.map((notification) => ({ ...notification, read: true })),
-    );
+    apiRequest("/notifications/read-all", { method: "PATCH" }).then(() => setNotifications((current) => current.map((notification) => ({ ...notification, read: true }))));
   };
 
   return (
     <AppLayout
+      officer={isReviewRole}
       active="Notifications"
       title="Notifications"
-      eyebrow="My space / updates"
+      eyebrow={workspaceEyebrow}
     >
       <div className="mx-auto max-w-[920px]">
         <section className="relative overflow-hidden rounded-[26px] border border-[#dbe5f0] bg-[#12305a] px-5 py-6 text-white shadow-[0_14px_34px_rgba(30,65,105,0.12)] sm:px-7 sm:py-7">
@@ -238,12 +189,16 @@ export function Notifications() {
           </div>
 
           <div className="mt-4 space-y-3">
-            {visibleNotifications.length > 0 ? (
-              visibleNotifications.map((notification) => {
+            {paginatedNotifications.length > 0 ? (
+              paginatedNotifications.map((notification) => {
                 const Icon = notification.icon;
                 return (
                   <article
                     key={notification.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedNotification(notification)}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedNotification(notification); }}
                     className={`relative rounded-2xl border p-4 transition sm:p-5 ${
                       notification.read
                         ? "border-[#dbe5f0] bg-white"
@@ -302,7 +257,7 @@ export function Notifications() {
                     {!notification.read ? (
                       <button
                         type="button"
-                        onClick={() => markAsRead(notification.id)}
+                        onClick={(event) => { event.stopPropagation(); markAsRead(notification.id); }}
                         className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#c6d9f2] bg-white px-3 text-[12px] font-bold text-[#0c5bce] transition hover:bg-[#edf5ff] sm:absolute sm:bottom-5 sm:right-5 sm:mt-0 sm:w-auto"
                       >
                         <Check size={15} strokeWidth={2.3} />
@@ -335,17 +290,46 @@ export function Notifications() {
               </div>
             )}
           </div>
+          {visibleNotifications.length > pageSize ? (
+            <div className="mt-4 flex items-center justify-between rounded-2xl border border-[#dbe5f0] bg-white px-4 py-3">
+              <p className="text-[11px] font-semibold text-[#8295aa]">Page {page} of {pageCount}</p>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#dbe5f0] px-3 text-[11px] font-bold text-[#55718d] hover:bg-[#f4f8fc] disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft size={14} />Previous</button>
+                <button type="button" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page === pageCount} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#dbe5f0] px-3 text-[11px] font-bold text-[#55718d] hover:bg-[#f4f8fc] disabled:cursor-not-allowed disabled:opacity-40">Next<ChevronRight size={14} /></button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-6 flex items-start gap-2.5 rounded-2xl border border-[#dbe5f0] bg-[#f0f7ff] px-4 py-3.5 text-[#587087]">
             <Bell className="mt-0.5 shrink-0 text-[#0c5bce]" size={16} strokeWidth={1.8} />
             <p className="text-[11px] leading-5">
-              Updates shown in this prototype are sample records. A report is
+              Updates shown here are recorded system notifications. A report is
               not a confirmed violation, and its status may change during
               review.
             </p>
           </div>
         </section>
       </div>
+      {selectedNotification ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17304d]/35 px-4 backdrop-blur-[2px]" onClick={() => setSelectedNotification(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="notification-detail-title" onClick={(event) => event.stopPropagation()} className="w-full max-w-[500px] rounded-[24px] border border-[#dbe5f0] bg-white p-6 shadow-[0_24px_80px_rgba(16,45,78,0.22)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8ca0b6]">Notification detail</p>
+                <h2 id="notification-detail-title" className="mt-2 text-[20px] font-extrabold text-[#183657]">{selectedNotification.title}</h2>
+              </div>
+              <button type="button" onClick={() => setSelectedNotification(null)} className="rounded-xl p-2 text-[#8092a6] hover:bg-[#f2f6fa]" aria-label="Close notification detail"><X size={18} /></button>
+            </div>
+            <p className="mt-5 text-[13px] leading-6 text-[#60768f]">{selectedNotification.message}</p>
+            <div className="mt-5 grid gap-3 rounded-2xl bg-[#f5f8fc] p-4 text-[11px] text-[#60768f]">
+              <div className="flex justify-between gap-4"><span>Report</span><span className="font-mono font-bold text-[#294765]">{selectedNotification.reportId || "System notification"}</span></div>
+              <div className="flex justify-between gap-4"><span>Received</span><span className="font-semibold text-[#294765]">{selectedNotification.time}</span></div>
+              <div className="flex justify-between gap-4"><span>Status</span><span className="font-semibold text-[#294765]">{selectedNotification.read ? "Read" : "Unread"}</span></div>
+            </div>
+            {!selectedNotification.read ? <button type="button" onClick={() => { markAsRead(selectedNotification.id); setSelectedNotification((current) => current ? { ...current, read: true } : current); }} className="mt-5 w-full rounded-xl bg-[#0c5bce] px-4 py-3 text-[12px] font-extrabold text-white hover:bg-[#0a4fae]">Mark as read</button> : null}
+          </div>
+        </div>
+      ) : null}
     </AppLayout>
   );
 }

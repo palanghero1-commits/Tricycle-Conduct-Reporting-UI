@@ -3,7 +3,11 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "dev": "npm run dev --workspace @workspace/mockup-sandbox",
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "node server/server.js",
+    "dev:web": "npm run dev --workspace @workspace/mockup-sandbox",
+    "start": "node server/server.js",
+    "test": "vitest run",
     "preview": "npm run preview --workspace @workspace/mockup-sandbox",
     "build": "npm run typecheck && npm run build --workspaces --if-present",
     "typecheck:libs": "tsc --build",
@@ -18,11 +22,20 @@
     "scripts"
   ],
   "dependencies": {
-    "@replit/connectors-sdk": "^0.4.1"
+    "@replit/connectors-sdk": "^0.4.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "prettier": "^3.9.6",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.1"
   },
   "overrides": {
     "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0",

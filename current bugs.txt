@@ -1,0 +1,59 @@
+I found these important bugs and risks:
+
+  ### Critical
+
+  - Unauthenticated database seeding — POST /seed has no login or admin check. Anyone can seed the database and
+    receive the demo password.
+    api-php/index.php:711
+
+  - Weak complaint access control — complaint_or_404() only checks ownership for students. A driver or reviewer
+    can potentially access complaints outside their assigned TODA if they know the complaint ID.
+    api-php/index.php:738
+
+  - TODA scope is not enforced — TODA presidents can update statuses, add actions, and manage violations for
+    complaints belonging to other TODAs.
+
+  - Default TODA assignment bug — Driver accounts created without todaId are automatically assigned to TODA 1,
+    which may be wrong or may not exist.
+    api-php/index.php:349
+
+  ### Functional bugs
+
+  - Forgot-password does not work — it only displays a message saying reset instructions “would be sent.” No
+    email or reset API exists.
+    artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/Auth.tsx:245
+
+  - Role permissions contradict the README — the README says SUPERADMIN can create TODA presidents, but the
+    backend only allows AUTHORIZED_PERSONNEL.
+    README.md:164
+    api-php/index.php:236
+
+  - Mobile menu button is inactive — the hamburger button renders but has no click handler.
+    artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/_shared/AppLayout.tsx:264
+
+  - Review history contains fake values — reviewer name, timestamps, and some report information are hardcoded
+    instead of coming from the logged-in user and database.
+
+  - Several pages still contain mock/static data — especially dashboard fallback data, officer dashboard data,
+    and driver-related displays.
+    artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/AdminDashboard.tsx:51
+    artifacts/mockup-sandbox/src/components/mockups/tricycle-reporting/OfficerDashboard.tsx:52
+
+  - Character encoding is corrupted — visible text contains strings such as â€¢, Â·, and â†”, which will appear
+    incorrectly in the interface.
+
+  ### Security/configuration risks
+
+  - JWT tokens are stored in localStorage, making them vulnerable to theft if an XSS issue occurs.
+    artifacts/mockup-sandbox/src/lib/api.ts
+
+  - The example configuration uses a wildcard CORS origin and a default JWT secret. These must be changed
+    before deployment.
+    api-php/config.example.php
+
+  ### Verification status
+
+  - PHP syntax check passed.
+  - TypeScript type checking passed.
+  - Full build failed because the local esbuild process reported access-denied/module-resolution errors, so the
+    production build still needs fixing or verification in a normal environment.
