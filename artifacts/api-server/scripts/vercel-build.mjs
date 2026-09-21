@@ -74,7 +74,7 @@ cpSync(sandboxDist, deployPublic, { recursive: true });
 if (!existsSync(rootApiEntry)) {
   throw new Error(`Missing serverless API entry: ${rootApiEntry}`);
 }
-if (path.resolve(rootApiEntry) !== path.resolve(deployApiEntry)) {
+if (path.resolve(rootApiEntry) !== path.resolve(deployApiEntry) && !existsSync(deployApiEntry)) {
   mkdirSync(deployApiDir, { recursive: true });
   cpSync(rootApiEntry, deployApiEntry);
 }
