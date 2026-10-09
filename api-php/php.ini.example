@@ -1,0 +1,12 @@
+; Optional local PHP configuration template.
+; Do not commit a real api-php/php.ini because extension_dir is different on each computer.
+; Prefer using the active PHP config shown by:
+; php --ini
+;
+; If you intentionally start PHP with this file, copy it to api-php/php.ini and
+; update extension_dir to your own PHP ext folder first.
+;
+; Windows/XAMPP example:
+; extension_dir="C:\xampp\php\ext"
+; extension=pdo_mysql
+; extension=fileinfo
