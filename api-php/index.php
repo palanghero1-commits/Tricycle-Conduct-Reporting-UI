@@ -863,6 +863,14 @@ try {
 } catch (PDOException $e) {
     if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
     error_log($e->getMessage() . " in $method $path");
+    $localDatabase = in_array(strtolower((string) ($config['db_host'] ?? '')), ['127.0.0.1', 'localhost', '::1'], true);
+    if (str_contains(strtolower($e->getMessage()), 'could not find driver')) {
+        $driver = strtolower((string) ($config['db_driver'] ?? 'mysql'));
+        $extension = $driver === 'pgsql' ? 'pdo_pgsql' : 'pdo_mysql';
+        fail(500, $localDatabase
+            ? "Database driver is not enabled. Run `php --ini`, open the active php.ini, enable extension={$extension}, and restart the PHP server."
+            : 'Database driver is not enabled on the server.');
+    }
     // Registration commonly reaches this branch when the email or student/driver
     // identifier has already been used. Return a useful client-facing message
     // instead of hiding the constraint violation behind a generic 500.
@@ -875,7 +883,6 @@ try {
         if (str_contains($detail, 'toda_id') || str_contains($detail, 'drivers_toda_fk')) fail(400, 'No valid designated location is available for this driver. Ask Authorized Personnel to create a location first.');
         fail(409, 'This account information is already registered. Check your details and try again.');
     }
-    $localDatabase = in_array(strtolower((string) ($config['db_host'] ?? '')), ['127.0.0.1', 'localhost', '::1'], true);
     fail(500, $localDatabase ? 'Database request failed: ' . $e->getMessage() : 'Database request failed.');
 } catch (Throwable $e) {
     if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();

@@ -93,10 +93,34 @@ Do not commit `api-php/config.php`. It is ignored by Git.
 
 ## 5. Run the PHP API
 
+First confirm PHP is using your computer's active configuration and has the required extensions:
+
+```bash
+php --ini
+php -m
+```
+
+The module list must include:
+
+```text
+PDO
+pdo_mysql
+fileinfo
+```
+
+If `pdo_mysql` or `fileinfo` is missing, open the active `php.ini` shown by `php --ini`, enable these lines, then restart the terminal:
+
+```ini
+extension=pdo_mysql
+extension=fileinfo
+```
+
+Do not use a committed `api-php/php.ini` from another computer unchanged. If you intentionally create a local `api-php/php.ini`, copy `api-php/php.ini.example` and update `extension_dir` to your own PHP `ext` folder.
+
 From the project root:
 
 ```bash
-php -c api-php/php.ini -S localhost:8000 -t api-php
+php -S localhost:8000 -t api-php
 ```
 
 Test the API:
