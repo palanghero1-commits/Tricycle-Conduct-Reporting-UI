@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Clock3,
   Download,
+  ExternalLink,
   FileCheck2,
   Flag,
   Gauge,
@@ -38,6 +39,10 @@ type Report = {
   reference: string;
   summary: string;
   reports: string;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  locationAccuracyMeters?: number | string | null;
+  locationCapturedAt?: string | null;
 };
 
 function previewUrl(component: string) {
@@ -174,9 +179,8 @@ function MetricCard({
 
 export function OfficerDashboard() {
   const currentUser = getCurrentUser();
-  const isAuthorizedPersonnel = currentUser?.role === "AUTHORIZED_PERSONNEL";
+  const isAuthorizedPersonnel = ["AUTHORIZED_PERSONNEL", "PNP"].includes(currentUser?.role ?? "");
   const isTodaPresident = currentUser?.role === "TODA_PRESIDENT";
-  const isPnpReviewer = currentUser?.role === "PNP";
   const [activeSection, setActiveSection] = useState(() => window.location.hash === "#todas" ? "TODAs" : "Dashboard");
   const [activePanel, setActivePanel] = useState<"Overview" | "People" | "Activity">(() => window.location.hash === "#todas" ? "People" : "Overview");
   const [statusFilter, setStatusFilter] = useState<"All" | ReportStatus>("All");
@@ -195,7 +199,7 @@ export function OfficerDashboard() {
   const [editingPresidentId, setEditingPresidentId] = useState<string | null>(null);
 
   const loadReports = () =>
-    apiRequest<{ complaints: Array<{ referenceNumber: string; status: string; location: string; categoryName: string; description: string; createdAt: string; driverName: string }> }>("/complaints")
+    apiRequest<{ complaints: Array<{ referenceNumber: string; status: string; location: string; categoryName: string; description: string; createdAt: string; driverName: string; latitude?: number | string | null; longitude?: number | string | null; locationAccuracyMeters?: number | string | null; locationCapturedAt?: string | null }> }>("/complaints")
       .then(({ complaints }) => setLiveReports(complaints.map((item) => ({
         id: item.referenceNumber,
         time: formatPhilippineDateTime(item.createdAt),
@@ -206,6 +210,10 @@ export function OfficerDashboard() {
         reference: item.driverName,
         summary: item.description,
         reports: "1 report",
+        latitude: item.latitude,
+        longitude: item.longitude,
+        locationAccuracyMeters: item.locationAccuracyMeters,
+        locationCapturedAt: item.locationCapturedAt,
       } as Report))));
 
   useEffect(() => {
@@ -342,6 +350,9 @@ export function OfficerDashboard() {
 
   const selectedReport = liveReports.find((report) => report.id === selectedId) ?? filteredReports[0];
   const selectedToda = todas.find((toda) => String(toda.id) === presidentForm.todaId);
+  const mapEmbedUrl = selectedReport?.latitude !== null && selectedReport?.latitude !== undefined && selectedReport?.longitude !== null && selectedReport?.longitude !== undefined
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${Number(selectedReport.longitude) - 0.005}%2C${Number(selectedReport.latitude) - 0.005}%2C${Number(selectedReport.longitude) + 0.005}%2C${Number(selectedReport.latitude) + 0.005}&layer=mapnik&marker=${selectedReport.latitude}%2C${selectedReport.longitude}`
+    : null;
   const visibleActivity = showAllActivity ? liveActivity : liveActivity.slice(0, 3);
 
   const announce = (message: string) => {
@@ -371,7 +382,7 @@ export function OfficerDashboard() {
   };
 
   return (
-    <AppLayout officer active={isAuthorizedPersonnel ? activeSection : "Dashboard"} title={isAuthorizedPersonnel && activeSection === "TODAs" ? "TODA administration" : isPnpReviewer ? "PNP review dashboard" : "TODA officer dashboard"} eyebrow={isAuthorizedPersonnel && activeSection === "TODAs" ? "TODA accounts · Authorized personnel" : isPnpReviewer ? "PNP review center · Old Sagay" : "TODA operations · Old Sagay / SUNN"}>
+    <AppLayout officer active={isAuthorizedPersonnel ? activeSection : "Dashboard"} title={isAuthorizedPersonnel && activeSection === "TODAs" ? "TODA administration" : isAuthorizedPersonnel ? "Authorized personnel dashboard" : "TODA officer dashboard"} eyebrow={isAuthorizedPersonnel && activeSection === "TODAs" ? "TODA accounts · Authorized personnel" : isAuthorizedPersonnel ? "Authorized personnel workspace · Old Sagay" : "TODA operations · Old Sagay / SUNN"}>
       <div className="space-y-7">
         <section className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
           <div>
@@ -667,6 +678,20 @@ export function OfficerDashboard() {
                   <div className="mt-4 space-y-2 border-t border-[#edf1f5] pt-3">
                     <div className="flex items-center gap-2 text-[10px] text-[#8193a4]"><MapPin size={13} className="text-[#6c99ad]" /> {selectedReport.location}</div>
                     <div className="flex items-center gap-2 text-[10px] text-[#8193a4]"><Flag size={13} className="text-[#b88759]" /> {selectedReport.category} · {selectedReport.reports}</div>
+                    {selectedReport.latitude !== null && selectedReport.latitude !== undefined && selectedReport.longitude !== null && selectedReport.longitude !== undefined ? (
+                      <div className="rounded-xl border border-[#dbeaf7] bg-[#f5faff] px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#6b879f]">GPS location</p>
+                            <p className="mt-1 text-[10px] text-[#6d8298]">Accuracy ±{Math.round(Number(selectedReport.locationAccuracyMeters || 0))} meters</p>
+                            <p className="mt-1 font-mono text-[10px] text-[#6d8298]">{Number(selectedReport.latitude).toFixed(6)}, {Number(selectedReport.longitude).toFixed(6)}</p>
+                            {selectedReport.locationCapturedAt ? <p className="mt-1 text-[10px] text-[#8a9bac]">Captured {formatPhilippineDateTime(selectedReport.locationCapturedAt)}</p> : null}
+                          </div>
+                          <a href={`https://www.google.com/maps?q=${selectedReport.latitude},${selectedReport.longitude}`} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#0c5bce] px-2.5 py-2 text-[10px] font-extrabold text-white hover:bg-[#084da9]"><ExternalLink size={12} />Open map</a>
+                        </div>
+                        {mapEmbedUrl ? <iframe title="Submitted report location map" src={mapEmbedUrl} className="mt-3 h-44 w-full rounded-lg border border-[#dbe5ef]" loading="lazy" /> : null}
+                      </div>
+                    ) : <p className="text-[10px] text-[#9aaaba]">No GPS location was captured with this report.</p>}
                   </div>
                   <button type="button" onClick={() => navigateTo("PNPReview")} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#edf4f8] px-3 py-2.5 text-[11px] font-extrabold text-[#2d6e91] hover:bg-[#e1eef4]">
                     <FileCheck2 size={14} /> Open review details

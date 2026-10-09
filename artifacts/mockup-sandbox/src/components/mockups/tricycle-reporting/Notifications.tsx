@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
+import { getOfflineAccountData } from "../../../lib/offlineAccount";
 
 type NotificationFilter = "all" | "unread";
 
@@ -56,8 +57,31 @@ export function Notifications() {
         accent: "#0c5bce",
         iconBackground: "#e7f0ff",
       }))))
-      .catch(() => setNotifications([]));
+      .catch(async () => {
+        const cached = await getOfflineAccountData().catch(() => null);
+        setNotifications((cached?.notifications ?? []).map((row) => ({
+          id: String(row.id ?? "offline-notification"),
+          title: String(row.type ?? "Notification").replaceAll("_", " ").toLowerCase().replace(/(^| )\w/g, (match) => match.toUpperCase()),
+          message: String(row.message ?? ""),
+          time: formatPhilippineDateTime(String(row.createdAt ?? new Date().toISOString())),
+          reportId: String(row.reportReference ?? row.relatedComplaintId ?? ""),
+          read: Boolean(row.readAt),
+          icon: Inbox,
+          accent: "#0c5bce",
+          iconBackground: "#e7f0ff",
+        })));
+      });
   }, []);
+
+  useEffect(() => {
+    const notificationId = new URLSearchParams(window.location.search).get("notificationId");
+    if (!notificationId) return;
+    const match = notifications.find((notification) => String(notification.id) === notificationId);
+    if (match) {
+      setSelectedNotification(match);
+      if (!match.read) markAsRead(match.id);
+    }
+  }, [notifications]);
 
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,

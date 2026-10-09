@@ -10,6 +10,7 @@ import {
   FileImage,
   FileText,
   Filter,
+  ExternalLink,
   History,
   LockKeyhole,
   MapPin,
@@ -54,6 +55,10 @@ type Report = {
   };
   evidence: { id: string; name: string; type: "image" | "document"; meta: string }[];
   notes: ReviewNote[];
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  locationAccuracyMeters?: number | string | null;
+  locationCapturedAt?: string | null;
 };
 
 // Live reports are loaded from the database below.
@@ -84,7 +89,7 @@ type Report = {
       {
         id: 1,
         author: "A. Reyes",
-        role: "PNP reviewer",
+        role: "Authorized personnel",
         time: "18 Jun 2024, 08:51",
         note: "Initial review opened. Confirm the loading area and identify any available witnesses.",
       },
@@ -112,7 +117,7 @@ type Report = {
       {
         id: 2,
         author: "A. Reyes",
-        role: "PNP reviewer",
+        role: "Authorized personnel",
         time: "18 Jun 2024, 08:20",
         note: "Request a short statement from the driver before determining next steps.",
       },
@@ -160,7 +165,7 @@ type Report = {
       {
         id: 3,
         author: "A. Reyes",
-        role: "PNP reviewer",
+        role: "Authorized personnel",
         time: "16 Jun 2024, 14:10",
         note: "Parties were informed of the review outcome. No further action recorded.",
       },
@@ -225,7 +230,7 @@ export function PNPReview() {
   const [evidencePreview, setEvidencePreview] = useState<{ name: string; type: "image" | "document"; url: string } | null>(null);
 
   useEffect(() => {
-    apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; location: string; description: string; driverName: string }> }>("/complaints")
+    apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; location: string; description: string; driverName: string; latitude?: number | string | null; longitude?: number | string | null; locationAccuracyMeters?: number | string | null; locationCapturedAt?: string | null }> }>("/complaints")
       .then(({ complaints }) => setLiveReports(complaints.map((item) => ({
         id: item.id,
         category: item.categoryName,
@@ -240,6 +245,10 @@ export function PNPReview() {
         driver: { name: item.driverName, plate: "Not recorded", unit: "Registered TODA", route: "Not recorded", contact: "Not recorded" },
         evidence: [],
         notes: [],
+        latitude: item.latitude,
+        longitude: item.longitude,
+        locationAccuracyMeters: item.locationAccuracyMeters,
+        locationCapturedAt: item.locationCapturedAt,
       } as Report))))
       .catch(() => setLiveReports([]));
   }, []);
@@ -270,6 +279,9 @@ export function PNPReview() {
 
   const availableReports = liveReports;
   const selectedReport = availableReports.find((report) => report.id === selectedId) ?? availableReports[0];
+  const mapEmbedUrl = selectedReport?.latitude !== null && selectedReport?.latitude !== undefined && selectedReport?.longitude !== null && selectedReport?.longitude !== undefined
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${Number(selectedReport.longitude) - 0.005}%2C${Number(selectedReport.latitude) - 0.005}%2C${Number(selectedReport.longitude) + 0.005}%2C${Number(selectedReport.latitude) + 0.005}&layer=mapnik&marker=${selectedReport.latitude}%2C${selectedReport.longitude}`
+    : null;
   const nextStatusOptions = selectedReport ? [{ value: selectedReport.rawStatus ?? "SUBMITTED", label: `${selectedReport.status} (current)` }, ...(statusOptions[selectedReport.rawStatus ?? "SUBMITTED"] ?? [])] : [];
   useEffect(() => {
     setPendingStatus(selectedReport?.rawStatus ?? "");
@@ -298,7 +310,7 @@ export function PNPReview() {
     try {
       await apiRequest(`/complaints/${selectedReport.id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status: nextStatus, remarks: "Status updated from the PNP review queue." }),
+        body: JSON.stringify({ status: nextStatus, remarks: "Status updated from the authorized personnel review queue." }),
       });
       const nextLabel = statusLabel(nextStatus);
       setLiveReports((current) => current.map((report) => report.id === selectedReport.id ? { ...report, rawStatus: nextStatus, status: nextLabel } : report));
@@ -350,7 +362,7 @@ export function PNPReview() {
     const newNote: ReviewNote = {
       id: Date.now(),
       author: "A. Reyes",
-      role: "PNP reviewer",
+      role: "Authorized personnel",
       time: "Just now",
       note: trimmedNote,
     };
@@ -517,6 +529,16 @@ export function PNPReview() {
                         <MapPin size={13} className="text-[#7894ae]" />
                         {selectedReport.location}
                       </p>
+                      {selectedReport.latitude !== null && selectedReport.latitude !== undefined && selectedReport.longitude !== null && selectedReport.longitude !== undefined ? (
+                        <div className="mt-3 rounded-lg border border-[#dbe5ef] bg-white p-2.5">
+                          <p className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-[#728aa1]">GPS coordinates</p>
+                          <p className="mt-1 font-mono text-[11px] text-[#4d6881]">Latitude: {Number(selectedReport.latitude).toFixed(6)}</p>
+                          <p className="font-mono text-[11px] text-[#4d6881]">Longitude: {Number(selectedReport.longitude).toFixed(6)}</p>
+                          <p className="mt-1 text-[10px] text-[#7d91a5]">Accuracy ±{Math.round(Number(selectedReport.locationAccuracyMeters || 0))} meters</p>
+                          {mapEmbedUrl ? <iframe title="Submitted report location map" src={mapEmbedUrl} className="mt-2 h-40 w-full rounded-md border border-[#dbe5ef]" loading="lazy" /> : null}
+                          <a href={`https://www.google.com/maps?q=${selectedReport.latitude},${selectedReport.longitude}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-extrabold text-[#0c5bce] hover:text-[#084da9]"><ExternalLink size={12} />Open marked location</a>
+                        </div>
+                      ) : <p className="mt-2 text-[10px] text-[#8da0b2]">No GPS coordinates were captured with this report.</p>}
                     </div>
                     <div className="rounded-xl bg-[#f7f9fc] px-3.5 py-3">
                       <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#95a6b7]">Submitted by</p>
@@ -713,7 +735,7 @@ export function PNPReview() {
               <div className="grid gap-3 px-5 py-4 sm:grid-cols-3 sm:px-6">
                 {[
                   ["18 Jun 2024, 08:42", "Report received", "System intake"],
-                  ["18 Jun 2024, 08:51", "Review opened", "A. Reyes • PNP reviewer"],
+                  ["18 Jun 2024, 08:51", "Review opened", "A. Reyes • Authorized personnel"],
                   ["Current", selectedReport.status, "Awaiting next review action"],
                 ].map(([time, title, detail], index) => (
                   <div key={`${time}-${title}`} className="relative flex gap-3 sm:block">

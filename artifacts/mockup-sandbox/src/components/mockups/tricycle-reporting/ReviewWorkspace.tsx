@@ -194,8 +194,19 @@ export function ReviewWorkspace() {
   const [driver, setDriver] = useState<typeof staticDriver | null>(null);
   const [evidence, setEvidence] = useState<Array<{ label: string; type: string; size: string; icon: typeof FileText }>>([]);
 
+  const latestStatusCopy = useMemo(() => {
+    if (status === "Received") return "Awaiting officer review";
+    if (status === "Under Review") return "Active review in progress";
+    if (status === "Verification Needed") return "Additional information requested";
+    if (status === "Referred") return "With coordinating desk";
+    if (status === "Resolved") return "Review completed";
+    return "Archived from active queue";
+  }, [status]);
+
   useEffect(() => {
-    apiRequest<{ complaints: Array<{ id: string }> }>("/complaints")
+    const reference = new URLSearchParams(window.location.search).get("reference");
+    const query = reference ? `?reference=${encodeURIComponent(reference)}` : "";
+    apiRequest<{ complaints: Array<{ id: string }> }>(`/complaints${query}`)
       .then(async ({ complaints }) => {
         const complaint = complaints[0];
         if (!complaint) return;
@@ -227,7 +238,7 @@ export function ReviewWorkspace() {
           });
         }
         setEvidence(details.attachments.map((item) => ({ label: item.originalName, type: item.mimeType, size: `${Math.round(Number(item.sizeBytes || 0) / 1024)} KB`, icon: Paperclip })));
-        setHistory(details.history.map((item) => ({ date: formatPhilippineDateTime(item.created_at), title: String(item.new_status || "Action recorded").replaceAll("_", " "), detail: item.remarks || "Status recorded in the review history.", actor: "Authorized reviewer", tone: "blue" })));
+        setHistory(details.history.map((item) => ({ date: formatPhilippineDateTime(item.created_at), title: String(item.new_status || "Action recorded").replaceAll("_", " "), detail: item.remarks || "Status recorded in the review history.", actor: item.actorName || item.actorRole || "Authorized reviewer", tone: "blue" })));
       })
       .catch(() => undefined);
   }, []);
@@ -235,15 +246,6 @@ export function ReviewWorkspace() {
   if (!incident || !driver) {
     return <AppLayout officer active="Reports" title="Report review" eyebrow="Reports / Review workspace"><section className="rounded-2xl border border-dashed border-[#b8cade] bg-white px-6 py-16 text-center"><h2 className="text-[18px] font-extrabold text-[#23405f]">No report is available for review</h2><p className="mt-2 text-[12px] text-[#8ca0b6]">Live complaint records will appear here when a student submits a report.</p></section></AppLayout>;
   }
-
-  const latestStatusCopy = useMemo(() => {
-    if (status === "Received") return "Awaiting officer review";
-    if (status === "Under Review") return "Active review in progress";
-    if (status === "Verification Needed") return "Additional information requested";
-    if (status === "Referred") return "With coordinating desk";
-    if (status === "Resolved") return "Review completed";
-    return "Archived from active queue";
-  }, [status]);
 
   const openAction = (action: ActionType, label: string) => {
     setNotice("");

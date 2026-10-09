@@ -25,6 +25,7 @@ const ALLOWED_TRANSITIONS = [
     'RESOLVED' => ['CLOSED'],
     'CLOSED' => [],
 ];
+const SOS_ENABLED = false;
 
 function json_response(array $data, int $status = 200): void {
     http_response_code($status);
@@ -412,7 +413,7 @@ try {
         if ($user['role'] === 'STUDENT') {
             $profile = array_merge($profile, row($pdo, 'SELECT student_id AS "studentId", program, year_level AS "yearLevel", campus FROM students WHERE user_id = ?', [$user['id']]) ?? []);
         } elseif ($user['role'] === 'DRIVER') {
-            $profile = array_merge($profile, row($pdo, 'SELECT d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.route_area AS "routeArea", t.name AS "todaName", t.barangay, t.city, t.province FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.user_id = ?', [$user['id']]) ?? []);
+            $profile = array_merge($profile, row($pdo, 'SELECT d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", d.route_area AS "routeArea", d.contact_number AS "contactNumber", t.name AS "todaName", t.barangay, t.city, t.province FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.user_id = ?', [$user['id']]) ?? []);
         }
         $preferences = row($pdo, 'SELECT report_updates AS updates, reminders FROM user_preferences WHERE user_id = ?', [$user['id']]) ?? ['updates' => 1, 'reminders' => 0];
         $preferences = ['updates' => (bool) $preferences['updates'], 'reminders' => (bool) $preferences['reminders']];
@@ -546,12 +547,74 @@ try {
         json_response(['stats' => $stats, 'reports' => $reports, 'activity' => $activity]);
     }
 
+    if (!SOS_ENABLED && str_starts_with($path, '/sos')) {
+        fail(503, 'Emergency SOS is under development and is currently disabled.');
+    }
+
     if ($method === 'GET' && $path === '/drivers') {
         auth($pdo, $config);
         $search = '%' . ($_GET['search'] ?? '') . '%';
         $stmt = $pdo->prepare('SELECT d.id, d.full_name AS "fullName", d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", d.route_area AS "routeArea", d.contact_number AS "contactNumber", d.is_active AS "isActive", (SELECT COUNT(*) FROM complaints c WHERE c.driver_id = d.id) AS "reportCount", (SELECT COUNT(*) FROM violations v WHERE v.driver_id = d.id) AS "confirmedViolationCount" FROM drivers d WHERE d.is_active = 1 AND (d.full_name LIKE ? OR d.driver_code LIKE ? OR d.tricycle_identifier LIKE ?) ORDER BY d.full_name LIMIT 100');
         $stmt->execute([$search, $search, $search]);
         json_response(['drivers' => $stmt->fetchAll()]);
+    }
+
+    if ($method === 'POST' && $path === '/sos') {
+        $user = auth($pdo, $config);
+        require_roles($user, ['STUDENT']);
+        $data = input_json();
+        if (empty($data['driverId'])) fail(400, 'Select a driver before starting an emergency alert.');
+        $latitude = filter_var($data['latitude'] ?? null, FILTER_VALIDATE_FLOAT);
+        $longitude = filter_var($data['longitude'] ?? null, FILTER_VALIDATE_FLOAT);
+        $accuracy = ($data['accuracy'] ?? '') === '' ? null : filter_var($data['accuracy'], FILTER_VALIDATE_FLOAT);
+        if ($latitude === false || $longitude === false || $latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) fail(400, 'A valid current location is required.');
+        if ($accuracy !== null && ($accuracy === false || $accuracy < 0)) fail(400, 'The emergency location accuracy is invalid.');
+        if (row($pdo, 'SELECT id FROM sos_alerts WHERE student_user_id = ? AND status = \'ACTIVE\' LIMIT 1', [$user['id']])) fail(409, 'You already have an active emergency alert.');
+        $driver = row($pdo, 'SELECT d.id, d.full_name AS driverName, d.tricycle_identifier AS tricycleIdentifier, d.driver_code AS driverCode, d.plate_number AS plateNumber, d.route_area AS routeArea, d.contact_number AS contactNumber, t.name AS todaName FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.id = ? AND d.is_active = 1', [(int) $data['driverId']]);
+        if (!$driver) fail(400, 'The selected driver is not available.');
+        $id = uuidv4();
+        $stmt = $pdo->prepare('INSERT INTO sos_alerts (id, student_user_id, driver_id, status, latitude, longitude, location_accuracy_meters) VALUES (?, ?, ?, \'ACTIVE\', ?, ?, ?)');
+        $stmt->execute([$id, $user['id'], (int) $data['driverId'], $latitude, $longitude, $accuracy]);
+        audit($pdo, $user['id'], 'SOS_STARTED', 'sos_alerts', $id, ['driverId' => (int) $data['driverId']]);
+        json_response(['alert' => ['id' => $id, 'status' => 'ACTIVE', 'driverName' => $driver['driverName'], 'driverCode' => $driver['driverCode'], 'plateNumber' => $driver['plateNumber'], 'routeArea' => $driver['routeArea'], 'contactNumber' => $driver['contactNumber'], 'todaName' => $driver['todaName'], 'tricycleIdentifier' => $driver['tricycleIdentifier']]], 201);
+    }
+
+    if ($method === 'GET' && $path === '/sos/active') {
+        $user = auth($pdo, $config);
+        require_roles($user, ['AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        $stmt = $pdo->query('SELECT s.id, s.status, s.latitude, s.longitude, s.location_accuracy_meters AS locationAccuracyMeters, s.started_at AS startedAt, s.last_seen_at AS lastSeenAt, u.full_name AS studentName, d.full_name AS driverName, d.driver_code AS driverCode, d.plate_number AS plateNumber, d.route_area AS routeArea, d.contact_number AS contactNumber, t.name AS todaName, d.tricycle_identifier AS tricycleIdentifier FROM sos_alerts s JOIN users u ON u.id = s.student_user_id JOIN drivers d ON d.id = s.driver_id LEFT JOIN todas t ON t.id = d.toda_id WHERE s.status = \'ACTIVE\' ORDER BY s.started_at DESC');
+        json_response(['alerts' => $stmt->fetchAll()]);
+    }
+
+    if ($method === 'PATCH' && preg_match('#^/sos/([a-f0-9-]+)/location$#', $path, $m)) {
+        $user = auth($pdo, $config);
+        require_roles($user, ['STUDENT']);
+        $data = input_json();
+        $latitude = filter_var($data['latitude'] ?? null, FILTER_VALIDATE_FLOAT);
+        $longitude = filter_var($data['longitude'] ?? null, FILTER_VALIDATE_FLOAT);
+        $accuracy = ($data['accuracy'] ?? '') === '' ? null : filter_var($data['accuracy'], FILTER_VALIDATE_FLOAT);
+        if ($latitude === false || $longitude === false || $latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) fail(400, 'A valid current location is required.');
+        $stmt = $pdo->prepare('UPDATE sos_alerts SET latitude = ?, longitude = ?, location_accuracy_meters = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ? AND student_user_id = ? AND status = \'ACTIVE\'');
+        $stmt->execute([$latitude, $longitude, $accuracy === false ? null : $accuracy, $m[1], $user['id']]);
+        if ($stmt->rowCount() === 0) fail(404, 'Active emergency alert not found.');
+        json_response(['ok' => true]);
+    }
+
+    if ($method === 'POST' && preg_match('#^/sos/([a-f0-9-]+)/(resolve|cancel)$#', $path, $m)) {
+        $user = auth($pdo, $config);
+        $action = $m[2];
+        if ($action === 'resolve') require_roles($user, ['AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        else require_roles($user, ['STUDENT']);
+        $status = $action === 'resolve' ? 'RESOLVED' : 'CANCELLED';
+        $sql = $action === 'resolve'
+            ? 'UPDATE sos_alerts SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolved_by = ? WHERE id = ? AND status = \'ACTIVE\''
+            : 'UPDATE sos_alerts SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolved_by = ? WHERE id = ? AND student_user_id = ? AND status = \'ACTIVE\'';
+        $params = $action === 'resolve' ? [$status, $user['id'], $m[1]] : [$status, $user['id'], $m[1], $user['id']];
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        if ($stmt->rowCount() === 0) fail(404, 'Active emergency alert not found.');
+        audit($pdo, $user['id'], 'SOS_' . $status, 'sos_alerts', $m[1]);
+        json_response(['ok' => true, 'status' => $status]);
     }
 
     if ($method === 'GET' && preg_match('#^/drivers/(\d+)$#', $path, $m)) {
@@ -580,8 +643,26 @@ try {
             if (empty($_POST[$field])) fail(400, "$field is required.");
         }
         if (strlen($_POST['description']) < 15) fail(400, 'Description must be at least 15 characters.');
+        $localReportId = trim((string) ($_POST['localReportId'] ?? '')) ?: null;
+        if ($localReportId) {
+            $existing = row($pdo, 'SELECT id, reference_number AS referenceNumber, status FROM complaints WHERE student_user_id = ? AND local_report_id = ? LIMIT 1', [$user['id'], $localReportId]);
+            if ($existing) json_response(['complaint' => ['id' => $existing['id'], 'referenceNumber' => $existing['referenceNumber'], 'status' => $existing['status']]]);
+        }
         $driverId = (int) $_POST['driverId'];
         $categoryId = (int) $_POST['categoryId'];
+        $latitude = ($_POST['latitude'] ?? '') === '' ? null : filter_var($_POST['latitude'], FILTER_VALIDATE_FLOAT);
+        $longitude = ($_POST['longitude'] ?? '') === '' ? null : filter_var($_POST['longitude'], FILTER_VALIDATE_FLOAT);
+        $accuracy = ($_POST['locationAccuracy'] ?? '') === '' ? null : filter_var($_POST['locationAccuracy'], FILTER_VALIDATE_FLOAT);
+        if (($latitude !== null && ($latitude === false || $latitude < -90 || $latitude > 90)) || ($longitude !== null && ($longitude === false || $longitude < -180 || $longitude > 180))) fail(400, 'The captured location is invalid.');
+        if ($accuracy !== null && ($accuracy === false || $accuracy < 0)) fail(400, 'The captured location accuracy is invalid.');
+        $capturedAt = null;
+        if ($latitude !== null && $longitude !== null) {
+            try {
+                $capturedAt = (new DateTimeImmutable((string) ($_POST['locationCapturedAt'] ?? 'now')))->format('Y-m-d H:i:s');
+            } catch (Throwable $locationTimeError) {
+                $capturedAt = date('Y-m-d H:i:s');
+            }
+        }
         $pdo->beginTransaction();
         $driver = $pdo->prepare('SELECT id FROM drivers WHERE id = ? AND is_active = 1');
         $driver->execute([$driverId]);
@@ -590,8 +671,8 @@ try {
         if (!$driver->fetch() || !$category->fetch()) fail(400, 'Invalid driver or category.');
         $complaintId = uuidv4();
         $reference = 'TRC-' . date('Y') . '-' . random_int(100000, 999999);
-        $stmt = $pdo->prepare("INSERT INTO complaints (id, reference_number, student_user_id, driver_id, category_id, status, incident_date, incident_time, location, description) VALUES (?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?)");
-        $stmt->execute([$complaintId, $reference, $user['id'], $driverId, $categoryId, $_POST['incidentDate'], $_POST['incidentTime'], trim($_POST['location']), trim($_POST['description'])]);
+        $stmt = $pdo->prepare("INSERT INTO complaints (id, local_report_id, reference_number, student_user_id, driver_id, category_id, status, incident_date, incident_time, location, latitude, longitude, location_accuracy_meters, location_captured_at, description) VALUES (?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$complaintId, $localReportId, $reference, $user['id'], $driverId, $categoryId, $_POST['incidentDate'], $_POST['incidentTime'], trim($_POST['location']), $latitude, $longitude, $accuracy, $capturedAt, trim($_POST['description'])]);
         $stmt = $pdo->prepare("INSERT INTO complaint_status_history (complaint_id, previous_status, new_status, changed_by, remarks) VALUES (?, NULL, 'SUBMITTED', ?, ?)");
         $stmt->execute([$complaintId, $user['id'], 'Complaint submitted by student.']);
         save_uploads($pdo, $config, $complaintId, $user['id']);
@@ -634,7 +715,7 @@ try {
             $where[] = 'reference_number LIKE ?';
             $params[] = '%' . $_GET['reference'] . '%';
         }
-        $sql = "SELECT c.id, c.reference_number AS \"referenceNumber\", c.status, c.driver_id AS \"driverId\", d.full_name AS \"driverName\", c.category_id AS \"categoryId\", cat.name AS \"categoryName\", c.incident_date AS \"incidentDate\", c.incident_time AS \"incidentTime\", c.location, c.description, c.created_at AS \"createdAt\", (SELECT MAX(h.created_at) FROM complaint_status_history h WHERE h.complaint_id = c.id AND h.new_status IN ('RESOLVED', 'CLOSED')) AS \"resolvedAt\" FROM complaints c JOIN drivers d ON d.id = c.driver_id JOIN complaint_categories cat ON cat.id = c.category_id";
+        $sql = "SELECT c.id, c.reference_number AS \"referenceNumber\", c.status, c.driver_id AS \"driverId\", d.full_name AS \"driverName\", c.category_id AS \"categoryId\", cat.name AS \"categoryName\", c.incident_date AS \"incidentDate\", c.incident_time AS \"incidentTime\", c.location, c.latitude, c.longitude, c.location_accuracy_meters AS \"locationAccuracyMeters\", c.location_captured_at AS \"locationCapturedAt\", c.description, c.created_at AS \"createdAt\", (SELECT MAX(h.created_at) FROM complaint_status_history h WHERE h.complaint_id = c.id AND h.new_status IN ('RESOLVED', 'CLOSED')) AS \"resolvedAt\" FROM complaints c JOIN drivers d ON d.id = c.driver_id JOIN complaint_categories cat ON cat.id = c.category_id";
         if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
         $sql .= ' ORDER BY c.created_at DESC LIMIT 100';
         $stmt = $pdo->prepare($sql);
@@ -781,6 +862,7 @@ try {
     fail(404, 'Route not found.');
 } catch (PDOException $e) {
     if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
+    error_log($e->getMessage() . " in $method $path");
     // Registration commonly reaches this branch when the email or student/driver
     // identifier has already been used. Return a useful client-facing message
     // instead of hiding the constraint violation behind a generic 500.
@@ -793,7 +875,8 @@ try {
         if (str_contains($detail, 'toda_id') || str_contains($detail, 'drivers_toda_fk')) fail(400, 'No valid designated location is available for this driver. Ask Authorized Personnel to create a location first.');
         fail(409, 'This account information is already registered. Check your details and try again.');
     }
-    fail(500, 'Database request failed.');
+    $localDatabase = in_array(strtolower((string) ($config['db_host'] ?? '')), ['127.0.0.1', 'localhost', '::1'], true);
+    fail(500, $localDatabase ? 'Database request failed: ' . $e->getMessage() : 'Database request failed.');
 } catch (Throwable $e) {
     if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
     error_log($e->getMessage() . " in $method $path");
@@ -849,7 +932,7 @@ function complaint_or_404(PDO $pdo, string $id, array $user): array {
 function complaint_details(PDO $pdo, array $complaint): array {
     $driver = row($pdo, 'SELECT * FROM drivers WHERE id = ?', [$complaint['driver_id']]);
     $category = row($pdo, 'SELECT * FROM complaint_categories WHERE id = ?', [$complaint['category_id']]);
-    $history = rows($pdo, 'SELECT * FROM complaint_status_history WHERE complaint_id = ? ORDER BY created_at', [$complaint['id']]);
+    $history = rows($pdo, 'SELECT h.*, u.full_name AS "actorName", u.role AS "actorRole" FROM complaint_status_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.complaint_id = ? ORDER BY h.created_at', [$complaint['id']]);
     $actions = rows($pdo, 'SELECT a.*, u.full_name AS "authorName", u.role AS "authorRole" FROM complaint_actions a LEFT JOIN users u ON u.id = a.action_taken_by WHERE a.complaint_id = ? ORDER BY a.created_at DESC', [$complaint['id']]);
     $attachments = rows($pdo, 'SELECT id, original_name AS "originalName", mime_type AS "mimeType", size_bytes AS "sizeBytes", created_at AS "createdAt" FROM complaint_attachments WHERE complaint_id = ?', [$complaint['id']]);
     $violation = row($pdo, 'SELECT * FROM violations WHERE complaint_id = ? LIMIT 1', [$complaint['id']]);

@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS sos_alerts (
+  id CHAR(36) PRIMARY KEY,
+  student_user_id CHAR(36) NOT NULL,
+  driver_id INT NOT NULL,
+  status ENUM('ACTIVE','RESOLVED','CANCELLED') NOT NULL DEFAULT 'ACTIVE',
+  latitude DECIMAL(10, 7) NOT NULL,
+  longitude DECIMAL(10, 7) NOT NULL,
+  location_accuracy_meters DECIMAL(8, 2) NULL,
+  started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at DATETIME NULL,
+  resolved_by CHAR(36) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT sos_student_fk FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT sos_driver_fk FOREIGN KEY (driver_id) REFERENCES drivers(id),
+  CONSTRAINT sos_resolver_fk FOREIGN KEY (resolved_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX sos_status_idx (status),
+  INDEX sos_student_idx (student_user_id),
+  INDEX sos_driver_idx (driver_id)
+);

@@ -99,7 +99,6 @@ function StatusPill({ status }: { status: ReportStatus }) {
 
 export function StudentDashboard() {
   const currentUser = getCurrentUser();
-  const isDriver = currentUser?.role === "DRIVER";
   const firstName = currentUser?.fullName?.trim().split(/\s+/)[0] || "Student";
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showAllReports, setShowAllReports] = useState(false);
@@ -110,6 +109,11 @@ export function StudentDashboard() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (currentUser?.role && currentUser.role !== "STUDENT") {
+      const destination = currentUser.role === "DRIVER" ? "DriverDashboard" : ["AUTHORIZED_PERSONNEL", "PNP", "TODA_PRESIDENT"].includes(currentUser.role) ? "OfficerDashboard" : "Landing";
+      window.location.replace(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/${destination}`);
+      return;
+    }
     let active = true;
     Promise.all([
       apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; incidentDate: string; location: string; description: string; driverId: number; driverName: string; categoryId: number; categoryName: string }> }>("/complaints"),
@@ -154,7 +158,7 @@ export function StudentDashboard() {
   };
 
   return (
-      <AppLayout active="Dashboard" title={`Good morning, ${firstName}`} eyebrow={isDriver ? "Driver dashboard" : "Student dashboard"}>
+      <AppLayout active="Dashboard" title={`Good morning, ${firstName}`} eyebrow="Student dashboard">
       <div className="relative">
         <section className="relative overflow-hidden rounded-[28px] bg-[#0d4f86] px-6 py-7 text-white shadow-[0_18px_44px_rgba(20,82,130,0.16)] sm:px-8 lg:px-10 lg:py-9">
           <div className="pointer-events-none absolute -right-8 -top-20 h-64 w-64 rounded-full border-[32px] border-[#43b9aa]/20" />
@@ -172,7 +176,7 @@ export function StudentDashboard() {
             <p className="mt-4 max-w-[520px] text-[14px] leading-6 text-[#d4e9f5]">
               Share what you experienced and follow the review journey in one place. Your details are handled for authorized review.
             </p>
-            {!isDriver ? <button
+            <button
               type="button"
               onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/SubmitReport`; }}
               className="mt-7 inline-flex min-h-12 items-center gap-3 rounded-2xl bg-[#f3c969] px-5 text-[13px] font-extrabold text-[#163958] shadow-[0_8px_20px_rgba(5,38,68,0.16)] transition hover:-translate-y-0.5 hover:bg-[#f8d781] focus:outline-none focus:ring-4 focus:ring-[#f3c969]/30"
@@ -180,7 +184,7 @@ export function StudentDashboard() {
               <FilePlus2 size={18} />
               Submit a new report
               <ArrowRight size={16} />
-            </button> : null}
+            </button>
           </div>
           <div className="relative z-[1] mt-8 flex items-center gap-3 border-t border-white/15 pt-4 text-[11px] text-[#cae1ee] sm:absolute sm:bottom-8 sm:right-8 sm:mt-0 sm:border-0 sm:pt-0">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#49b8a9] text-[#073d57]">

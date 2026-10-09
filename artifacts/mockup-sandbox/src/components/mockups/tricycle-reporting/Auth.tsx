@@ -12,11 +12,13 @@ import {
   GraduationCap,
   KeyRound,
   LockKeyhole,
+  LoaderCircle,
   Mail,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { clearAuthToken, login, registerStudent, type ApiUser } from "../../../lib/api";
+import { cacheStudentOfflineData } from "../../../lib/offlineAccount";
 
 type AuthMode = "login" | "register";
 type RegistrationStep = 1 | 2 | 3;
@@ -149,7 +151,7 @@ function getWorkspaceAfterLogin(email: string, role: AccountRole, user?: ApiUser
   if (user?.role === "SUPERADMIN") return "AdminDashboard";
   if (user?.role === "PNP") return "OfficerDashboard";
   if (user?.role === "TODA_PRESIDENT" || user?.role === "AUTHORIZED_PERSONNEL") return "OfficerDashboard";
-  if (user?.role === "DRIVER") return "Profile";
+  if (user?.role === "DRIVER") return "DriverDashboard";
   if (user?.role === "STUDENT") return "StudentDashboard";
 
   const normalizedEmail = email.trim().toLowerCase();
@@ -157,9 +159,9 @@ function getWorkspaceAfterLogin(email: string, role: AccountRole, user?: ApiUser
   if (normalizedEmail.includes("superadmin") || normalizedEmail.includes("admin")) return "AdminDashboard";
   if (normalizedEmail.includes("pnp")) return "OfficerDashboard";
   if (normalizedEmail.includes("authorized") || normalizedEmail.includes("officer") || normalizedEmail.includes("president") || normalizedEmail.includes("toda-president")) return "OfficerDashboard";
-  if (normalizedEmail.includes("driver")) return "Profile";
+  if (normalizedEmail.includes("driver")) return "DriverDashboard";
 
-  if (role === "driver") return "Profile";
+  if (role === "driver") return "DriverDashboard";
   return role === "personnel" ? "OfficerDashboard" : "StudentDashboard";
 }
 
@@ -173,6 +175,7 @@ export function Auth() {
   const [rememberMe, setRememberMe] = useState(true);
   const [forgotPassword, setForgotPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPreparingOffline, setIsPreparingOffline] = useState(false);
   const [complete, setComplete] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [form, setForm] = useState({
@@ -226,19 +229,27 @@ export function Auth() {
     login(form.email, form.password)
       .then((data) => {
         const expectedRole = role === "student" ? "STUDENT" : role === "driver" ? "DRIVER" : personnelRole;
-        if (data.user?.role !== expectedRole) {
+        const isPnpAsAuthorizedPersonnel = personnelRole === "AUTHORIZED_PERSONNEL" && data.user?.role === "PNP";
+        if (data.user?.role !== expectedRole && !isPnpAsAuthorizedPersonnel) {
           clearAuthToken();
-          const actualRole = data.user?.role === "STUDENT" ? "Student" : data.user?.role === "DRIVER" ? "Driver" : data.user?.role === "TODA_PRESIDENT" ? "TODA President" : data.user?.role === "AUTHORIZED_PERSONNEL" ? "Authorized Personnel" : data.user?.role === "PNP" ? "PNP reviewer" : "another account type";
+          const actualRole = data.user?.role === "STUDENT" ? "Student" : data.user?.role === "DRIVER" ? "Driver" : data.user?.role === "TODA_PRESIDENT" ? "TODA President" : ["AUTHORIZED_PERSONNEL", "PNP"].includes(data.user?.role ?? "") ? "Authorized Personnel" : "another account type";
           const selectedRole = expectedRole === "STUDENT" ? "Student" : expectedRole === "DRIVER" ? "Driver" : expectedRole === "TODA_PRESIDENT" ? "TODA President" : "Authorized Personnel";
           throw new Error(`This account is registered as ${actualRole}. Select ${selectedRole} to continue.`);
         }
-        window.location.href = previewUrl(getWorkspaceAfterLogin(form.email, role, data.user));
+        setIsPreparingOffline(data.user.role === "STUDENT");
+        return cacheStudentOfflineData(data.user).then((offlineResult) => {
+          if (!offlineResult.complete) {
+            throw new Error(`Offline preparation could not finish: ${offlineResult.failed.join(", ")}. Please stay online and try again.`);
+          }
+          window.location.href = previewUrl(getWorkspaceAfterLogin(form.email, role, data.user));
+        });
       })
       .catch((error) => {
         setNotice({ type: "error", message: error instanceof Error ? error.message : "Unable to sign in." });
       })
       .finally(() => {
       setIsLoading(false);
+      setIsPreparingOffline(false);
       });
   };
 
@@ -341,6 +352,19 @@ export function Auth() {
 
   return (
     <div className="min-h-[100dvh] overflow-x-hidden bg-[#f7fbff] text-[#173552]">
+      {isPreparingOffline ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#173552]/45 px-5 backdrop-blur-sm" role="status" aria-live="polite">
+          <div className="w-full max-w-[390px] rounded-[26px] border border-[#dbe8f2] bg-white p-8 text-center shadow-[0_24px_80px_rgba(23,53,82,0.25)]">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#eaf2ff] text-[#0c5bce]">
+              <LoaderCircle size={28} className="animate-spin" />
+            </div>
+            <h2 className="mt-5 text-[20px] font-extrabold text-[#17375d]">Preparing offline access</h2>
+            <p className="mt-2 text-[12px] leading-5 text-[#6d829a]">Fetching your account data, drivers, categories, reports, and notifications so reporting can continue without internet.</p>
+            <div className="mt-5 h-2 overflow-hidden rounded-full bg-[#eaf2ff]"><div className="h-full w-1/2 animate-pulse rounded-full bg-[#0c5bce]" /></div>
+            <p className="mt-3 text-[10px] font-semibold text-[#8ca0b6]">Please keep this page open.</p>
+          </div>
+        </div>
+      ) : null}
       <main className="relative mx-auto flex min-h-[100dvh] w-full max-w-[640px] flex-col px-4 py-5 sm:px-8 sm:py-7 lg:max-w-[720px] lg:px-10 lg:py-10">
         <button
           type="button"

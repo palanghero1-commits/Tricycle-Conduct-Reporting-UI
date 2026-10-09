@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowRight,
   Bell,
   Check,
   ChevronRight,
@@ -9,7 +8,6 @@ import {
   Eye,
   KeyRound,
   Laptop2,
-  LockKeyhole,
   Mail,
   MapPin,
   PencilLine,
@@ -116,17 +114,17 @@ export function Profile() {
   const currentUser = getCurrentUser();
   const isDriver = currentUser?.role === "DRIVER";
   const isReviewRole = ["TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "PNP", "SUPERADMIN"].includes(currentUser?.role ?? "");
-  const roleLabel = currentUser?.role?.replaceAll("_", " ") ?? "Account";
+  const roleLabel = currentUser?.role === "PNP" ? "AUTHORIZED PERSONNEL" : currentUser?.role?.replaceAll("_", " ") ?? "Account";
   const [displayName, setDisplayName] = useState(currentUser?.fullName ?? "");
   const [email, setEmail] = useState(currentUser?.email ?? "");
   const [profile, setProfile] = useState<{
     studentId?: string; program?: string; campus?: string; driverCode?: string;
-    tricycleIdentifier?: string; routeArea?: string; todaName?: string;
+    tricycleIdentifier?: string; plateNumber?: string; routeArea?: string; todaName?: string;
     barangay?: string; city?: string; province?: string; contactNumber?: string;
   }>({});
   const [draftName, setDraftName] = useState(displayName);
   const [draftEmail, setDraftEmail] = useState(email);
-  const [activePanel, setActivePanel] = useState<"edit" | "password" | "notifications" | "privacy" | "sessions" | "signout" | null>(null);
+  const [activePanel, setActivePanel] = useState<"edit" | "password" | "notifications" | "privacy" | "sessions" | null>(null);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [savedNotice, setSavedNotice] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
@@ -283,6 +281,8 @@ export function Profile() {
                 <span className="text-[11px] font-semibold text-[#8598ab]">{isDriver ? "Route area" : "Student number"}</span>
                 <span className="text-[12px] font-bold text-[#314b68]">{isDriver ? profile.routeArea ?? "Not assigned" : profile.studentId ?? "Not assigned"}</span>
               </div>
+              {isDriver ? <div className="flex items-start justify-between gap-4 py-4"><span className="text-[11px] font-semibold text-[#8598ab]">Plate number</span><span className="text-[12px] font-bold text-[#314b68]">{profile.plateNumber ?? "Not provided"}</span></div> : null}
+              {isDriver ? <div className="flex items-start justify-between gap-4 py-4"><span className="text-[11px] font-semibold text-[#8598ab]">TODA</span><span className="max-w-[195px] text-right text-[12px] font-bold text-[#314b68]">{profile.todaName ?? "Not assigned"}</span></div> : null}
               <div className="flex items-start justify-between gap-4 py-4">
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#8598ab]"><Mail size={13} /> Account email</span>
                 <span className="max-w-[190px] break-all text-right text-[12px] font-bold text-[#314b68]">{email}</span>
@@ -317,20 +317,6 @@ export function Profile() {
             </div>
           </section>
         </div>
-
-        <section className="mt-5 flex flex-col items-start justify-between gap-4 rounded-[20px] border border-[#f0ddd4] bg-[#fff9f6] px-5 py-4 sm:flex-row sm:items-center sm:px-6">
-          <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-[#ffe9df] text-[#c66846]"><LockKeyhole size={16} /></span>
-            <div>
-              <p className="text-[12px] font-extrabold text-[#704737]">Need to leave this account?</p>
-              <p className="mt-1 text-[11px] text-[#9b776a]">Sign out of this account on the current device.</p>
-            </div>
-          </div>
-          <button type="button" onClick={() => setActivePanel("signout")} className="inline-flex items-center gap-2 rounded-xl border border-[#edcfc2] bg-[#fffdfc] px-3.5 py-2.5 text-[11px] font-extrabold text-[#a8593e] transition hover:bg-white">
-            Sign out
-            <ArrowRight size={14} />
-          </button>
-        </section>
 
         <div className="mt-7 flex flex-col gap-2 text-[10px] font-medium text-[#91a2b4] sm:flex-row sm:items-center sm:justify-between">
           <span>Profile last reviewed · 14 March 2025</span>
@@ -414,15 +400,6 @@ export function Profile() {
         </Modal>
       ) : null}
 
-      {activePanel === "signout" ? (
-        <Modal title="Sign out of this account?" description="You will return to the welcome screen." onClose={() => setActivePanel(null)}>
-          <div className="mt-5 flex items-center gap-3 rounded-[15px] bg-[#fff4ef] px-4 py-3.5"><LockKeyhole className="shrink-0 text-[#b96549]" size={17} /><p className="text-[11px] leading-4 text-[#875a4d]">This is a visual confirmation only. There is no active session to end.</p></div>
-          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" onClick={() => setActivePanel(null)} className="rounded-xl px-4 py-2.5 text-[11px] font-extrabold text-[#7890a7] hover:bg-[#f1f6fa]">Stay here</button>
-            <button type="button" onClick={() => setActivePanel(null)} className="rounded-xl bg-[#b96549] px-4 py-2.5 text-[11px] font-extrabold text-white hover:bg-[#a9553b]">Sign out</button>
-          </div>
-        </Modal>
-      ) : null}
     </AppLayout>
   );
 }

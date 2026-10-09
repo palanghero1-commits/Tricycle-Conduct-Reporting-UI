@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -15,7 +15,6 @@ import {
   MapPin,
   Paperclip,
   Plus,
-  Search,
   Send,
   ShieldCheck,
   Trash2,
@@ -25,6 +24,8 @@ import {
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, getCurrentUser } from "../../../lib/api";
+import { createLocalReportId, saveOfflineReport } from "../../../lib/offlineReports";
+import { getOfflineAccountData } from "../../../lib/offlineAccount";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -130,17 +131,19 @@ export function SubmitReport() {
   }, []);
   const [step, setStep] = useState<Step>(1);
   const [selectedDriver, setSelectedDriver] = useState<string>("");
+  const [driverSearch, setDriverSearch] = useState("");
   const [liveDrivers, setLiveDrivers] = useState<Driver[]>([]);
   const [liveCategories, setLiveCategories] = useState<{ id: number; name: string; description?: string }[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [vehicleSearch, setVehicleSearch] = useState("");
   const [category, setCategory] = useState<string>("");
   const [otherCategory, setOtherCategory] = useState("");
   const [incidentDate, setIncidentDate] = useState("");
   const [incidentTime, setIncidentTime] = useState("");
   const [location, setLocation] = useState("");
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number; accuracy: number; capturedAt: string } | null>(null);
+  const [locationStatus, setLocationStatus] = useState("");
   const [description, setDescription] = useState("");
   const [lastDescriptionTemplate, setLastDescriptionTemplate] = useState("");
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
@@ -167,7 +170,6 @@ export function SubmitReport() {
           })),
         );
         setLiveCategories(categoryData.categories);
-        if (driverData.drivers[0]) setSelectedDriver(driverData.drivers[0].tricycleIdentifier);
         if (categoryData.categories[0]) {
           const firstCategory = categoryData.categories[0];
           const template = getDescriptionTemplate(firstCategory.name, firstCategory.description);
@@ -176,22 +178,42 @@ export function SubmitReport() {
           setLastDescriptionTemplate(template);
         }
       })
-      .catch(() => setNotice("Connect to the API and sign in to load official drivers and categories."))
+      .catch(async () => {
+        const cached = await getOfflineAccountData().catch(() => null);
+        if (cached?.drivers.length && cached.categories.length) {
+          setLiveDrivers(cached.drivers.map((driver) => ({
+            id: driver.id,
+            name: driver.fullName,
+            identifier: driver.tricycleIdentifier,
+            route: driver.routeArea ?? "Old Sagay TODA",
+            initials: driver.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
+            color: "bg-[#dceeff] text-[#1660a8]",
+          })));
+          setLiveCategories(cached.categories);
+          const firstCategory = cached.categories[0];
+          const template = getDescriptionTemplate(firstCategory.name, firstCategory.description);
+          setCategory(firstCategory.name);
+          setDescription(template);
+          setLastDescriptionTemplate(template);
+          setNotice("Offline mode: using the account data saved on this device.");
+        } else {
+          setNotice("Connect once while online to download official drivers and categories before using offline mode.");
+        }
+      })
       .finally(() => !cancelled && setIsLoadingData(false));
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const visibleDrivers = useMemo(
-    () =>
-      liveDrivers.filter((driver) =>
-        `${driver.name} ${driver.identifier} ${driver.route}`.toLowerCase().includes(vehicleSearch.toLowerCase()),
-      ),
-    [liveDrivers, vehicleSearch],
-  );
+  const visibleDrivers = liveDrivers;
+  const filteredDrivers = visibleDrivers.filter((driver) => {
+    const query = driverSearch.trim().toLowerCase();
+    if (!query) return true;
+    return `${driver.name} ${driver.identifier} ${driver.route}`.toLowerCase().includes(query);
+  });
 
-  const selected = liveDrivers.find((driver) => driver.identifier === selectedDriver) ?? liveDrivers[0];
+  const selected = liveDrivers.find((driver) => driver.identifier === selectedDriver);
   const visibleCategories = liveCategories.map((item) => item.name);
 
   const selectCategory = (nextCategory: string) => {
@@ -208,6 +230,25 @@ export function SubmitReport() {
     const removedIndex = evidence.findIndex((item) => item.id === id);
     setEvidence((current) => current.filter((item) => item.id !== id));
     if (removedIndex >= 0) setAttachmentFiles((current) => current.filter((_, index) => index !== removedIndex));
+  };
+
+  const captureLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus("Location services are not supported on this device. Enter the place manually.");
+      return;
+    }
+    setLocationStatus("Requesting your current location…");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const capturedAt = new Date().toISOString();
+        const accuracy = Math.round(coords.accuracy);
+        setCoordinates({ latitude: coords.latitude, longitude: coords.longitude, accuracy, capturedAt });
+        setLocation(`GPS location captured (±${accuracy} m accuracy)`);
+        setLocationStatus("Current location captured for this report.");
+      },
+      () => setLocationStatus("Location access was not available. Allow permission or enter the place manually."),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
   };
 
   const resetReport = () => {
@@ -227,6 +268,14 @@ export function SubmitReport() {
       setNotice("Please provide the date and approximate time of the incident before continuing.");
       return;
     }
+    if (step === 2 && !location.trim()) {
+      setNotice("Please enter where the incident happened before continuing.");
+      return;
+    }
+    if (step === 2 && description.trim().length < 15) {
+      setNotice("Please describe what happened in at least 15 characters.");
+      return;
+    }
     if (step < 4) setStep((current) => (current + 1) as Step);
   };
 
@@ -241,6 +290,11 @@ export function SubmitReport() {
       setStep(2);
       return;
     }
+    if (!location.trim() || description.trim().length < 15) {
+      setNotice(!location.trim() ? "Please enter where the incident happened." : "Please describe what happened in at least 15 characters.");
+      setStep(2);
+      return;
+    }
     const categoryRecord = liveCategories.find((item) => item.name === category);
     if (!categoryRecord) {
       setNotice("Official complaint categories are still loading. Please try again.");
@@ -248,20 +302,60 @@ export function SubmitReport() {
     }
     setIsSubmitting(true);
     setNotice("");
+    const localReportId = createLocalReportId();
+    const reportDescription = category === "Other" && otherCategory ? `${otherCategory}\n\n${description}` : description;
+    const offlineReport = {
+      localReportId,
+      driverId: String(selected.id),
+      categoryId: String(categoryRecord.id),
+      incidentDate,
+      incidentTime,
+      location,
+      description: reportDescription,
+      ...(coordinates ? { latitude: coordinates.latitude, longitude: coordinates.longitude, locationAccuracy: coordinates.accuracy, locationCapturedAt: coordinates.capturedAt } : {}),
+      attachments: attachmentFiles,
+      status: "Saved offline" as const,
+      savedAt: new Date().toISOString(),
+      retryCount: 0,
+    };
+    if (!navigator.onLine) {
+      try {
+        await saveOfflineReport(offlineReport);
+        setReportId(`OFFLINE-${localReportId.slice(-8).toUpperCase()}`);
+        setNotice("No internet connection. Your report was saved on this device.");
+        setIsSubmitted(true);
+      } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to save the report offline."); }
+      finally { setIsSubmitting(false); }
+      return;
+    }
     const body = new FormData();
+    body.append("localReportId", localReportId);
     body.append("driverId", String(selected.id));
     body.append("categoryId", String(categoryRecord.id));
     body.append("incidentDate", incidentDate);
     body.append("incidentTime", incidentTime);
     body.append("location", location);
-    body.append("description", category === "Other" && otherCategory ? `${otherCategory}\n\n${description}` : description);
+    if (coordinates) {
+      body.append("latitude", String(coordinates.latitude));
+      body.append("longitude", String(coordinates.longitude));
+      body.append("locationAccuracy", String(coordinates.accuracy));
+      body.append("locationCapturedAt", coordinates.capturedAt);
+    }
+    body.append("description", reportDescription);
     attachmentFiles.forEach((file) => body.append("attachments[]", file));
     try {
       const data = await apiRequest<{ complaint: { referenceNumber: string } }>("/complaints", { method: "POST", body });
       setReportId(data.complaint.referenceNumber);
       setIsSubmitted(true);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Unable to submit the complaint.");
+      try {
+        await saveOfflineReport({ ...offlineReport, status: "Upload failed", lastError: error instanceof Error ? error.message : "Upload failed." });
+        setReportId(`OFFLINE-${localReportId.slice(-8).toUpperCase()}`);
+        setNotice("The connection was lost. Your report was saved on this device for retry.");
+        setIsSubmitted(true);
+      } catch (offlineError) {
+        setNotice(offlineError instanceof Error ? offlineError.message : "Unable to submit or save the complaint.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -319,29 +413,29 @@ export function SubmitReport() {
 
   return (
     <AppLayout active="Submit report" title="Submit a report" eyebrow="Student space">
-      <div className="mx-auto max-w-[1220px]">
-        <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      <div className="mx-auto min-w-0 max-w-[1220px]">
+        <div className="mb-5 flex flex-col justify-between gap-4 sm:mb-7 sm:flex-row sm:items-end">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#eaf2ff] px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#0c5bce]">
               <ClipboardCheck size={13} />
               New report
             </div>
-            <h2 className="text-[29px] font-extrabold tracking-[-0.045em] text-[#163154] sm:text-[36px]">Tell us what happened.</h2>
+            <h2 className="text-[25px] font-extrabold leading-tight tracking-[-0.045em] text-[#163154] sm:text-[36px]">Tell us what happened.</h2>
             <p className="mt-2 max-w-[650px] text-[13px] leading-5 text-[#6d829a]">
               A few clear details help the conduct team understand your experience. You can review everything before it is sent.
             </p>
           </div>
-          <div className="flex items-center gap-2 self-start rounded-full border border-[#dbe5f0] bg-white px-3 py-2 text-[11px] font-bold text-[#6e849d] sm:self-auto">
+          <div className="flex w-fit items-center gap-2 self-start rounded-full border border-[#dbe5f0] bg-white px-3 py-2 text-[10px] font-bold text-[#6e849d] sm:self-auto sm:text-[11px]">
             <ShieldCheck size={15} className="text-[#278b68]" />
             Private student report
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[250px_minmax(0,1fr)] xl:gap-9">
+        <div className="grid min-w-0 gap-6 lg:grid-cols-[250px_minmax(0,1fr)] xl:gap-9">
           <aside className="lg:pt-2">
-            <div className="rounded-[22px] border border-[#dbe5f0] bg-white p-4 shadow-[0_12px_35px_rgba(40,77,111,0.06)] sm:p-5">
-              <p className="px-1 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#9aabbe]">Report progress</p>
-              <div className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:block lg:space-y-1">
+            <div className="rounded-[22px] border border-[#dbe5f0] bg-white p-3 shadow-[0_12px_35px_rgba(40,77,111,0.06)] sm:p-5">
+              <p className="px-1 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#9aabbe] sm:text-[10px]">Report progress</p>
+              <div className="mt-3 flex gap-1 overflow-visible lg:mt-4 lg:block lg:space-y-1">
                 {stepDetails.map((item) => {
                   const complete = step > item.number;
                   const active = step === item.number;
@@ -350,7 +444,7 @@ export function SubmitReport() {
                       type="button"
                       key={item.number}
                       onClick={() => item.number <= step && setStep(item.number as Step)}
-                      className={`group flex min-w-[150px] items-center gap-3 rounded-xl p-2.5 text-left transition lg:w-full ${
+                      className={`group flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-2 text-center transition lg:w-full lg:flex-row lg:gap-3 lg:p-2.5 lg:text-left ${
                         active ? "bg-[#eaf2ff]" : "hover:bg-[#f7faff]"
                       }`}
                     >
@@ -362,8 +456,8 @@ export function SubmitReport() {
                         {complete ? <Check size={15} strokeWidth={2.6} /> : item.number}
                       </span>
                       <span className="min-w-0">
-                        <span className={`block text-[12px] font-extrabold ${active ? "text-[#0c5bce]" : "text-[#3f5873]"}`}>{item.label}</span>
-                        <span className="mt-0.5 block whitespace-nowrap text-[10px] font-medium text-[#93a5b8] lg:whitespace-normal">{item.caption}</span>
+                        <span className={`block text-[9px] font-extrabold sm:text-[10px] lg:text-[12px] ${active ? "text-[#0c5bce]" : "text-[#3f5873]"}`}>{item.label}</span>
+                        <span className="mt-0.5 hidden whitespace-nowrap text-[10px] font-medium text-[#93a5b8] sm:block lg:whitespace-normal">{item.caption}</span>
                       </span>
                     </button>
                   );
@@ -381,11 +475,11 @@ export function SubmitReport() {
           </aside>
 
           <section className="min-w-0">
-            <div className="rounded-[26px] border border-[#dbe5f0] bg-white shadow-[0_15px_45px_rgba(35,72,108,0.07)]">
-              <div className="flex items-center justify-between border-b border-[#edf1f5] px-5 py-4 sm:px-8 sm:py-5">
+            <div className="overflow-hidden rounded-[22px] border border-[#dbe5f0] bg-white shadow-[0_15px_45px_rgba(35,72,108,0.07)] sm:rounded-[26px]">
+              <div className="flex items-center justify-between border-b border-[#edf1f5] bg-[#fbfdff] px-5 py-4 sm:bg-white sm:px-8 sm:py-5">
                 <div>
                   <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#97a9ba]">Step {step} of 4</p>
-                  <h3 className="mt-1 text-[18px] font-extrabold tracking-[-0.025em] text-[#18385e] sm:text-[20px]">
+                  <h3 className="mt-1 text-[16px] font-extrabold tracking-[-0.025em] text-[#18385e] sm:text-[20px]">
                     {step === 1 ? "Identify the tricycle" : step === 2 ? "Describe the incident" : step === 3 ? "Add supporting evidence" : "Review your report"}
                   </h3>
                 </div>
@@ -396,64 +490,63 @@ export function SubmitReport() {
                 </div>
               </div>
 
-              <div className="px-5 py-6 sm:px-8 sm:py-8">
+              <div className="bg-white px-4 py-5 sm:px-8 sm:py-8">
                 {step === 1 ? (
                   <div className="space-y-6">
                     <div>
                       <div className="mb-3 flex items-end justify-between gap-3">
                         <div>
                           <label className="text-[13px] font-extrabold text-[#294664]">Select the driver or vehicle</label>
-                          <p className="mt-1 text-[11px] text-[#8ca0b5]">Choose the identifier you saw during the trip.</p>
+                          <p className="mt-1 text-[11px] text-[#8ca0b5]">Choose the driver you confirmed during the trip.</p>
                         </div>
                         <span className="hidden text-[10px] font-bold text-[#9aabbe] sm:block">{isLoadingData ? "Loading records" : `${visibleDrivers.length} active records`}</span>
                       </div>
-                      <div className="relative mb-3">
-                        <Search size={16} className="absolute left-3.5 top-3.5 text-[#9aaabd]" />
-                        <input
-                          value={vehicleSearch}
-                          onChange={(event) => setVehicleSearch(event.target.value)}
-                          placeholder="Search name or vehicle ID"
-                          className="h-11 w-full rounded-xl border border-[#dbe5f0] bg-[#fbfdff] pl-10 pr-4 text-[12px] text-[#274563] outline-none transition placeholder:text-[#a1b0bf] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]"
-                        />
-                      </div>
-                      <div className="grid gap-2.5 sm:grid-cols-3">
-                        {visibleDrivers.map((driver) => {
-                          const isSelected = selectedDriver === driver.identifier;
-                          return (
-                            <button
-                              type="button"
-                              key={driver.identifier}
-                              onClick={() => setSelectedDriver(driver.identifier)}
-                              className={`relative rounded-2xl border p-3.5 text-left transition ${
-                                isSelected ? "border-[#4d91db] bg-[#f3f8ff] shadow-[0_6px_18px_rgba(48,119,190,0.10)]" : "border-[#e0e8f0] bg-white hover:border-[#adc9e5] hover:bg-[#fbfdff]"
-                              }`}
-                            >
-                              {isSelected ? <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-[#0c5bce] text-white"><Check size={12} strokeWidth={3} /></span> : null}
-                              <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-[11px] font-extrabold ${driver.color}`}>{driver.initials}</span>
-                              <span className="mt-3 block text-[12px] font-extrabold text-[#294664]">{driver.name}</span>
-                              <span className="mt-1 block font-mono text-[10px] font-bold tracking-[0.08em] text-[#0c5bce]">{driver.identifier}</span>
-                              <span className="mt-2 block text-[10px] leading-4 text-[#8ca0b5]">{driver.route}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {!visibleDrivers.length ? (
-                        <div className="rounded-2xl border border-dashed border-[#dbe5f0] px-4 py-8 text-center text-[12px] text-[#8195aa]">No registered drivers match your search.</div>
-                      ) : null}
+                       <div className="relative">
+                         <input
+                           type="search"
+                           value={driverSearch}
+                           onChange={(event) => { setDriverSearch(event.target.value); setSelectedDriver(""); }}
+                           disabled={isLoadingData || !liveDrivers.length}
+                           placeholder={isLoadingData ? "Loading registered drivers…" : liveDrivers.length ? "Type driver name or vehicle identifier" : "No registered drivers available"}
+                           aria-label="Search registered drivers"
+                           className="h-12 w-full rounded-xl border border-[#dbe5f0] bg-[#fbfdff] px-4 text-[12px] font-bold text-[#274563] outline-none transition placeholder:font-semibold placeholder:text-[#9aabbe] hover:border-[#76a9e6] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff] disabled:cursor-wait disabled:opacity-60"
+                         />
+                         {!selected && driverSearch.trim() && liveDrivers.length ? (
+                           <div className="absolute inset-x-0 top-[calc(100%+6px)] z-30 max-h-60 overflow-y-auto rounded-xl border border-[#cfe0ef] bg-white p-1.5 shadow-[0_16px_36px_rgba(35,72,108,0.18)]" role="listbox" aria-label="Matching drivers">
+                             {filteredDrivers.length ? filteredDrivers.map((driver) => (
+                               <button key={driver.identifier} type="button" role="option" aria-selected={false} onClick={() => { setSelectedDriver(driver.identifier); setDriverSearch(`${driver.name} · ${driver.identifier}`); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[#294664] transition hover:bg-[#f5f9fd]">
+                                 <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[10px] font-extrabold ${driver.color}`}>{driver.initials}</span>
+                                 <span className="min-w-0 flex-1"><span className="block truncate text-[11px] font-extrabold">{driver.name}</span><span className="mt-0.5 block truncate font-mono text-[10px]">{driver.identifier} · {driver.route}</span></span>
+                               </button>
+                             )) : <p className="px-3 py-4 text-center text-[11px] font-semibold text-[#8295a9]">No matching driver or vehicle.</p>}
+                           </div>
+                         ) : null}
+                       </div>
+                      {selected ? (
+                        <div className="mt-3 rounded-2xl border border-[#4d91db] bg-[#f3f8ff] p-4 shadow-[0_6px_18px_rgba(48,119,190,0.10)]">
+                          <div className="flex items-start gap-3">
+                            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[11px] font-extrabold ${selected.color}`}>{selected.initials}</span>
+                            <div className="min-w-0 flex-1"><p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#4d91db]">Confirmed driver</p><p className="mt-1 break-words text-[13px] font-extrabold text-[#294664]">{selected.name}</p><p className="mt-1 font-mono text-[10px] font-bold tracking-[0.08em] text-[#0c5bce]">{selected.identifier}</p><p className="mt-1 text-[10px] text-[#8ca0b5]">{selected.route}</p></div>
+                            <Check size={18} className="shrink-0 text-[#16815a]" strokeWidth={3} />
+                          </div>
+                        </div>
+                      ) : <p className="mt-3 rounded-xl bg-[#f7f9fc] px-3 py-2.5 text-[10px] font-semibold text-[#8295a9]">Select the driver before continuing. The selected driver will be attached to this report.</p>}
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-2xl bg-[#f5f9fd] p-4">
-                        <div className="flex items-center gap-2 text-[#6384a5]"><CarFront size={16} /><span className="text-[10px] font-extrabold uppercase tracking-[0.13em]">Vehicle identifier</span></div>
-                        <p className="mt-2 font-mono text-[18px] font-extrabold tracking-[0.08em] text-[#17375d]">{selected?.identifier ?? "Not available"}</p>
+                    {selected ? (
+                      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                        <div className="min-w-0 rounded-2xl bg-[#f5f9fd] p-4">
+                          <div className="flex items-center gap-2 text-[#6384a5]"><CarFront size={16} /><span className="text-[10px] font-extrabold uppercase tracking-[0.13em]">Vehicle identifier</span></div>
+                          <p className="mt-2 font-mono text-[18px] font-extrabold tracking-[0.08em] text-[#17375d]">{selected.identifier}</p>
+                        </div>
+                        <div className="min-w-0 rounded-2xl bg-[#f5f9fd] p-4">
+                          <div className="flex items-center gap-2 text-[#6384a5]"><UserRound size={16} /><span className="text-[10px] font-extrabold uppercase tracking-[0.13em]">Confirmed driver</span></div>
+                          <p className="mt-2 break-words text-[15px] font-extrabold text-[#17375d]">{selected.name}</p>
+                        </div>
                       </div>
-                      <div className="rounded-2xl bg-[#f5f9fd] p-4">
-                        <div className="flex items-center gap-2 text-[#6384a5]"><UserRound size={16} /><span className="text-[10px] font-extrabold uppercase tracking-[0.13em]">Selected driver</span></div>
-                        <p className="mt-2 text-[15px] font-extrabold text-[#17375d]">{selected?.name ?? "No driver selected"}</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-3 rounded-2xl border border-[#dbeaf7] bg-[#f5faff] px-4 py-3.5 text-[#547493]">
+                    ) : null}
+                    <div className="flex min-w-0 gap-3 rounded-2xl border border-[#dbeaf7] bg-[#f5faff] px-4 py-3.5 text-[#547493]">
                       <Info size={16} className="mt-0.5 shrink-0 text-[#4384c5]" />
-                      <p className="text-[11px] leading-5">If you are unsure of the driver name, use the vehicle identifier printed on the tricycle.</p>
+                      <p className="min-w-0 break-words text-[11px] leading-5">If you are unsure of the driver name, use the vehicle identifier printed on the tricycle.</p>
                     </div>
                   </div>
                 ) : null}
@@ -501,9 +594,15 @@ export function SubmitReport() {
                       <span className="mb-2 flex items-center gap-2 text-[12px] font-extrabold text-[#49647e]"><MapPin size={15} className="text-[#7190ad]" />Where did this happen?</span>
                       <div className="relative">
                         <MapPin size={15} className="absolute left-3.5 top-3.5 text-[#9aaabd]" />
-                        <input value={location} onChange={(event) => setLocation(event.target.value)} className="h-11 w-full rounded-xl border border-[#dbe5f0] px-10 pr-10 text-[12px] text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
+                        <input value={location} onChange={(event) => { setLocation(event.target.value); setCoordinates(null); setLocationStatus(""); }} placeholder="Enter a place or use current location" className="h-11 w-full rounded-xl border border-[#dbe5f0] px-10 pr-10 text-[12px] text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                         <ChevronDown size={15} className="absolute right-3.5 top-3.5 text-[#a0afbd]" />
                       </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button type="button" onClick={captureLocation} className="inline-flex items-center gap-2 rounded-lg border border-[#b9d2e9] bg-[#f5faff] px-3 py-2 text-[11px] font-extrabold text-[#0c5bce] hover:bg-[#eaf3ff]"><MapPin size={14} />Use my current location</button>
+                        {coordinates ? <span className="text-[10px] font-bold text-[#319369]">GPS attached: {coordinates.latitude.toFixed(6)}, {coordinates.longitude.toFixed(6)}</span> : null}
+                      </div>
+                      <p className="mt-2 text-[10px] leading-4 text-[#8295aa]">Location is captured only when you choose it and submitted with this report.</p>
+                      {locationStatus ? <p className="mt-1 text-[10px] font-semibold text-[#52718d]">{locationStatus}</p> : null}
                     </label>
                     <label className="block">
                       <span className="mb-2 block text-[12px] font-extrabold text-[#49647e]">What happened?</span>
@@ -595,12 +694,12 @@ export function SubmitReport() {
                 ) : null}
               </div>
 
-              <div className="flex flex-col-reverse gap-3 border-t border-[#edf1f5] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-                <button type="button" onClick={goBack} disabled={step === 1} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-[12px] font-extrabold transition ${step === 1 ? "cursor-not-allowed text-[#bec9d4]" : "text-[#6e849d] hover:bg-[#f4f7fb] hover:text-[#345371]"}`}><ArrowLeft size={16} />Back</button>
+              <div className="flex flex-col-reverse gap-2.5 border-t border-[#dfeaf4] bg-[#f8fbff] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:bg-white sm:px-8">
+                <button type="button" onClick={goBack} disabled={step === 1} className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-[12px] font-extrabold transition sm:min-h-0 sm:w-auto sm:rounded-xl sm:border-0 ${step === 1 ? "cursor-not-allowed border-[#e5edf4] text-[#bec9d4]" : "border-[#d8e5f0] bg-white text-[#6e849d] hover:bg-[#f4f7fb] hover:text-[#345371]"}`}><ArrowLeft size={16} />Back</button>
                 {step < 4 ? (
-                  <button type="button" onClick={goNext} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-5 py-3 text-[12px] font-extrabold text-white shadow-[0_7px_16px_rgba(12,91,206,0.2)] transition hover:bg-[#084da9]">Continue<ArrowRight size={16} /></button>
+                  <button type="button" onClick={goNext} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#0c5bce] px-5 py-3.5 text-[12px] font-extrabold text-white shadow-[0_8px_18px_rgba(12,91,206,0.22)] transition hover:bg-[#084da9] sm:min-h-0 sm:w-auto sm:rounded-xl sm:py-3 sm:shadow-[0_7px_16px_rgba(12,91,206,0.2)]">Continue<ArrowRight size={16} /></button>
                 ) : (
-                  <button type="button" onClick={submitReport} disabled={isSubmitting} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-5 py-3 text-[12px] font-extrabold text-white shadow-[0_7px_16px_rgba(12,91,206,0.2)] transition hover:bg-[#084da9] disabled:cursor-wait disabled:bg-[#7da5cb]">{isSubmitting ? "Sending..." : "Send report"}<Send size={15} /></button>
+                  <button type="button" onClick={submitReport} disabled={isSubmitting} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#0c5bce] px-5 py-3.5 text-[12px] font-extrabold text-white shadow-[0_8px_18px_rgba(12,91,206,0.22)] transition hover:bg-[#084da9] disabled:cursor-wait disabled:bg-[#7da5cb] sm:min-h-0 sm:w-auto sm:rounded-xl sm:py-3 sm:shadow-[0_7px_16px_rgba(12,91,206,0.2)]">{isSubmitting ? "Sending..." : "Send report"}<Send size={15} /></button>
                 )}
               </div>
             </div>

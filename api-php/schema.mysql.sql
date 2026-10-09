@@ -109,6 +109,7 @@ CREATE TABLE complaint_categories (
 
 CREATE TABLE complaints (
   id CHAR(36) PRIMARY KEY,
+  local_report_id VARCHAR(100) NULL,
   reference_number VARCHAR(40) NOT NULL UNIQUE,
   student_user_id CHAR(36),
   driver_id INT NOT NULL,
@@ -117,6 +118,10 @@ CREATE TABLE complaints (
   incident_date DATE NOT NULL,
   incident_time VARCHAR(8) NOT NULL,
   location VARCHAR(240) NOT NULL,
+  latitude DECIMAL(10, 7) NULL,
+  longitude DECIMAL(10, 7) NULL,
+  location_accuracy_meters DECIMAL(8, 2) NULL,
+  location_captured_at DATETIME NULL,
   description TEXT NOT NULL,
   review_notes TEXT,
   assigned_to CHAR(36),
@@ -129,6 +134,7 @@ CREATE TABLE complaints (
   INDEX complaints_student_idx (student_user_id),
   INDEX complaints_driver_idx (driver_id),
   INDEX complaints_status_idx (status)
+  ,UNIQUE KEY complaints_local_report_unique (student_user_id, local_report_id)
 );
 
 CREATE TABLE complaint_attachments (
@@ -145,10 +151,32 @@ CREATE TABLE complaint_attachments (
   CONSTRAINT attachments_user_fk FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
+CREATE TABLE sos_alerts (
+  id CHAR(36) PRIMARY KEY,
+  student_user_id CHAR(36) NOT NULL,
+  driver_id INT NOT NULL,
+  status ENUM('ACTIVE','RESOLVED','CANCELLED') NOT NULL DEFAULT 'ACTIVE',
+  latitude DECIMAL(10, 7) NOT NULL,
+  longitude DECIMAL(10, 7) NOT NULL,
+  location_accuracy_meters DECIMAL(8, 2) NULL,
+  started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at DATETIME NULL,
+  resolved_by CHAR(36) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT sos_student_fk FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT sos_driver_fk FOREIGN KEY (driver_id) REFERENCES drivers(id),
+  CONSTRAINT sos_resolver_fk FOREIGN KEY (resolved_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX sos_status_idx (status),
+  INDEX sos_student_idx (student_user_id),
+  INDEX sos_driver_idx (driver_id)
+);
+
 CREATE TABLE complaint_status_history (
   id INT AUTO_INCREMENT PRIMARY KEY,
   complaint_id CHAR(36) NOT NULL,
-  previous_status ENUM('SUBMITTED','RECEIVED','UNDER_REVIEW','VERIFIED','REFERRED','RESOLVED','CLOSED'),
+  previous_status ENUM('SUBMITTED','RECEIVED','UNDER_REVIEW','VERIFIED','REFERRED','RESOLVED','CLOSED') NULL,
   new_status ENUM('SUBMITTED','RECEIVED','UNDER_REVIEW','VERIFIED','REFERRED','RESOLVED','CLOSED') NOT NULL,
   changed_by CHAR(36),
   remarks TEXT,

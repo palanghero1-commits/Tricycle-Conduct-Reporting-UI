@@ -15,7 +15,8 @@ import {
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
-import { apiRequest, formatPhilippineDate, formatPhilippineDateTime } from "../../../lib/api";
+import { apiRequest, formatPhilippineDate, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
+import { getOfflineAccountData } from "../../../lib/offlineAccount";
 
 type ReportStatus = "Under Review" | "Resolved" | "Closed";
 type ReportCategory = "Fare concern" | "Route concern" | "Driver conduct" | "Vehicle condition";
@@ -271,6 +272,8 @@ function ReportDetails({
 }
 
 export function MyReports() {
+  const currentUser = getCurrentUser();
+  const isDriver = currentUser?.role === "DRIVER";
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All statuses");
   const [category, setCategory] = useState("All categories");
@@ -294,12 +297,27 @@ export function MyReports() {
         updateNote: "Current status is shown from the review record.",
         confirmedViolation: false,
       } as ReportRecord))))
-      .catch(() => setLiveRecords([]));
+      .catch(async () => {
+        const cached = await getOfflineAccountData().catch(() => null);
+        setLiveRecords((cached?.reports ?? []).map((item) => ({
+          id: String(item.referenceNumber ?? item.id ?? "Offline report"),
+          complaintId: String(item.id ?? ""),
+          date: String(item.incidentDate ?? ""),
+          submittedAt: `${String(item.incidentDate ?? "")} · ${String(item.incidentTime ?? "")}`,
+          category: String(item.categoryName ?? "Other") as ReportCategory,
+          status: item.status === "CLOSED" ? "Closed" : item.status === "RESOLVED" ? "Resolved" : "Under Review",
+          location: String(item.location ?? ""),
+          summary: String(item.description ?? ""),
+          lastUpdate: formatPhilippineDate(String(item.createdAt ?? new Date().toISOString())),
+          updateNote: "Showing the last data downloaded while online.",
+          confirmedViolation: false,
+        } as ReportRecord)));
+      });
   }, []);
 
   const filteredRecords = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    const now = new Date("2026-02-24T00:00:00");
+    const now = new Date();
     const cutoff =
       dateRange === "Last 30 days"
         ? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -350,7 +368,7 @@ export function MyReports() {
   };
 
   return (
-    <AppLayout active="My reports" title="My reports" eyebrow="Student workspace">
+    <AppLayout active="My reports" title="My reports" eyebrow={isDriver ? "Driver workspace" : "Student workspace"}>
       <div className="mx-auto max-w-[1190px]">
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
@@ -362,7 +380,7 @@ export function MyReports() {
               Keep track of what you raised.
             </h2>
             <p className="mt-2 max-w-[590px] text-[13px] leading-6 text-[#71859e]">
-              Review the concerns you submitted about tricycle conduct in Barangay Old Sagay. Updates here reflect the current record status.
+              {isDriver ? "Review concerns linked to your driver and vehicle records in Barangay Old Sagay. Updates here reflect the current record status." : "Review the concerns you submitted about tricycle conduct in Barangay Old Sagay. Updates here reflect the current record status."}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 rounded-2xl border border-[#dbe5f0] bg-white px-3.5 py-3 shadow-[0_4px_15px_rgba(26,63,99,0.04)]">

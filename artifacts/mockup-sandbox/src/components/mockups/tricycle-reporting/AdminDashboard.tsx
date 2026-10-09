@@ -215,8 +215,9 @@ function previewUrl(component: string) {
   return `${base}/preview/tricycle-reporting/${component}`;
 }
 
-function navigateTo(component: string) {
-  window.location.href = previewUrl(component);
+function navigateTo(component: string, query?: Record<string, string>) {
+  const search = query ? `?${new URLSearchParams(query).toString()}` : "";
+  window.location.href = `${previewUrl(component)}${search}`;
 }
 
 function StatusPill({ status }: { status: ReportStatus }) {
@@ -671,7 +672,7 @@ export function AdminDashboard() {
                   className="rounded-xl bg-[#2b8f81] px-3 py-2.5 text-[11px] font-extrabold text-white disabled:opacity-60 sm:col-span-2 lg:col-span-3"
                 >
                   {isCreatingPersonnel
-                    ? "Creating PNP account…"
+                    ? "Creating authorized personnel account…"
                     : "Create account"}
                 </button>
               </form>
@@ -928,7 +929,7 @@ export function AdminDashboard() {
                   </p>
                   <button
                     type="button"
-                    onClick={() => navigateTo("ReviewWorkspace")}
+                    onClick={() => navigateTo("ReviewWorkspace", selectedReport ? { reference: selectedReport.id } : undefined)}
                     className="text-[11px] font-extrabold text-[#2d6e9b] hover:text-[#1d5278]"
                   >
                     Open reports{" "}
@@ -978,7 +979,7 @@ export function AdminDashboard() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => navigateTo("ReviewWorkspace")}
+                        onClick={() => navigateTo("ReviewWorkspace", { reference: selectedReport.id })}
                         className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#edf4f8] px-3 py-2.5 text-[11px] font-extrabold text-[#2d6e91] hover:bg-[#e1eef4]"
                       >
                         <ClipboardCheck size={14} /> Open review context

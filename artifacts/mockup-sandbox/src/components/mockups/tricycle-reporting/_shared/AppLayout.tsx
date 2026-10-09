@@ -6,6 +6,7 @@ import {
   Check,
   CheckCheck,
   ClipboardList,
+  CloudOff,
   FileCheck2,
   Gauge,
   LayoutDashboard,
@@ -13,11 +14,13 @@ import {
   Menu,
   Settings,
   ShieldCheck,
+  Siren,
   UserRound,
   UsersRound,
   X,
 } from "lucide-react";
 import { apiRequest, clearAuthToken, fetchProfilePhoto, formatPhilippineDateTime, getCurrentUser, getUserInitials } from "../../../../lib/api";
+import { syncOfflineReports } from "../../../../lib/offlineReports";
 
 type AppLayoutProps = {
   children: ReactNode;
@@ -64,26 +67,26 @@ function notificationTime(value: string) {
 const studentNav = [
   { label: "Dashboard", icon: LayoutDashboard, component: "StudentDashboard" },
   { label: "Submit report", icon: ClipboardList, component: "SubmitReport" },
+  { label: "Emergency SOS", icon: Siren, component: "UnderDevelopment" },
+  { label: "Pending reports", icon: CloudOff, component: "PendingReports" },
   { label: "My reports", icon: FileCheck2, component: "MyReports" },
-  { label: "Notifications", icon: Bell, component: "Notifications" },
   { label: "Profile", icon: UserRound, component: "Profile" },
 ];
 
 const driverNav = [
-  { label: "Dashboard", icon: LayoutDashboard, component: "StudentDashboard" },
+  { label: "Dashboard", icon: LayoutDashboard, component: "DriverDashboard" },
   { label: "My reports", icon: FileCheck2, component: "MyReports" },
   { label: "Violations", icon: ShieldCheck, component: "Violations" },
-  { label: "Notifications", icon: Bell, component: "Notifications" },
   { label: "Profile", icon: UserRound, component: "Profile" },
 ];
 
 const officerNav = [
   { label: "Dashboard", icon: Gauge, component: "OfficerDashboard" },
-  { label: "Reports", icon: ClipboardList, component: "PNPReview" },
+  { label: "Reports", icon: ClipboardList, component: "ReviewWorkspace" },
+  { label: "Emergency SOS", icon: Siren, component: "UnderDevelopment" },
   { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
   { label: "Violations", icon: ShieldCheck, component: "Violations" },
   { label: "Analytics", icon: BarChart3, component: "Analytics" },
-  { label: "Notifications", icon: Bell, component: "Notifications" },
 ];
 
 const adminNav = [
@@ -92,16 +95,6 @@ const adminNav = [
   { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
   { label: "Violations", icon: ShieldCheck, component: "Violations" },
   { label: "Analytics", icon: BarChart3, component: "Analytics" },
-  { label: "Notifications", icon: Bell, component: "Notifications" },
-];
-
-const pnpNav = [
-  { label: "Dashboard", icon: Gauge, component: "OfficerDashboard" },
-  { label: "Reports", icon: ClipboardList, component: "PNPReview" },
-  { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
-  { label: "Violations", icon: ShieldCheck, component: "Violations" },
-  { label: "Analytics", icon: BarChart3, component: "Analytics" },
-  { label: "Notifications", icon: Bell, component: "Notifications" },
 ];
 
 function previewUrl(component: string, hash = "") {
@@ -131,11 +124,25 @@ export function AppLayout({
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [selectedHeaderNotification, setSelectedHeaderNotification] = useState<HeaderNotification | null>(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const roleUsesReviewWorkspace = ["TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "PNP", "SUPERADMIN"].includes(currentUser?.role ?? "");
   const workspaceOfficer = officer || roleUsesReviewWorkspace;
-  const navItems: NavItem[] = currentUser?.role === "SUPERADMIN" ? adminNav : currentUser?.role === "PNP" ? pnpNav : currentUser?.role === "DRIVER" ? driverNav : workspaceOfficer ? (currentUser?.role === "AUTHORIZED_PERSONNEL" ? [...officerNav, { label: "TODAs", icon: UsersRound, component: "OfficerDashboard", hash: "#todas" }] : officerNav) : studentNav;
+  const navItems: NavItem[] = currentUser?.role === "SUPERADMIN" ? adminNav : currentUser?.role === "DRIVER" ? driverNav : workspaceOfficer ? (["AUTHORIZED_PERSONNEL", "PNP"].includes(currentUser?.role ?? "") ? [...officerNav, { label: "TODAs", icon: UsersRound, component: "OfficerDashboard", hash: "#todas" }] : officerNav) : studentNav;
   const initials = getUserInitials(currentUser);
-  const displayTitle = title ?? (workspaceOfficer ? "Officer workspace" : "Student workspace");
+  const displayTitle = title ?? (workspaceOfficer ? "Authorized personnel workspace" : currentUser?.role === "DRIVER" ? "Driver workspace" : "Student workspace");
+  const displayRole = currentUser?.role === "PNP" ? "AUTHORIZED PERSONNEL" : currentUser?.role;
+
+  useEffect(() => {
+    const online = () => setIsOnline(true);
+    const offline = () => setIsOnline(false);
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
+    return () => {
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", offline);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -152,6 +159,14 @@ export function AppLayout({
     const timer = window.setInterval(loadUnread, 10000);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
+
+  useEffect(() => {
+    if (currentUser?.role !== "STUDENT") return;
+    const sync = () => { if (navigator.onLine) void syncOfflineReports().catch(() => undefined); };
+    window.addEventListener("online", sync);
+    sync();
+    return () => window.removeEventListener("online", sync);
+  }, [currentUser?.role]);
 
   useEffect(() => {
     let active = true;
@@ -187,8 +202,8 @@ export function AppLayout({
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f7fb] text-[#132238]">
-      <div className="flex min-h-screen">
+    <div className="min-h-screen overflow-x-hidden bg-[#f4f7fb] text-[#132238]">
+      <div className="flex h-screen overflow-hidden">
         <aside className="sticky top-0 hidden h-screen w-[250px] shrink-0 flex-col overflow-hidden border-r border-[#dbe5f0] bg-white px-5 py-6 lg:flex">
           <div className="flex items-center gap-3 px-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#0c5bce] text-white shadow-[0_6px_18px_rgba(12,91,206,0.22)]">
@@ -257,21 +272,25 @@ export function AppLayout({
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 pb-20 lg:pb-0">
+        <main className="min-w-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
           <header className="sticky top-0 z-10 flex h-[74px] items-center justify-between border-b border-[#dbe5f0]/80 bg-[#f4f7fb]/90 px-5 backdrop-blur lg:px-10">
             <div className="flex items-center gap-3">
-              <button type="button" className="rounded-xl p-2 text-[#6f849d] hover:bg-white lg:hidden" aria-label="Open navigation">
+              <button type="button" onClick={() => setMobileNavOpen(true)} className="rounded-xl p-2 text-[#6f849d] hover:bg-white lg:hidden" aria-label="Open navigation" aria-expanded={mobileNavOpen}>
                 <Menu size={20} />
               </button>
-              <div>
+              <div className="min-w-0">
                 {eyebrow ? (
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ca0b6]">{eyebrow}</p>
                 ) : null}
-                <h1 className="text-[17px] font-extrabold tracking-[-0.02em] text-[#163154] lg:text-[20px]">{displayTitle}</h1>
-                {currentUser ? <p className="mt-0.5 text-[11px] font-semibold text-[#879bb0]">{currentUser.fullName} / {currentUser.role.replace("_", " ")}</p> : null}
+                <h1 className="truncate text-[17px] font-extrabold tracking-[-0.02em] text-[#163154] lg:text-[20px]">{displayTitle}</h1>
+                {currentUser ? <p className="mt-0.5 text-[11px] font-semibold text-[#879bb0]">{currentUser.fullName} / {displayRole?.replace("_", " ")}</p> : null}
               </div>
             </div>
             <div className="flex items-center gap-2.5">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-extrabold ${isOnline ? "bg-[#dcf5eb] text-[#20885d]" : "bg-[#fff2df] text-[#b47718]"}`} aria-label={`Account is ${isOnline ? "online" : "offline"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${isOnline ? "bg-[#2eaa72]" : "bg-[#d28b24]"}`} />
+                {isOnline ? "Online" : "Offline"}
+              </span>
               <button type="button" onClick={() => setNotificationsOpen((current) => !current)} className="relative rounded-xl border border-[#dbe5f0] bg-white p-2.5 text-[#6d8199] shadow-sm" aria-label="Notifications" aria-expanded={notificationsOpen}>
                 <Bell size={17} strokeWidth={1.8} />
                 {unreadNotifications > 0 ? <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#e8794f]" /> : null}
@@ -293,7 +312,7 @@ export function AppLayout({
                 </div>
                 <div className="max-h-[430px] space-y-2 overflow-y-auto bg-white p-3">
                   {headerNotifications.length > 0 ? headerNotifications.slice(0, 5).map((notification) => (
-                    <button key={notification.id} type="button" onClick={() => { if (!notification.readAt) markNotificationAsRead(notification.id); setSelectedHeaderNotification({ ...notification, readAt: notification.readAt ?? new Date().toISOString() }); setNotificationsOpen(false); }} className={`group w-full rounded-[18px] p-4 text-left transition hover:bg-[#f8f5ff] ${notification.readAt ? "bg-white" : "bg-[#f7f3ff]"}`}>
+                    <button key={notification.id} type="button" onClick={() => { if (!notification.readAt) markNotificationAsRead(notification.id); window.location.href = `${previewUrl("Notifications")}?notificationId=${encodeURIComponent(notification.id)}`; }} className={`group w-full rounded-[18px] p-4 text-left transition hover:bg-[#f8f5ff] ${notification.readAt ? "bg-white" : "bg-[#f7f3ff]"}`}>
                       <div className="flex items-start gap-3">
                         <span className="mt-1 flex h-2.5 w-2.5 shrink-0 rounded-full bg-[#5429c7]" style={{ opacity: notification.readAt ? 0 : 1 }} />
                         <span className="min-w-0 flex-1">
@@ -316,15 +335,37 @@ export function AppLayout({
               </div>
             ) : null}
           </header>
-          <div className="mx-auto w-full max-w-[1460px] px-5 py-7 lg:px-10 lg:py-9">{children}</div>
+          <div className="mx-auto min-w-0 w-full max-w-[1460px] px-4 py-6 sm:px-5 sm:py-7 lg:px-10 lg:py-9">{children}</div>
         </main>
       </div>
+
+      {mobileNavOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Mobile navigation">
+          <button type="button" className="absolute inset-0 bg-[#17304d]/35" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" />
+          <aside className="relative flex h-full w-[min(300px,86vw)] flex-col overflow-y-auto bg-white px-5 py-6 shadow-[18px_0_50px_rgba(21,49,78,0.2)]">
+            <div className="flex items-center justify-between gap-3 px-2">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#0c5bce] text-white"><ShieldCheck size={21} /></div>
+                <div><p className="text-[13px] font-extrabold text-[#12305a]">Tricycle Conduct</p><p className="text-[11px] text-[#7890aa]">{currentUser?.fullName ?? "Account"}</p></div>
+              </div>
+              <button type="button" onClick={() => setMobileNavOpen(false)} className="rounded-xl p-2 text-[#6f849d] hover:bg-[#f4f7fb]" aria-label="Close navigation"><X size={19} /></button>
+            </div>
+            <nav className="mt-8 space-y-1.5">
+              {navItems.map(({ label, icon: Icon, component, hash }) => {
+                const isActive = active === label;
+                return <button key={label} type="button" onClick={() => { setMobileNavOpen(false); navigateTo(component, hash); }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[13px] font-semibold ${isActive ? "bg-[#eaf2ff] text-[#0c5bce]" : "text-[#71859e] hover:bg-[#f4f7fb]"}`}><Icon size={17} />{label}{label === "Notifications" ? <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#e8794f] px-1 text-[10px] font-extrabold text-white">{unreadNotifications}</span> : null}</button>;
+              })}
+            </nav>
+            <button type="button" onClick={signOut} className="mt-auto flex items-center gap-3 rounded-xl px-3 py-3 text-[13px] font-semibold text-[#71859e] hover:bg-[#f4f7fb]"><LogOut size={17} />Sign out</button>
+          </aside>
+        </div>
+      ) : null}
 
       <nav className="fixed inset-x-0 bottom-0 z-20 flex h-[72px] items-center justify-around border-t border-[#dbe5f0] bg-white/95 px-2 backdrop-blur lg:hidden">
         {navItems.slice(0, 5).map(({ label, icon: Icon, component, hash }) => {
           const isActive = active === label;
           return (
-            <button key={label} type="button" onClick={() => navigateTo(component, hash)} className={`flex min-w-[58px] flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[10px] font-bold ${isActive ? "text-[#0c5bce]" : "text-[#8ca0b6]"}`}>
+            <button key={label} type="button" onClick={() => navigateTo(component, hash)} className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[9px] font-bold ${isActive ? "text-[#0c5bce]" : "text-[#8ca0b6]"}`}>
               <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
               <span>{label === "Submit report" ? "Report" : label.replace("My ", "")}</span>
             </button>
