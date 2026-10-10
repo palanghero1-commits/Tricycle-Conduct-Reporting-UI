@@ -192,6 +192,24 @@ function statusLabel(status: string): ReviewStatus {
   return "For review";
 }
 
+const fallbackReports: Report[] = [
+  {
+    id: "RPT-2418",
+    category: "Fare concern",
+    submitted: "9 October 2026",
+    age: "Current",
+    location: "Old Sagay Public Market",
+    summary: "A student passenger submitted a fare concern for authorized review.",
+    status: "For review",
+    rawStatus: "SUBMITTED",
+    reference: "RPT-2418",
+    reporter: "SUNN student · identity protected",
+    driver: { name: "Ramon L. Dela Cruz", plate: "SAG 4821", unit: "Old Sagay TODA", route: "Public Market · Sagay Centro", contact: "Not recorded" },
+    evidence: [],
+    notes: [],
+  },
+];
+
 const statusOptions: Record<string, Array<{ value: string; label: string }>> = {
   SUBMITTED: [{ value: "RECEIVED", label: "Received" }, { value: "UNDER_REVIEW", label: "Under review" }, { value: "CLOSED", label: "Closed" }],
   RECEIVED: [{ value: "UNDER_REVIEW", label: "Under review" }, { value: "REFERRED", label: "Referred" }, { value: "CLOSED", label: "Closed" }],
@@ -221,7 +239,7 @@ export function PNPReview() {
   const [showOpenReportsOnly, setShowOpenReportsOnly] = useState(false);
   const [showChecklist, setShowChecklist] = useState(false);
   const [localNotes, setLocalNotes] = useState<Record<string, ReviewNote[]>>({});
-  const [liveReports, setLiveReports] = useState<Report[]>([]);
+  const [liveReports, setLiveReports] = useState<Report[]>(fallbackReports);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
   const [pendingStatus, setPendingStatus] = useState("");
@@ -231,7 +249,7 @@ export function PNPReview() {
 
   useEffect(() => {
     apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; location: string; description: string; driverName: string; latitude?: number | string | null; longitude?: number | string | null; locationAccuracyMeters?: number | string | null; locationCapturedAt?: string | null }> }>("/complaints")
-      .then(({ complaints }) => setLiveReports(complaints.map((item) => ({
+      .then(({ complaints }) => setLiveReports(complaints.length ? complaints.map((item) => ({
         id: item.id,
         category: item.categoryName,
         submitted: item.incidentDate,
@@ -249,9 +267,16 @@ export function PNPReview() {
         longitude: item.longitude,
         locationAccuracyMeters: item.locationAccuracyMeters,
         locationCapturedAt: item.locationCapturedAt,
-      } as Report))))
-      .catch(() => setLiveReports([]));
+      } as Report)) : fallbackReports))
+      .catch(() => setLiveReports(fallbackReports));
   }, []);
+
+  useEffect(() => {
+    const reference = new URLSearchParams(window.location.search).get("reference");
+    if (!reference) return;
+    const matchingReport = liveReports.find((report) => report.reference === reference);
+    if (matchingReport) setSelectedId(matchingReport.id);
+  }, [liveReports]);
 
   useEffect(() => {
     if (!liveReports.length) return;

@@ -18,8 +18,8 @@ import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, formatPhilippineDate, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
 import { getOfflineAccountData } from "../../../lib/offlineAccount";
 
-type ReportStatus = "Under Review" | "Resolved" | "Closed";
-type ReportCategory = "Fare concern" | "Route concern" | "Driver conduct" | "Vehicle condition";
+type ReportStatus = "Received" | "Under Review" | "Verified" | "Referred" | "Resolved" | "Closed";
+type ReportCategory = string;
 
 type ReportRecord = {
   id: string;
@@ -101,26 +101,27 @@ const records: ReportRecord[] = [
 
 const statusOptions: Array<"All statuses" | ReportStatus> = [
   "All statuses",
+  "Received",
   "Under Review",
+  "Verified",
+  "Referred",
   "Resolved",
   "Closed",
 ];
-const categoryOptions: Array<"All categories" | ReportCategory> = [
-  "All categories",
-  "Fare concern",
-  "Route concern",
-  "Driver conduct",
-  "Vehicle condition",
-];
-
 const statusStyles: Record<ReportStatus, string> = {
+  Received: "border-[#d6e3f1] bg-[#f3f7fc] text-[#44617f]",
   "Under Review": "border-[#f5dfaf] bg-[#fff8e7] text-[#9a6814]",
+  Verified: "border-[#ddd4fa] bg-[#f4f0ff] text-[#6852b8]",
+  Referred: "border-[#f2d9b4] bg-[#fff7e9] text-[#9b6011]",
   Resolved: "border-[#bde9d5] bg-[#edf9f3] text-[#207a53]",
   Closed: "border-[#d8e1eb] bg-[#f4f7fa] text-[#65788e]",
 };
 
 const statusDotStyles: Record<ReportStatus, string> = {
+  Received: "bg-[#7390ae]",
   "Under Review": "bg-[#d99927]",
+  Verified: "bg-[#8069cf]",
+  Referred: "bg-[#d9972e]",
   Resolved: "bg-[#2e9c6a]",
   Closed: "bg-[#8ca0b6]",
 };
@@ -131,6 +132,11 @@ function formatDate(value: string) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function reportStatus(value: string): ReportStatus {
+  const labels: Record<string, ReportStatus> = { SUBMITTED: "Received", RECEIVED: "Received", UNDER_REVIEW: "Under Review", VERIFIED: "Verified", REFERRED: "Referred", RESOLVED: "Resolved", CLOSED: "Closed" };
+  return labels[String(value).toUpperCase()] ?? "Received";
 }
 
 function SelectField({
@@ -262,9 +268,10 @@ function ReportDetails({
           <div className="flex items-start gap-3 rounded-2xl border border-[#eadfc8] bg-[#fffaf0] p-4">
             <ShieldCheck size={17} className="mt-0.5 shrink-0 text-[#a4762a]" />
             <p className="text-[11px] leading-5 text-[#735e37]">
-              This record is a <strong className="font-extrabold">Report</strong>. It is not a confirmed violation. A separate review process is required before any violation can be established.
+              {report.confirmedViolation ? <><strong className="font-extrabold">A confirmed violation is recorded</strong> for this report following authorized review.</> : <>This record is a <strong className="font-extrabold">Report</strong>. It is not a confirmed violation. A separate review process is required before any violation can be established.</>}
             </p>
           </div>
+          {report.complaintId ? <a href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/ReportTracking?reference=${encodeURIComponent(report.id)}`} className="inline-flex w-full items-center justify-center rounded-xl bg-[#0c5bce] px-4 py-3 text-[12px] font-extrabold text-white hover:bg-[#084da9]">Open full report tracking</a> : null}
         </div>
       </div>
     </div>
@@ -281,39 +288,96 @@ export function MyReports() {
   const [sortDescending, setSortDescending] = useState(true);
   const [selectedReport, setSelectedReport] = useState<ReportRecord | null>(null);
   const [liveRecords, setLiveRecords] = useState<ReportRecord[]>([]);
+  const [loadError, setLoadError] = useState("");
+  const categoryOptions = useMemo(() => ["All categories", ...Array.from(new Set(liveRecords.map((report) => report.category).filter(Boolean)))], [liveRecords]);
 
   useEffect(() => {
-    apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; incidentTime: string; location: string; description: string; createdAt: string }> }>("/complaints")
-      .then(({ complaints }) => setLiveRecords(complaints.map((item) => ({
+    apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; incidentTime: string; location: string; description: string; createdAt: string; confirmedViolation?: boolean | number }> }>("/complaints")
+      .then(({ complaints }) => {
+        setLoadError("");
+        setLiveRecords(complaints.map((item) => ({
         id: item.referenceNumber,
         complaintId: item.id,
         date: item.incidentDate,
         submittedAt: `${item.incidentDate} · ${item.incidentTime}`,
         category: item.categoryName as ReportCategory,
-        status: item.status === "CLOSED" ? "Closed" : item.status === "RESOLVED" ? "Resolved" : "Under Review",
+        status: reportStatus(item.status),
         location: item.location,
         summary: item.description,
         lastUpdate: formatPhilippineDate(item.createdAt),
         updateNote: "Current status is shown from the review record.",
-        confirmedViolation: false,
-      } as ReportRecord))))
+        confirmedViolation: Boolean(item.confirmedViolation),
+      } as ReportRecord)));
+      })
       .catch(async () => {
         const cached = await getOfflineAccountData().catch(() => null);
-        setLiveRecords((cached?.reports ?? []).map((item) => ({
+        const belongsToCurrentAccount = Boolean(cached && currentUser && cached.user.id === currentUser.id && cached.user.role === currentUser.role);
+        const cachedReports = cached && belongsToCurrentAccount ? cached.reports : [];
+        setLoadError(cachedReports.length ? "Offline: showing your last saved reports; status changes may not be current." : "Could not load reports for this account. Check your connection and try again.");
+        setLiveRecords(cachedReports.map((item) => ({
           id: String(item.referenceNumber ?? item.id ?? "Offline report"),
           complaintId: String(item.id ?? ""),
           date: String(item.incidentDate ?? ""),
           submittedAt: `${String(item.incidentDate ?? "")} · ${String(item.incidentTime ?? "")}`,
           category: String(item.categoryName ?? "Other") as ReportCategory,
-          status: item.status === "CLOSED" ? "Closed" : item.status === "RESOLVED" ? "Resolved" : "Under Review",
+          status: reportStatus(String(item.status ?? "SUBMITTED")),
           location: String(item.location ?? ""),
           summary: String(item.description ?? ""),
           lastUpdate: formatPhilippineDate(String(item.createdAt ?? new Date().toISOString())),
           updateNote: "Showing the last data downloaded while online.",
-          confirmedViolation: false,
+          confirmedViolation: Boolean(item.confirmedViolation),
         } as ReportRecord)));
       });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    let refreshing = false;
+    const refresh = async () => {
+      if (!active || refreshing || document.visibilityState !== "visible") return;
+      refreshing = true;
+      try {
+        const { complaints } = await apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; incidentTime: string; location: string; description: string; createdAt: string; confirmedViolation?: boolean | number }> }>("/complaints");
+        if (!active) return;
+        setLoadError("");
+        setLiveRecords((current) => {
+          const currentById = new Map(current.map((report) => [report.id, report]));
+          const refreshed = complaints.map((item) => {
+            const prior = currentById.get(item.referenceNumber);
+            return {
+              id: item.referenceNumber,
+              complaintId: item.id,
+              date: item.incidentDate,
+              submittedAt: `${item.incidentDate} Â· ${item.incidentTime}`,
+              category: item.categoryName as ReportCategory,
+              status: reportStatus(item.status),
+              location: item.location,
+              summary: item.description,
+              lastUpdate: formatPhilippineDate(item.createdAt),
+              updateNote: "Current status is shown from the review record.",
+              confirmedViolation: item.confirmedViolation === undefined ? (prior?.confirmedViolation ?? false) : Boolean(item.confirmedViolation),
+              reviewNotes: prior?.reviewNotes,
+            } as ReportRecord;
+          });
+          return refreshed;
+        });
+      } catch {
+        // Keep the last successful response visible during brief connection interruptions.
+      } finally {
+        refreshing = false;
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const interval = window.setInterval(() => void refresh(), 10_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { active = false; window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
+  }, [selectedReport?.id]);
+
+  useEffect(() => {
+    if (!selectedReport) return;
+    const latest = liveRecords.find((report) => report.id === selectedReport.id);
+    if (latest) setSelectedReport((current) => current ? { ...current, ...latest, reviewNotes: current.reviewNotes } : current);
+  }, [liveRecords, selectedReport?.id]);
 
   const filteredRecords = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -353,17 +417,22 @@ export function MyReports() {
   const openReport = (report: ReportRecord) => {
     setSelectedReport({ ...report, reviewNotes: [] });
     if (!report.complaintId) return;
-    apiRequest<{ actions: Array<{ id: number; description: string; authorName?: string; authorRole?: string; created_at: string; createdAt?: string }> }>(`/complaints/${report.complaintId}`)
-      .then(({ actions }) => setSelectedReport((current) => current?.id === report.id ? {
-        ...current,
-        reviewNotes: actions.map((action) => ({
-          id: action.id,
-          authorName: action.authorName ?? "Authorized reviewer",
-          authorRole: action.authorRole ?? "AUTHORIZED_PERSONNEL",
-          description: action.description,
-          createdAt: action.createdAt ?? action.created_at,
-        })),
-      } : current))
+    apiRequest<{ actions: Array<{ id: number; description: string; authorName?: string; authorRole?: string; created_at: string; createdAt?: string }>; violation?: Record<string, unknown> | null }>(`/complaints/${report.complaintId}`)
+      .then(({ actions, violation }) => {
+        const confirmedViolation = Boolean(violation);
+        setLiveRecords((current) => current.map((item) => item.id === report.id ? { ...item, confirmedViolation } : item));
+        setSelectedReport((current) => current?.id === report.id ? {
+          ...current,
+          confirmedViolation,
+          reviewNotes: actions.map((action) => ({
+            id: action.id,
+            authorName: action.authorName ?? "Authorized reviewer",
+            authorRole: action.authorRole ?? "AUTHORIZED_PERSONNEL",
+            description: action.description,
+            createdAt: action.createdAt ?? action.created_at,
+          })),
+        } : current);
+      })
       .catch(() => undefined);
   };
 
@@ -380,7 +449,7 @@ export function MyReports() {
               Keep track of what you raised.
             </h2>
             <p className="mt-2 max-w-[590px] text-[13px] leading-6 text-[#71859e]">
-              {isDriver ? "Review concerns linked to your driver and vehicle records in Barangay Old Sagay. Updates here reflect the current record status." : "Review the concerns you submitted about tricycle conduct in Barangay Old Sagay. Updates here reflect the current record status."}
+              {isDriver ? "Review concerns linked to your driver and vehicle records in Barangay Old Sagay. Status updates refresh every 10 seconds." : "Review the concerns you submitted about tricycle conduct in Barangay Old Sagay. Status updates refresh every 10 seconds."}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 rounded-2xl border border-[#dbe5f0] bg-white px-3.5 py-3 shadow-[0_4px_15px_rgba(26,63,99,0.04)]">
@@ -394,6 +463,7 @@ export function MyReports() {
           </div>
         </div>
 
+        {loadError ? <div role="status" className="mt-5 rounded-xl border border-[#eadfc8] bg-[#fffaf0] px-4 py-3 text-[11px] font-semibold text-[#80662e]">{loadError}</div> : null}
         <div className="mt-7 flex flex-col gap-3 rounded-[20px] border border-[#dbe5f0] bg-white p-3.5 shadow-[0_5px_20px_rgba(35,64,95,0.04)] lg:flex-row lg:items-center">
           <label className="relative min-w-0 flex-1">
             <span className="sr-only">Search reports</span>
@@ -521,7 +591,7 @@ export function MyReports() {
                 {liveRecords.length === 0 ? "No reports yet" : "No matching reports"}
               </h3>
               <p className="mt-2 max-w-[390px] text-[12px] leading-5 text-[#8295aa]">
-                {liveRecords.length === 0 ? "Reports submitted from your account will appear here." : "Try a different keyword or remove one of your filters to see more report records."}
+                {liveRecords.length === 0 && loadError ? "Your reports could not be confirmed. Try again after checking your connection." : liveRecords.length === 0 ? "Reports submitted from your account will appear here." : "Try a different keyword or remove one of your filters to see more report records."}
               </p>
               <button
                 type="button"

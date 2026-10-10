@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
   Activity,
   BarChart3,
   CalendarDays,
@@ -28,9 +26,10 @@ import {
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, formatPhilippineDate, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
 
-type ReportStatus = "Needs review" | "In review" | "Resolved";
+type ReportStatus = "Needs review" | "In review" | "Verified" | "Resolved";
 type Report = {
   id: string;
+  createdAt?: string;
   time: string;
   relative: string;
   location: string;
@@ -132,6 +131,7 @@ function StatusPill({ status }: { status: ReportStatus }) {
   const styles: Record<ReportStatus, string> = {
     "Needs review": "border-[#f3d6b9] bg-[#fff8ef] text-[#a4662b]",
     "In review": "border-[#c9d9eb] bg-[#f1f6fb] text-[#2b6394]",
+    Verified: "border-[#ddd4fa] bg-[#f4f0ff] text-[#6852b8]",
     Resolved: "border-[#cce4d7] bg-[#f0f8f3] text-[#4a8062]",
   };
 
@@ -149,14 +149,12 @@ function MetricCard({
   detail,
   accent,
   icon: Icon,
-  direction,
 }: {
   label: string;
   value: string;
   detail: string;
   accent: string;
   icon: typeof FileCheck2;
-  direction: "up" | "down";
 }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-[#d9e3ec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
@@ -168,10 +166,8 @@ function MetricCard({
         </div>
       </div>
       <p className="mt-5 font-mono text-[27px] font-bold tracking-[-0.06em] text-[#183654]">{value}</p>
-      <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-[#71859c]">
-        {direction === "up" ? <ArrowUpRight size={13} className="text-[#4f8b72]" /> : <ArrowDownRight size={13} className="text-[#4f8b72]" />}
-        <span className="text-[#4f8b72]">{detail}</span>
-        <span>vs prior period</span>
+      <div className="mt-1.5 text-[11px] font-semibold text-[#71859c]">
+        <span>{detail}</span>
       </div>
     </div>
   );
@@ -179,7 +175,7 @@ function MetricCard({
 
 export function OfficerDashboard() {
   const currentUser = getCurrentUser();
-  const isAuthorizedPersonnel = ["AUTHORIZED_PERSONNEL", "PNP"].includes(currentUser?.role ?? "");
+  const isAuthorizedPersonnel = currentUser?.role === "AUTHORIZED_PERSONNEL";
   const isTodaPresident = currentUser?.role === "TODA_PRESIDENT";
   const [activeSection, setActiveSection] = useState(() => window.location.hash === "#todas" ? "TODAs" : "Dashboard");
   const [activePanel, setActivePanel] = useState<"Overview" | "People" | "Activity">(() => window.location.hash === "#todas" ? "People" : "Overview");
@@ -190,23 +186,29 @@ export function OfficerDashboard() {
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [notice, setNotice] = useState("");
   const [liveReports, setLiveReports] = useState<Report[]>([]);
+  const [reportLoadError, setReportLoadError] = useState("");
   const [showPresidentForm, setShowPresidentForm] = useState(false);
   const [showTodaForm, setShowTodaForm] = useState(false);
   const [todaForm, setTodaForm] = useState({ name: "", barangay: "", city: "Sagay City", province: "Negros Occidental" });
   const [todas, setTodas] = useState<Array<{ id: number; name: string; barangay: string; city: string; province: string; presidentUserId: string | null }>>([]);
+  const [todaLoadError, setTodaLoadError] = useState("");
+  const [todaAdminLoadError, setTodaAdminLoadError] = useState("");
   const [presidentForm, setPresidentForm] = useState<{ fullName: string; email: string; password: string; todaId: string; status?: string }>({ fullName: "", email: "", password: "", todaId: "1", status: "ACTIVE" });
   const [presidents, setPresidents] = useState<Array<{ id: string; fullName: string; email: string; todaId: number; todaName: string; status: string }>>([]);
   const [editingPresidentId, setEditingPresidentId] = useState<string | null>(null);
 
   const loadReports = () =>
     apiRequest<{ complaints: Array<{ referenceNumber: string; status: string; location: string; categoryName: string; description: string; createdAt: string; driverName: string; latitude?: number | string | null; longitude?: number | string | null; locationAccuracyMeters?: number | string | null; locationCapturedAt?: string | null }> }>("/complaints")
-      .then(({ complaints }) => setLiveReports(complaints.map((item) => ({
+      .then(({ complaints }) => {
+        setReportLoadError("");
+        setLiveReports(complaints.map((item) => ({
         id: item.referenceNumber,
+        createdAt: item.createdAt,
         time: formatPhilippineDateTime(item.createdAt),
         relative: formatPhilippineDate(item.createdAt),
         location: item.location,
         category: item.categoryName,
-        status: item.status === "RESOLVED" || item.status === "CLOSED" ? "Resolved" : item.status === "UNDER_REVIEW" || item.status === "REFERRED" ? "In review" : "Needs review",
+        status: item.status === "RESOLVED" || item.status === "CLOSED" ? "Resolved" : item.status === "VERIFIED" ? "Verified" : item.status === "UNDER_REVIEW" || item.status === "REFERRED" ? "In review" : "Needs review",
         reference: item.driverName,
         summary: item.description,
         reports: "1 report",
@@ -214,10 +216,15 @@ export function OfficerDashboard() {
         longitude: item.longitude,
         locationAccuracyMeters: item.locationAccuracyMeters,
         locationCapturedAt: item.locationCapturedAt,
-      } as Report))));
+        } as Report)));
+      })
+      .catch((error) => {
+        setReportLoadError(error instanceof Error ? error.message : "Reports could not be loaded.");
+        throw error;
+      });
 
   useEffect(() => {
-    void loadReports().catch(() => setLiveReports([]));
+    void loadReports().catch(() => undefined);
     const timer = window.setInterval(() => { void loadReports().catch(() => undefined); }, 10000);
     return () => window.clearInterval(timer);
   }, []);
@@ -234,22 +241,29 @@ export function OfficerDashboard() {
   }, []);
 
   const loadTodaAdministration = async () => {
-    const [todaData, presidentData] = await Promise.all([
+    try {
+      const [todaData, presidentData] = await Promise.all([
       apiRequest<{ todas: Array<{ id: number; name: string; barangay: string; city: string; province: string; presidentUserId: string | null }> }>("/todas"),
       apiRequest<{ presidents: Array<{ id: string; fullName: string; email: string; todaId: number; todaName: string; status: string }> }>("/users/toda-presidents"),
-    ]);
-    setTodas(todaData.todas);
-    setPresidents(presidentData.presidents);
-    if (todaData.todas[0]) setPresidentForm((form) => ({ ...form, todaId: String(todaData.todas[0].id) }));
+      ]);
+      setTodaAdminLoadError("");
+      setTodas(todaData.todas);
+      setPresidents(presidentData.presidents);
+      const firstAvailableToda = todaData.todas.find((toda) => !toda.presidentUserId);
+      if (firstAvailableToda && !editingPresidentId) setPresidentForm((form) => ({ ...form, todaId: String(firstAvailableToda.id) }));
+    } catch (error) {
+      setTodaAdminLoadError(error instanceof Error ? error.message : "TODA administration data could not be loaded.");
+      throw error;
+    }
   };
 
   useEffect(() => {
     if (isAuthorizedPersonnel) {
-      void loadTodaAdministration().catch(() => { setTodas([]); setPresidents([]); });
+      void loadTodaAdministration().catch(() => undefined);
     } else if (isTodaPresident) {
       void apiRequest<{ todas: Array<{ id: number; name: string; barangay: string; city: string; province: string; presidentUserId: string | null }> }>("/todas")
-        .then(({ todas: assignedTodas }) => setTodas(assignedTodas))
-        .catch(() => setTodas([]));
+        .then(({ todas: assignedTodas }) => { setTodaLoadError(""); setTodas(assignedTodas); })
+        .catch(() => { setTodas([]); setTodaLoadError("Your assigned TODA details could not be loaded."); });
     }
   }, [isAuthorizedPersonnel, isTodaPresident]);
 
@@ -294,8 +308,9 @@ export function OfficerDashboard() {
   const metrics = useMemo(() => {
     const awaiting = liveReports.filter((report) => report.status === "Needs review").length;
     const inReview = liveReports.filter((report) => report.status === "In review").length;
+    const verified = liveReports.filter((report) => report.status === "Verified").length;
     const resolved = liveReports.filter((report) => report.status === "Resolved").length;
-    return { total: liveReports.length, awaiting, inReview, resolved };
+    return { total: liveReports.length, awaiting, inReview, verified, resolved };
   }, [liveReports]);
 
   const categoryMetrics = useMemo(() => {
@@ -334,9 +349,13 @@ export function OfficerDashboard() {
   const dailyMetrics = useMemo(() => {
     const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const counts = Array.from({ length: 7 }, () => 0);
+    const rangeDays = timeRange === "Last 7 days" ? 7 : timeRange === "Last 30 days" ? 30 : 180;
+    const rangeStart = new Date();
+    rangeStart.setDate(rangeStart.getDate() - (rangeDays - 1));
+    rangeStart.setHours(0, 0, 0, 0);
     liveReports.forEach((report) => {
-      const created = new Date(report.time);
-      if (!Number.isNaN(created.getTime())) {
+      const created = new Date(report.createdAt ?? report.time);
+      if (!Number.isNaN(created.getTime()) && created >= rangeStart) {
         counts[created.getDay()] += 1;
       }
     });
@@ -346,10 +365,11 @@ export function OfficerDashboard() {
       count,
       height: `${Math.max(count ? 12 : 3, Math.round((count / max) * 100))}%`,
     }));
-  }, [liveReports]);
+  }, [liveReports, timeRange]);
 
   const selectedReport = liveReports.find((report) => report.id === selectedId) ?? filteredReports[0];
   const selectedToda = todas.find((toda) => String(toda.id) === presidentForm.todaId);
+  const assignableTodas = todas.filter((toda) => !toda.presidentUserId || presidents.some((president) => president.id === editingPresidentId && president.todaId === toda.id));
   const mapEmbedUrl = selectedReport?.latitude !== null && selectedReport?.latitude !== undefined && selectedReport?.longitude !== null && selectedReport?.longitude !== undefined
     ? `https://www.openstreetmap.org/export/embed.html?bbox=${Number(selectedReport.longitude) - 0.005}%2C${Number(selectedReport.latitude) - 0.005}%2C${Number(selectedReport.longitude) + 0.005}%2C${Number(selectedReport.latitude) + 0.005}&layer=mapnik&marker=${selectedReport.latitude}%2C${selectedReport.longitude}`
     : null;
@@ -396,7 +416,7 @@ export function OfficerDashboard() {
               A clear view of what needs attention.
             </h2>
             <p className="mt-3 max-w-[660px] text-[13px] leading-6 text-[#6f8399]">
-              Monitor community reports across Old Sagay and SUNN, then review context before any action is taken.
+              {isTodaPresident ? "Monitor reports linked to drivers in your assigned TODA, then review context before any action is taken." : "Monitor community reports across Old Sagay and SUNN, then review context before any action is taken."}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -421,16 +441,19 @@ export function OfficerDashboard() {
           </div>
         </section>
 
+        {reportLoadError ? <div role="alert" className="flex flex-col gap-3 rounded-xl border border-[#f0d1d1] bg-[#fff7f7] px-4 py-3 text-[12px] text-[#9c4444] sm:flex-row sm:items-center sm:justify-between"><span>Dashboard reports could not be refreshed: {reportLoadError}</span><button type="button" onClick={() => void loadReports().catch(() => undefined)} className="rounded-lg border border-[#e8bcbc] bg-white px-3 py-2 font-bold hover:bg-[#fff0f0]">Retry</button></div> : null}
+
         {isTodaPresident ? (
           <section className="rounded-2xl border border-[#c9ddec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
             <div className="flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#eaf4ff] text-[#2671b1]"><MapPin size={17} /></div>
               <div>
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#6e8ca8]">Assigned TODA account</p>
-                <h3 className="mt-1 text-[19px] font-extrabold text-[#173f50]">{todas[0]?.name ?? "No TODA assignment"}</h3>
+                <h3 className="mt-1 text-[19px] font-extrabold text-[#173f50]">{todaLoadError ? "TODA assignment unavailable" : todas[0]?.name ?? "No TODA assignment"}</h3>
                 <p className="mt-1 text-[12px] text-[#6d8499]">Your TODA and designated location are assigned by Authorized Personnel and cannot be edited from this account.</p>
               </div>
             </div>
+            {todaLoadError ? <p role="alert" className="mt-4 rounded-xl border border-[#f0d1d1] bg-[#fff7f7] px-3 py-2 text-[11px] text-[#9c4444]">{todaLoadError}</p> : null}
             <div className="mt-5 grid gap-3 border-t border-[#e5edf3] pt-4 sm:grid-cols-3">
               <div><p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#8a9daf]">Barangay</p><p className="mt-1 text-[12px] font-bold text-[#345570]">{todas[0]?.barangay ?? "Not assigned"}</p></div>
               <div><p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#8a9daf]">City</p><p className="mt-1 text-[12px] font-bold text-[#345570]">{todas[0]?.city ?? "Not assigned"}</p></div>
@@ -466,6 +489,7 @@ export function OfficerDashboard() {
 
         {isAuthorizedPersonnel && activePanel === "People" ? (
           <>
+            {todaAdminLoadError ? <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#f0c9c2] bg-[#fff6f4] px-4 py-3 text-[12px] text-[#9d493d]"><span>Administration data could not be refreshed: {todaAdminLoadError}</span><button type="button" onClick={() => void loadTodaAdministration().catch(() => undefined)} className="rounded-lg border border-[#e7b6ad] px-3 py-1.5 font-bold hover:bg-white">Retry</button></div> : null}
             {activeSection === "TODAs" ? (
               <>
                 <div className="mb-5 grid gap-3 sm:grid-cols-3">
@@ -508,7 +532,7 @@ export function OfficerDashboard() {
                 <h3 className="mt-1 text-[18px] font-extrabold text-[#173f50]">Manage TODA leadership accounts</h3>
                 <p className="mt-1 text-[12px] text-[#5a7f83]">Create a live TODA President account and assign it to a registered TODA.</p>
               </div>
-              <button type="button" onClick={() => { setEditingPresidentId(null); setPresidentForm({ fullName: "", email: "", password: "", todaId: todas[0] ? String(todas[0].id) : "1", status: "ACTIVE" }); setShowPresidentForm((value) => !value); }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#238d80] px-4 py-2.5 text-[12px] font-bold text-white hover:bg-[#1b756b]"><UserPlus size={15} /> {showPresidentForm ? "Close form" : "Create TODA President"}</button>
+              <button type="button" disabled={!showPresidentForm && !todas.some((toda) => !toda.presidentUserId)} onClick={() => { setEditingPresidentId(null); setPresidentForm({ fullName: "", email: "", password: "", todaId: String(todas.find((toda) => !toda.presidentUserId)?.id ?? ""), status: "ACTIVE" }); setShowPresidentForm((value) => !value); }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#238d80] px-4 py-2.5 text-[12px] font-bold text-white hover:bg-[#1b756b] disabled:cursor-not-allowed disabled:opacity-50"><UserPlus size={15} /> {showPresidentForm ? "Close form" : "Create TODA President"}</button>
             </div>
             {showPresidentForm ? (
               <form onSubmit={createPresident} className="mt-5 grid gap-3 border-t border-[#cde8e2] pt-5 sm:grid-cols-2">
@@ -519,7 +543,7 @@ export function OfficerDashboard() {
                 <select required value={presidentForm.status} onChange={(event) => setPresidentForm({ ...presidentForm, status: event.target.value })} className="rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px]"><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select>
                 <div className="sm:col-span-2">
                   <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#6b8b8d]">Designated location</p>
-                  <select required disabled={!todas.length} value={todas.length ? presidentForm.todaId : ""} onChange={(event) => setPresidentForm({ ...presidentForm, todaId: event.target.value })} className="w-full rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px] disabled:cursor-not-allowed disabled:bg-[#f3f7f7]">{todas.length ? todas.map((toda) => <option key={toda.id} value={toda.id}>{toda.name}{toda.presidentUserId ? " · replace president" : ""}</option>) : <option value="">No TODA assignments available</option>}</select>
+                  <select required disabled={!assignableTodas.length} value={assignableTodas.some((toda) => String(toda.id) === presidentForm.todaId) ? presidentForm.todaId : ""} onChange={(event) => setPresidentForm({ ...presidentForm, todaId: event.target.value })} className="w-full rounded-xl border border-[#c7dfdc] bg-white px-3 py-2.5 text-[12px] disabled:cursor-not-allowed disabled:bg-[#f3f7f7]">{assignableTodas.length ? assignableTodas.map((toda) => <option key={toda.id} value={toda.id}>{toda.name}</option>) : <option value="">No unassigned TODA locations available</option>}</select>
                   <div className="mt-2 rounded-xl border border-[#cde8e2] bg-[#f7fcfb] px-3 py-2.5 text-[11px] text-[#52777a]">
                     <span className="font-extrabold text-[#35686a]">Read-only designated location:</span>{" "}
                     {selectedToda ? `${selectedToda.barangay}, ${selectedToda.city}, ${selectedToda.province}` : "No address available"}
@@ -530,18 +554,19 @@ export function OfficerDashboard() {
             ) : null}
             <div className="mt-5 space-y-2 border-t border-[#cde8e2] pt-4">
               <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#6b8b8d]">Current TODA presidents ({presidents.length})</p>
-              {presidents.length ? presidents.map((president) => <div key={president.id} className="flex flex-col justify-between gap-2 rounded-xl bg-white px-3 py-2.5 text-[12px] sm:flex-row sm:items-center"><span><strong className="text-[#244b5d]">{president.fullName}</strong><span className="ml-2 text-[#789397]">{president.todaName} · {president.email}</span></span><span className="flex gap-3"><button type="button" onClick={() => { setEditingPresidentId(president.id); setPresidentForm({ fullName: president.fullName, email: president.email, password: "", todaId: String(todas.find((toda) => toda.name === president.todaName)?.id ?? "1") }); setShowPresidentForm(true); }} className="font-bold text-[#287b78] hover:underline">Edit</button><button type="button" onClick={() => { if (window.confirm(`Delete ${president.fullName}'s account?`)) void apiRequest(`/users/toda-presidents/${president.id}`, { method: "DELETE" }).then(() => setPresidents((items) => items.filter((item) => item.id !== president.id))).catch((error) => announce(error instanceof Error ? error.message : "Unable to delete account.")); }} className="font-bold text-[#b45e55] hover:underline">Delete</button></span></div>) : <p className="text-[12px] text-[#6c898d]">No TODA President accounts registered yet.</p>}
+              {presidents.length ? presidents.map((president) => <div key={president.id} className="flex flex-col justify-between gap-2 rounded-xl bg-white px-3 py-2.5 text-[12px] sm:flex-row sm:items-center"><span><strong className="text-[#244b5d]">{president.fullName}</strong><span className="ml-2 text-[#789397]">{president.todaName} · {president.email} · {president.status}</span></span><span className="flex gap-3"><button type="button" onClick={() => { setEditingPresidentId(president.id); setPresidentForm({ fullName: president.fullName, email: president.email, password: "", todaId: String(todas.find((toda) => toda.name === president.todaName)?.id ?? "1"), status: president.status }); setShowPresidentForm(true); }} className="font-bold text-[#287b78] hover:underline">Edit</button><button type="button" onClick={() => { if (window.confirm(`Delete ${president.fullName}'s account?`)) void apiRequest(`/users/toda-presidents/${president.id}`, { method: "DELETE" }).then(() => setPresidents((items) => items.filter((item) => item.id !== president.id))).catch((error) => announce(error instanceof Error ? error.message : "Unable to delete account.")); }} className="font-bold text-[#b45e55] hover:underline">Delete</button></span></div>) : <p className="text-[12px] text-[#6c898d]">No TODA President accounts registered yet.</p>}
             </div>
           </section>
           </>
         ) : null}
 
         {(!isAuthorizedPersonnel || activePanel === "Overview") ? <>
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Reports received" value={String(metrics.total)} detail="Live complaints" accent="bg-[#2675b7]" icon={FileCheck2} direction="up" />
-          <MetricCard label="Awaiting review" value={String(metrics.awaiting)} detail="Needs action" accent="bg-[#bc7a35]" icon={TimerReset} direction="up" />
-          <MetricCard label="In review" value={String(metrics.inReview)} detail="Active review" accent="bg-[#5c8b83]" icon={Search} direction="up" />
-          <MetricCard label="Resolved" value={String(metrics.resolved)} detail="Closed or resolved" accent="bg-[#806c8f]" icon={Clock3} direction="up" />
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <MetricCard label="Reports received" value={String(metrics.total)} detail="Live complaints" accent="bg-[#2675b7]" icon={FileCheck2} />
+          <MetricCard label="Awaiting review" value={String(metrics.awaiting)} detail="Needs action" accent="bg-[#bc7a35]" icon={TimerReset} />
+          <MetricCard label="In review" value={String(metrics.inReview)} detail="Active review" accent="bg-[#5c8b83]" icon={Search} />
+          <MetricCard label="Verified" value={String(metrics.verified)} detail="Finding verified" accent="bg-[#806c8f]" icon={ShieldCheck} />
+          <MetricCard label="Resolved" value={String(metrics.resolved)} detail="Closed or resolved" accent="bg-[#57856e]" icon={Clock3} />
         </section>
 
         <section className="rounded-2xl border border-[#cfdfeb] bg-[#eaf4f8] px-4 py-3.5 sm:px-5">
@@ -590,7 +615,7 @@ export function OfficerDashboard() {
                 </div>
               </div>
               <div className="mt-4 flex items-center gap-1 overflow-x-auto">
-                {(["All", "Needs review", "In review", "Resolved"] as const).map((filter) => (
+                {(["All", "Needs review", "In review", "Verified", "Resolved"] as const).map((filter) => (
                   <button
                     key={filter}
                     type="button"
@@ -605,11 +630,12 @@ export function OfficerDashboard() {
               </div>
             </div>
 
-            <div className="hidden grid-cols-[1.05fr_1fr_0.8fr_0.75fr] gap-3 border-b border-[#edf1f5] px-5 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.13em] text-[#9aaaba] md:grid">
+            <div className="hidden grid-cols-[1.2fr_1fr_1fr_1.15fr_0.65fr] gap-4 border-b border-[#edf1f5] px-5 py-3.5 text-[9px] font-extrabold uppercase tracking-[0.13em] text-[#9aaaba] md:grid">
               <span>Report</span>
-              <span>Location / category</span>
+              <span>Category</span>
+              <span>Date submitted</span>
               <span>Status</span>
-              <span className="text-right">Received</span>
+              <span className="text-right">Action</span>
             </div>
             <div className="divide-y divide-[#edf1f5]">
               {filteredReports.length ? (
@@ -618,27 +644,25 @@ export function OfficerDashboard() {
                     key={report.id}
                     type="button"
                     onClick={() => setSelectedId(report.id)}
-                    className={`grid w-full gap-3 px-5 py-4 text-left transition hover:bg-[#f8fbfd] md:grid-cols-[1.05fr_1fr_0.8fr_0.75fr] md:items-center ${
+                    className={`grid w-full gap-4 px-5 py-4 text-left transition hover:bg-[#f8fbfd] md:grid-cols-[1.2fr_1fr_1fr_1.15fr_0.65fr] md:items-center ${
                       selectedId === report.id ? "bg-[#f5f9fc]" : "bg-white"
                     }`}
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${report.status === "Needs review" ? "bg-[#d58b3d]" : report.status === "In review" ? "bg-[#4381ad]" : "bg-[#65a07e]"}`} />
-                        <span className="font-mono text-[11px] font-bold text-[#2b5576]">{report.id}</span>
+                        <span className="font-mono text-[12px] font-bold text-[#2b5576]">{report.id}</span>
                       </div>
                       <p className="mt-1 truncate text-[11px] leading-4 text-[#778ca0] md:hidden">{report.summary}</p>
-                      <p className="mt-1 text-[10px] font-semibold text-[#9aabba]">{report.reports} linked to this reference</p>
+                      <p className="mt-1 truncate text-[10px] font-semibold text-[#9aabba]">{report.location}</p>
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-[12px] font-bold text-[#345570]">{report.location}</p>
-                      <p className="mt-1 text-[10px] text-[#8a9bac]">{report.category}</p>
+                      <p className="truncate text-[12px] font-bold text-[#345570]">{report.category}</p>
+                      <p className="mt-1 truncate text-[10px] text-[#8a9bac]">{report.summary}</p>
                     </div>
+                    <div><p className="text-[11px] font-semibold text-[#71869b]">{report.time}</p><p className="mt-1 text-[10px] text-[#9aabba]">{report.relative}</p></div>
                     <div><StatusPill status={report.status} /></div>
-                    <div className="flex items-center justify-between md:block md:text-right">
-                      <span className="text-[10px] font-semibold text-[#71869b]">{report.relative}</span>
-                      <ChevronRight size={15} className="inline text-[#b1bfcb] md:hidden" />
-                    </div>
+                    <div className="flex items-center justify-between md:justify-end md:gap-1.5"><span className="inline-flex items-center gap-1.5 rounded-lg border border-[#dbe5f0] bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#0c5bce]">View details <ChevronRight size={13} /></span></div>
                   </button>
                 ))
               ) : (
@@ -817,7 +841,7 @@ export function OfficerDashboard() {
         </footer>
       </div>
       {notice ? (
-        <div className="fixed bottom-[84px] right-5 z-30 flex items-center gap-2 rounded-xl border border-[#c8dce7] bg-[#214f6a] px-4 py-3 text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(29,72,97,0.22)] lg:bottom-6">
+        <div className="fixed bottom-[calc(84px+env(safe-area-inset-bottom,0px))] right-5 z-30 flex items-center gap-2 rounded-xl border border-[#c8dce7] bg-[#214f6a] px-4 py-3 text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(29,72,97,0.22)] lg:bottom-6">
           <Check size={14} className="text-[#a8d7c0]" /> {notice}
         </div>
       ) : null}

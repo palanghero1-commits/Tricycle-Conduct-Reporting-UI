@@ -84,7 +84,7 @@ return [
     'db_user' => 'root',
     'db_pass' => '',
     'jwt_secret' => 'change-this-local-secret',
-    'upload_dir' => __DIR__ . '/storage/uploads',
+    'upload_dir' => dirname(__DIR__) . '/private-storage/uploads',
     'frontend_origin' => '*',
 ];
 ```
@@ -120,7 +120,7 @@ Do not use a committed `api-php/php.ini` from another computer unchanged. If you
 From the project root:
 
 ```bash
-php -S localhost:8000 -t api-php
+php -S localhost:8000 -t api-php api-php/router.php
 ```
 
 Test the API:
@@ -214,7 +214,7 @@ Check these:
 5. PHP API is running:
 
 ```bash
-php -S localhost:8000 -t api-php
+php -d upload_max_filesize=5M -d post_max_size=28M -d max_file_uploads=5 -S localhost:8000 -t api-php api-php/router.php
 ```
 
 6. The frontend is running:

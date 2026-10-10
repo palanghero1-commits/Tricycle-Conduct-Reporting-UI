@@ -115,11 +115,15 @@ export function StudentDashboard() {
       return;
     }
     let active = true;
-    Promise.all([
-      apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; incidentDate: string; location: string; description: string; driverId: number; driverName: string; categoryId: number; categoryName: string }> }>("/complaints"),
-      apiRequest<{ unread: number }>("/notifications"),
-    ])
-      .then(([complaints, notifications]) => {
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing || !active || document.visibilityState !== "visible") return;
+      refreshing = true;
+      try {
+        const [complaints, notifications] = await Promise.all([
+          apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; incidentDate: string; location: string; description: string; driverId: number; driverName: string; categoryId: number; categoryName: string }> }>("/complaints"),
+          apiRequest<{ unread: number }>("/notifications"),
+        ]);
         if (!active) return;
         const mapped = complaints.complaints.map((item) => ({
           complaintId: item.id,
@@ -136,10 +140,18 @@ export function StudentDashboard() {
         setStudentReports(mapped);
         setUnreadCount(notifications.unread);
         setUnreadNotification(notifications.unread > 0);
-      })
-      .catch(() => showNotice("Unable to load your reports. Check that the API is running."))
-      .finally(() => active && setIsLoading(false));
-    return () => { active = false; };
+      } catch {
+        if (active && isLoading) showNotice("Unable to load your reports. Check your connection and try again.");
+      } finally {
+        refreshing = false;
+        if (active) setIsLoading(false);
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 10_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { active = false; window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   const visibleReports = useMemo(() => {
@@ -349,7 +361,7 @@ export function StudentDashboard() {
       </div>
 
       {notice ? (
-        <div className="fixed bottom-[86px] left-1/2 z-40 flex w-[calc(100%-32px)] max-w-[390px] -translate-x-1/2 items-center gap-3 rounded-2xl bg-[#173858] px-4 py-3 text-[12px] font-bold text-white shadow-[0_16px_34px_rgba(18,47,76,0.22)] lg:bottom-7">
+        <div className="fixed bottom-[calc(86px+env(safe-area-inset-bottom,0px))] left-1/2 z-40 flex w-[calc(100%-32px)] max-w-[390px] -translate-x-1/2 items-center gap-3 rounded-2xl bg-[#173858] px-4 py-3 text-[12px] font-bold text-white shadow-[0_16px_34px_rgba(18,47,76,0.22)] lg:bottom-7">
           <CheckCircle2 size={17} className="shrink-0 text-[#83ddc5]" />
           {notice}
         </div>

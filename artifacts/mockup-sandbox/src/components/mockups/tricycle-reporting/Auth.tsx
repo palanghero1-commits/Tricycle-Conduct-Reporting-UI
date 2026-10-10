@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { clearAuthToken, login, registerStudent, type ApiUser } from "../../../lib/api";
+import { apiRequest, clearAuthToken, login, registerStudent, type ApiUser } from "../../../lib/api";
 import { cacheStudentOfflineData } from "../../../lib/offlineAccount";
 
 type AuthMode = "login" | "register";
@@ -186,11 +186,31 @@ export function Auth() {
     studentId: "",
     driverCode: "",
     tricycleIdentifier: "",
+    todaId: "",
     program: "",
     yearLevel: "",
     routeArea: "",
     hasReadNotice: false,
   });
+  const [driverTodas, setDriverTodas] = useState<Array<{ id: number; name: string; barangay: string; city: string; province: string }>>([]);
+  const [todasLoading, setTodasLoading] = useState(false);
+  const [todasError, setTodasError] = useState("");
+
+  useEffect(() => {
+    if (mode !== "register" || role !== "driver") return;
+    let active = true;
+    setTodasLoading(true);
+    setTodasError("");
+    apiRequest<{ todas: Array<{ id: number; name: string; barangay: string; city: string; province: string }> }>("/public/todas")
+      .then(({ todas }) => {
+        if (!active) return;
+        setDriverTodas(todas);
+        setForm((current) => ({ ...current, todaId: current.todaId && todas.some((toda) => String(toda.id) === current.todaId) ? current.todaId : String(todas[0]?.id ?? "") }));
+      })
+      .catch((error) => { if (active) setTodasError(error instanceof Error ? error.message : "TODA locations could not be loaded."); })
+      .finally(() => { if (active) setTodasLoading(false); });
+    return () => { active = false; };
+  }, [mode, role]);
 
   const updateForm = (key: keyof typeof form, value: string | boolean) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -297,7 +317,7 @@ export function Auth() {
 
     if (registrationStep === 2) {
       const missingStudentFields = role === "student" && (!form.fullName.trim() || !form.studentId.trim() || !form.program || !form.yearLevel);
-      const missingDriverFields = role === "driver" && (!form.fullName.trim() || !form.driverCode.trim() || !form.tricycleIdentifier.trim() || !form.routeArea.trim());
+      const missingDriverFields = role === "driver" && (!form.fullName.trim() || !form.driverCode.trim() || !form.tricycleIdentifier.trim() || !form.routeArea.trim() || !form.todaId);
       if (missingStudentFields || missingDriverFields) {
         setNotice({ type: "error", message: `Complete each ${role} information field before continuing.` });
         return;
@@ -315,6 +335,7 @@ export function Auth() {
     setIsLoading(true);
     registerStudent({
       role: role === "driver" ? "DRIVER" : "STUDENT",
+      todaId: role === "driver" ? Number(form.todaId) : undefined,
       fullName: form.fullName,
       studentId: form.studentId,
       driverCode: form.driverCode,
@@ -664,6 +685,14 @@ export function Auth() {
                             <div className="sm:col-span-2">
                               <label htmlFor="route-area" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Route area</label>
                               <input id="route-area" value={form.routeArea} onChange={(event) => updateForm("routeArea", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. Old Sagay Market loop" />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label htmlFor="driver-toda" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">TODA association</label>
+                              <select id="driver-toda" required value={form.todaId} onChange={(event) => updateForm("todaId", event.target.value)} disabled={todasLoading || !driverTodas.length} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd] disabled:opacity-60">
+                                <option value="">{todasLoading ? "Loading TODA locations…" : "Select your TODA"}</option>
+                                {driverTodas.map((toda) => <option key={toda.id} value={toda.id}>{toda.name} — {toda.barangay}, {toda.city}</option>)}
+                              </select>
+                              {todasError ? <p role="alert" className="mt-2 text-[11px] text-[#a64d42]">{todasError}</p> : !todasLoading && !driverTodas.length ? <p className="mt-2 text-[11px] text-[#a64d42]">No active TODA is available. Contact Authorized Personnel before registering.</p> : null}
                             </div>
                           </>
                         )}

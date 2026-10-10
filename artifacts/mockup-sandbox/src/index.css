@@ -1,6 +1,31 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+.app-viewport-height {
+  height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  .app-viewport-height {
+    height: 100dvh;
+  }
+}
+
+.mobile-content-padding {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.mobile-bottom-navigation {
+  height: calc(72px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (min-width: 1024px) {
+  .mobile-content-padding {
+    padding-bottom: 0;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

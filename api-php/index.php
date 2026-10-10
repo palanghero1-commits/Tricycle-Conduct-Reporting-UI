@@ -123,6 +123,44 @@ function notify(PDO $pdo, string $recipientId, string $type, string $message, ?s
     $stmt->execute([uuidv4(), $recipientId, $type, $message, $complaintId]);
 }
 
+function notify_best_effort(callable $send, string $context): void {
+    try {
+        $send();
+    } catch (Throwable $error) {
+        error_log("Notification failed after {$context}: " . $error->getMessage());
+    }
+}
+
+function upload_directory(array $config): string {
+    $requested = (string) ($config['upload_dir'] ?? (dirname(__DIR__) . '/private-storage/uploads'));
+    $candidate = $requested;
+    $suffix = [];
+    while (!file_exists($candidate) && dirname($candidate) !== $candidate) {
+        array_unshift($suffix, basename($candidate));
+        $candidate = dirname($candidate);
+    }
+    $base = realpath($candidate);
+    $resolved = $base === false ? '' : rtrim($base, DIRECTORY_SEPARATOR) . ($suffix ? DIRECTORY_SEPARATOR . implode(DIRECTORY_SEPARATOR, $suffix) : '');
+    $publicRoot = realpath(__DIR__);
+    $normalizedResolved = strtolower(str_replace('\\', '/', $resolved));
+    $normalizedPublic = strtolower(rtrim(str_replace('\\', '/', (string) $publicRoot), '/') . '/');
+    if ($resolved === '' || str_starts_with($normalizedResolved . '/', $normalizedPublic)) {
+        $resolved = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'private-storage' . DIRECTORY_SEPARATOR . 'uploads';
+    }
+    if (!is_dir($resolved) && !mkdir($resolved, 0775, true) && !is_dir($resolved)) fail(500, 'Unable to create private upload storage.');
+    $real = realpath($resolved);
+    $normalizedReal = strtolower(str_replace('\\', '/', (string) $real));
+    if ($real === false || str_starts_with($normalizedReal . '/', $normalizedPublic)) fail(500, 'Upload storage must be outside the public API directory.');
+    return $real;
+}
+
+function notify_driver(PDO $pdo, array $complaint, string $type, string $message): void {
+    $driver = row($pdo, 'SELECT user_id FROM drivers WHERE id = ? LIMIT 1', [(int) $complaint['driver_id']]);
+    if (!empty($driver['user_id'])) {
+        notify($pdo, $driver['user_id'], $type, $message, $complaint['id']);
+    }
+}
+
 function notify_officers(PDO $pdo, string $type, string $message, string $complaintId): void {
     $stmt = $pdo->query("SELECT id FROM users WHERE status = 'ACTIVE' AND role IN ('TODA_PRESIDENT','AUTHORIZED_PERSONNEL','SUPERADMIN','PNP')");
     foreach ($stmt->fetchAll() as $officer) {
@@ -134,7 +172,7 @@ function public_user(array $user): array {
     return ['id' => $user['id'], 'fullName' => $user['full_name'], 'email' => $user['email'], 'role' => $user['role'], 'status' => $user['status']];
 }
 
-function create_user(PDO $pdo, array $input, string $role, ?string $createdBy = null): array {
+function create_user(PDO $pdo, array $input, string $role, ?string $createdBy = null, string $status = 'ACTIVE'): array {
     foreach (['fullName', 'password'] as $field) {
         if (empty($input[$field])) fail(400, "$field is required.");
     }
@@ -142,7 +180,8 @@ function create_user(PDO $pdo, array $input, string $role, ?string $createdBy = 
     if (!empty($input['email']) && !filter_var($input['email'], FILTER_VALIDATE_EMAIL)) fail(400, 'Use a valid email address.');
     if (strlen($input['password']) < 8) fail(400, 'Password must be at least 8 characters.');
     $userId = uuidv4();
-    $stmt = $pdo->prepare('INSERT INTO users (id, full_name, email, username, password_hash, role, contact_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    if (!in_array($status, ['ACTIVE', 'INACTIVE'], true)) fail(400, 'Invalid account status.');
+    $stmt = $pdo->prepare('INSERT INTO users (id, full_name, email, username, password_hash, role, contact_number, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     $stmt->execute([
         $userId,
         trim($input['fullName']),
@@ -151,9 +190,10 @@ function create_user(PDO $pdo, array $input, string $role, ?string $createdBy = 
         password_hash($input['password'], PASSWORD_DEFAULT),
         $role,
         $input['contactNumber'] ?? null,
+        $status,
         $createdBy,
     ]);
-    return ['id' => $userId, 'full_name' => trim($input['fullName']), 'email' => !empty($input['email']) ? strtolower($input['email']) : null, 'role' => $role, 'status' => 'ACTIVE'];
+    return ['id' => $userId, 'full_name' => trim($input['fullName']), 'email' => !empty($input['email']) ? strtolower($input['email']) : null, 'role' => $role, 'status' => $status];
 }
 
 function route_path(): string {
@@ -199,6 +239,11 @@ try {
         json_response(['status' => 'ok']);
     }
 
+    if ($method === 'GET' && $path === '/public/todas') {
+        $todas = $pdo->query('SELECT id, name, barangay, city, province FROM todas WHERE is_active = 1 ORDER BY name')->fetchAll();
+        json_response(['todas' => $todas]);
+    }
+
     if ($method === 'POST' && $path === '/auth/register') {
         $data = input_json();
         foreach (['fullName', 'email', 'password', 'confirmPassword'] as $field) {
@@ -211,6 +256,8 @@ try {
             foreach (['driverCode', 'tricycleIdentifier'] as $field) {
                 if (empty($data[$field])) fail(400, "$field is required.");
             }
+            if (empty($data['todaId'])) fail(400, 'Select the TODA location for this driver account.');
+            if (!row($pdo, 'SELECT id FROM todas WHERE id = ? AND is_active = 1 LIMIT 1', [(int) $data['todaId']])) fail(400, 'Select an active TODA location.');
         }
         if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) fail(400, 'Use a valid email address.');
         if (strlen($data['password']) < 8) fail(400, 'Password must be at least 8 characters.');
@@ -223,13 +270,8 @@ try {
             $stmt = $pdo->prepare('INSERT INTO students (user_id, student_id, program, year_level) VALUES (?, ?, ?, ?)');
             $stmt->execute([$userId, trim($data['studentId']), $data['program'] ?? null, $data['yearLevel'] ?? null]);
         } else {
-            // Do not assume that a TODA has id 1. Locations may be created later
-            // or may have different auto-increment IDs in an existing database.
-            // Keep this compatible with databases created before is_active was added.
-            $defaultToda = row($pdo, 'SELECT id FROM todas WHERE is_active = 1 ORDER BY id LIMIT 1', []);
-            if (!$defaultToda) fail(400, 'No active designated location is available. Ask Authorized Personnel to create a location first.');
             $stmt = $pdo->prepare('INSERT INTO drivers (user_id, toda_id, full_name, driver_code, tricycle_identifier, route_area, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$userId, (int) $defaultToda['id'], trim($data['fullName']), trim($data['driverCode']), trim($data['tricycleIdentifier']), $data['routeArea'] ?? null, $data['contactNumber'] ?? null]);
+            $stmt->execute([$userId, (int) $data['todaId'], trim($data['fullName']), trim($data['driverCode']), trim($data['tricycleIdentifier']), $data['routeArea'] ?? null, $data['contactNumber'] ?? null]);
         }
         audit($pdo, $userId, 'REGISTER', 'users', $userId);
         $pdo->commit();
@@ -270,7 +312,7 @@ try {
         if (!$existing) fail(404, 'TODA not found.');
         if (!empty($existing['president_user_id'])) fail(409, 'This TODA already has a president account. Edit or delete the existing account first.');
         $pdo->beginTransaction();
-        $user = create_user($pdo, $data, 'TODA_PRESIDENT', $creator['id']);
+        $user = create_user($pdo, $data, 'TODA_PRESIDENT', $creator['id'], strtoupper((string) ($data['status'] ?? 'ACTIVE')));
         $stmt = $pdo->prepare('UPDATE todas SET president_user_id = ? WHERE id = ?');
         $stmt->execute([$user['id'], (int) $data['todaId']]);
         audit($pdo, $creator['id'], 'TODA_PRESIDENT_CREATE', 'users', $user['id'], ['todaId' => (int) $data['todaId']]);
@@ -456,7 +498,7 @@ try {
         $mime = is_array($imageInfo) ? (string) ($imageInfo['mime'] ?? '') : '';
         $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
         if (!isset($extensions[$mime])) fail(400, 'Only JPG, PNG, and WEBP profile images are supported.');
-        $directory = rtrim($config['upload_dir'], DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'profile-photos';
+        $directory = upload_directory($config) . DIRECTORY_SEPARATOR . 'profile-photos';
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) fail(500, 'Unable to create profile photo storage.');
         $old = row($pdo, 'SELECT profile_photo_path FROM users WHERE id = ?', [$user['id']]);
         $path = $directory . DIRECTORY_SEPARATOR . $user['id'] . '-' . bin2hex(random_bytes(8)) . '.' . $extensions[$mime];
@@ -552,10 +594,13 @@ try {
     }
 
     if ($method === 'GET' && $path === '/drivers') {
-        auth($pdo, $config);
+        $user = auth($pdo, $config);
+        $todaIds = $user['role'] === 'TODA_PRESIDENT' ? user_toda_ids($pdo, $user) : [];
+        if ($user['role'] === 'TODA_PRESIDENT' && !$todaIds) json_response(['drivers' => []]);
+        $todaScope = $todaIds ? ' AND d.toda_id IN (' . implode(',', array_fill(0, count($todaIds), '?')) . ')' : '';
         $search = '%' . ($_GET['search'] ?? '') . '%';
-        $stmt = $pdo->prepare('SELECT d.id, d.full_name AS "fullName", d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", d.route_area AS "routeArea", d.contact_number AS "contactNumber", d.is_active AS "isActive", (SELECT COUNT(*) FROM complaints c WHERE c.driver_id = d.id) AS "reportCount", (SELECT COUNT(*) FROM violations v WHERE v.driver_id = d.id) AS "confirmedViolationCount" FROM drivers d WHERE d.is_active = 1 AND (d.full_name LIKE ? OR d.driver_code LIKE ? OR d.tricycle_identifier LIKE ?) ORDER BY d.full_name LIMIT 100');
-        $stmt->execute([$search, $search, $search]);
+        $stmt = $pdo->prepare('SELECT d.id, d.full_name AS "fullName", d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", d.route_area AS "routeArea", d.contact_number AS "contactNumber", t.name AS "todaName", t.barangay AS "todaBarangay", t.city AS "todaCity", t.province AS "todaProvince", d.is_active AS "isActive", (SELECT COUNT(*) FROM complaints c WHERE c.driver_id = d.id) AS "reportCount", (SELECT COUNT(*) FROM violations v WHERE v.driver_id = d.id) AS "confirmedViolationCount" FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.is_active = 1' . $todaScope . ' AND (d.full_name LIKE ? OR d.driver_code LIKE ? OR d.tricycle_identifier LIKE ?) ORDER BY d.full_name LIMIT 100');
+        $stmt->execute([...$todaIds, $search, $search, $search]);
         json_response(['drivers' => $stmt->fetchAll()]);
     }
 
@@ -581,7 +626,7 @@ try {
 
     if ($method === 'GET' && $path === '/sos/active') {
         $user = auth($pdo, $config);
-        require_roles($user, ['AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         $stmt = $pdo->query('SELECT s.id, s.status, s.latitude, s.longitude, s.location_accuracy_meters AS locationAccuracyMeters, s.started_at AS startedAt, s.last_seen_at AS lastSeenAt, u.full_name AS studentName, d.full_name AS driverName, d.driver_code AS driverCode, d.plate_number AS plateNumber, d.route_area AS routeArea, d.contact_number AS contactNumber, t.name AS todaName, d.tricycle_identifier AS tricycleIdentifier FROM sos_alerts s JOIN users u ON u.id = s.student_user_id JOIN drivers d ON d.id = s.driver_id LEFT JOIN todas t ON t.id = d.toda_id WHERE s.status = \'ACTIVE\' ORDER BY s.started_at DESC');
         json_response(['alerts' => $stmt->fetchAll()]);
     }
@@ -619,9 +664,10 @@ try {
 
     if ($method === 'GET' && preg_match('#^/drivers/(\d+)$#', $path, $m)) {
         $user = auth($pdo, $config);
-        require_roles($user, ['AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         $driver = row($pdo, 'SELECT id, full_name AS "fullName", driver_code AS "driverCode" FROM drivers WHERE id = ? AND is_active = 1', [(int) $m[1]]);
         if (!$driver) fail(404, 'Driver not found.');
+        if ($user['role'] === 'TODA_PRESIDENT' && !row($pdo, 'SELECT d.id FROM drivers d JOIN todas t ON t.id = d.toda_id WHERE d.id = ? AND t.president_user_id = ? AND t.is_active = 1 LIMIT 1', [(int) $m[1], $user['id']])) fail(404, 'Driver not found.');
         $dateFormat = is_postgres($pdo) ? "TO_CHAR(c.incident_date, 'DD Mon YYYY')" : "DATE_FORMAT(c.incident_date, '%d %b %Y')";
         $reports = rows($pdo, "SELECT c.reference_number AS id, {$dateFormat} AS date, cat.name AS category, LEFT(c.description, 180) AS summary, c.status FROM complaints c JOIN complaint_categories cat ON cat.id = c.category_id WHERE c.driver_id = ? ORDER BY c.created_at DESC", [(int) $m[1]]);
         $violationDateFormat = is_postgres($pdo) ? "TO_CHAR(v.confirmation_date, 'DD Mon YYYY')" : "DATE_FORMAT(v.confirmation_date, '%d %b %Y')";
@@ -715,9 +761,9 @@ try {
             $where[] = 'reference_number LIKE ?';
             $params[] = '%' . $_GET['reference'] . '%';
         }
-        $sql = "SELECT c.id, c.reference_number AS \"referenceNumber\", c.status, c.driver_id AS \"driverId\", d.full_name AS \"driverName\", c.category_id AS \"categoryId\", cat.name AS \"categoryName\", c.incident_date AS \"incidentDate\", c.incident_time AS \"incidentTime\", c.location, c.latitude, c.longitude, c.location_accuracy_meters AS \"locationAccuracyMeters\", c.location_captured_at AS \"locationCapturedAt\", c.description, c.created_at AS \"createdAt\", (SELECT MAX(h.created_at) FROM complaint_status_history h WHERE h.complaint_id = c.id AND h.new_status IN ('RESOLVED', 'CLOSED')) AS \"resolvedAt\" FROM complaints c JOIN drivers d ON d.id = c.driver_id JOIN complaint_categories cat ON cat.id = c.category_id";
+        $sql = "SELECT c.id, c.reference_number AS \"referenceNumber\", c.status, c.driver_id AS \"driverId\", d.full_name AS \"driverName\", c.category_id AS \"categoryId\", cat.name AS \"categoryName\", c.incident_date AS \"incidentDate\", c.incident_time AS \"incidentTime\", c.location, c.latitude, c.longitude, c.location_accuracy_meters AS \"locationAccuracyMeters\", c.location_captured_at AS \"locationCapturedAt\", c.description, c.created_at AS \"createdAt\", EXISTS (SELECT 1 FROM violations v WHERE v.complaint_id = c.id) AS \"confirmedViolation\", (SELECT MAX(h.created_at) FROM complaint_status_history h WHERE h.complaint_id = c.id AND h.new_status IN ('RESOLVED', 'CLOSED')) AS \"resolvedAt\" FROM complaints c JOIN drivers d ON d.id = c.driver_id JOIN complaint_categories cat ON cat.id = c.category_id";
         if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
-        $sql .= ' ORDER BY c.created_at DESC LIMIT 100';
+        $sql .= ' ORDER BY c.created_at DESC';
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         json_response(['complaints' => $stmt->fetchAll()]);
@@ -737,6 +783,7 @@ try {
         $complaint = complaint_or_404($pdo, $attachment['complaint_id'], $user);
         if (!is_file($attachment['storage_path'])) fail(404, 'Attachment file not found.');
         header('Content-Type: ' . $attachment['mime_type']);
+        header('X-Content-Type-Options: nosniff');
         header('Content-Disposition: attachment; filename="' . basename($attachment['original_name']) . '"');
         header('Content-Length: ' . filesize($attachment['storage_path']));
         readfile($attachment['storage_path']);
@@ -758,21 +805,25 @@ try {
         $stmt->execute([$complaint['id'], $complaint['status'], $next, $user['id'], $data['remarks'] ?? null]);
         audit($pdo, $user['id'], 'COMPLAINT_STATUS_UPDATE', 'complaints', $complaint['id'], ['from' => $complaint['status'], 'to' => $next]);
         $pdo->commit();
-        notify($pdo, $complaint['student_user_id'], 'COMPLAINT_STATUS_UPDATED', 'Complaint ' . $complaint['reference_number'] . ' is now ' . str_replace('_', ' ', $next) . '.', $complaint['id']);
+        notify_best_effort(fn() => notify($pdo, $complaint['student_user_id'], 'COMPLAINT_STATUS_UPDATED', 'Complaint ' . $complaint['reference_number'] . ' is now ' . str_replace('_', ' ', $next) . '.', $complaint['id']), 'status update');
+        notify_best_effort(fn() => notify_driver($pdo, $complaint, 'COMPLAINT_STATUS_UPDATED', 'Report ' . $complaint['reference_number'] . ' status changed to ' . str_replace('_', ' ', $next) . '.'), 'status update');
         json_response(['complaint' => ['id' => $complaint['id'], 'referenceNumber' => $complaint['reference_number'], 'status' => $next]]);
     }
 
     if ($method === 'POST' && preg_match('#^/complaints/([a-f0-9-]+)/actions$#', $path, $m)) {
         $user = auth($pdo, $config);
-        require_roles($user, ['AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         $data = input_json();
         if (empty($data['actionType']) || empty($data['description'])) fail(400, 'Action type and description are required.');
         $complaint = complaint_or_404($pdo, $m[1], $user);
+        $pdo->beginTransaction();
         $stmt = $pdo->prepare('INSERT INTO complaint_actions (complaint_id, action_type, description, action_taken_by) VALUES (?, ?, ?, ?)');
         $stmt->execute([$complaint['id'], $data['actionType'], $data['description'], $user['id']]);
         $actionId = last_insert_id($pdo, 'complaint_actions_id_seq');
         audit($pdo, $user['id'], 'COMPLAINT_ACTION_CREATE', 'complaint_actions', $actionId, ['complaintId' => $complaint['id']]);
-        notify($pdo, $complaint['student_user_id'], 'COMPLAINT_ACTION_RECORDED', 'An action was recorded for complaint ' . $complaint['reference_number'] . '.', $complaint['id']);
+        $pdo->commit();
+        notify_best_effort(fn() => notify($pdo, $complaint['student_user_id'], 'COMPLAINT_ACTION_RECORDED', 'An action was recorded for complaint ' . $complaint['reference_number'] . '.', $complaint['id']), 'action recording');
+        notify_best_effort(fn() => notify_driver($pdo, $complaint, 'COMPLAINT_ACTION_RECORDED', 'An update was recorded for report ' . $complaint['reference_number'] . '.'), 'action recording');
         json_response(['action' => ['id' => (int) $actionId]], 201);
     }
 
@@ -782,12 +833,19 @@ try {
         $data = input_json();
         $complaint = complaint_or_404($pdo, $m[1], $user);
         if (!in_array($complaint['status'], ['VERIFIED', 'RESOLVED', 'CLOSED'], true)) fail(400, 'A confirmed violation can only be recorded after appropriate review.');
+        $category = trim((string) ($data['violationCategory'] ?? ''));
+        $description = trim((string) ($data['description'] ?? ''));
+        if ($category === '' || strlen($category) > 140 || $description === '' || strlen($description) > 10000) fail(400, 'A violation category and description are required.');
+        $pdo->beginTransaction();
+        row($pdo, 'SELECT id FROM complaints WHERE id = ? FOR UPDATE', [$complaint['id']]);
         $existing = row($pdo, 'SELECT id FROM violations WHERE complaint_id = ? LIMIT 1', [$complaint['id']]);
         if ($existing) fail(409, 'A violation has already been recorded for this report.');
         $stmt = $pdo->prepare('INSERT INTO violations (driver_id, complaint_id, violation_category, description, confirmed_by, remarks) VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$complaint['driver_id'], $complaint['id'], $data['violationCategory'] ?? '', $data['description'] ?? '', $user['id'], $data['remarks'] ?? null]);
+        $stmt->execute([$complaint['driver_id'], $complaint['id'], $category, $description, $user['id'], $data['remarks'] ?? null]);
         $violationId = last_insert_id($pdo, 'violations_id_seq');
         audit($pdo, $user['id'], 'VIOLATION_CREATE', 'violations', $violationId, ['complaintId' => $complaint['id']]);
+        $pdo->commit();
+        notify_best_effort(fn() => notify_driver($pdo, $complaint, 'VIOLATION_CONFIRMED', 'A confirmed violation was recorded for report ' . $complaint['reference_number'] . '.'), 'violation recording');
         json_response(['violation' => ['id' => (int) $violationId]], 201);
     }
 
@@ -803,18 +861,23 @@ try {
         $user = auth($pdo, $config);
         require_roles($user, ['DRIVER', 'TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         if ($user['role'] === 'DRIVER') {
-            $stmt = $pdo->prepare("SELECT v.id, v.complaint_id AS \"complaintId\", d.full_name AS driver, c.reference_number AS \"relatedReport\", v.violation_category AS type, DATE(v.confirmation_date) AS \"dateValue\", v.description AS summary, COALESCE(v.remarks, '') AS action FROM violations v JOIN drivers d ON d.id = v.driver_id JOIN complaints c ON c.id = v.complaint_id WHERE d.user_id = ? ORDER BY v.confirmation_date DESC LIMIT 100");
+            $stmt = $pdo->prepare("SELECT v.id, v.complaint_id AS \"complaintId\", d.full_name AS driver, c.reference_number AS \"relatedReport\", v.violation_category AS type, DATE(v.confirmation_date) AS \"dateValue\", v.description AS summary, COALESCE((SELECT ca.description FROM complaint_actions ca WHERE ca.complaint_id = v.complaint_id ORDER BY ca.created_at DESC LIMIT 1), '') AS action, c.status AS \"complaintStatus\" FROM violations v JOIN drivers d ON d.id = v.driver_id JOIN complaints c ON c.id = v.complaint_id WHERE d.user_id = ? ORDER BY v.confirmation_date DESC");
             $stmt->execute([$user['id']]);
             $rows = $stmt->fetchAll();
         } elseif ($user['role'] === 'TODA_PRESIDENT') {
             $todaIds = user_toda_ids($pdo, $user);
             if (!$todaIds) json_response(['violations' => []]);
-            $stmt = $pdo->prepare("SELECT v.id, v.complaint_id AS \"complaintId\", d.full_name AS driver, c.reference_number AS \"relatedReport\", v.violation_category AS type, DATE(v.confirmation_date) AS \"dateValue\", v.description AS summary, COALESCE(v.remarks, '') AS action FROM violations v JOIN drivers d ON d.id = v.driver_id JOIN complaints c ON c.id = v.complaint_id WHERE d.toda_id IN (" . implode(',', array_fill(0, count($todaIds), '?')) . ") ORDER BY v.confirmation_date DESC LIMIT 100");
+            $stmt = $pdo->prepare("SELECT v.id, v.complaint_id AS \"complaintId\", d.full_name AS driver, c.reference_number AS \"relatedReport\", v.violation_category AS type, DATE(v.confirmation_date) AS \"dateValue\", v.description AS summary, COALESCE((SELECT ca.description FROM complaint_actions ca WHERE ca.complaint_id = v.complaint_id ORDER BY ca.created_at DESC LIMIT 1), '') AS action, c.status AS \"complaintStatus\" FROM violations v JOIN drivers d ON d.id = v.driver_id JOIN complaints c ON c.id = v.complaint_id WHERE d.toda_id IN (" . implode(',', array_fill(0, count($todaIds), '?')) . ") ORDER BY v.confirmation_date DESC");
             $stmt->execute($todaIds);
             $rows = $stmt->fetchAll();
         } else {
-            $rows = $pdo->query("SELECT v.id, v.complaint_id AS \"complaintId\", d.full_name AS driver, c.reference_number AS \"relatedReport\", v.violation_category AS type, DATE(v.confirmation_date) AS \"dateValue\", v.description AS summary, COALESCE(v.remarks, '') AS action FROM violations v JOIN drivers d ON d.id = v.driver_id JOIN complaints c ON c.id = v.complaint_id ORDER BY v.confirmation_date DESC LIMIT 100")->fetchAll();
+            $rows = $pdo->query("SELECT v.id, v.complaint_id AS \"complaintId\", d.full_name AS driver, c.reference_number AS \"relatedReport\", v.violation_category AS type, DATE(v.confirmation_date) AS \"dateValue\", v.description AS summary, COALESCE((SELECT ca.description FROM complaint_actions ca WHERE ca.complaint_id = v.complaint_id ORDER BY ca.created_at DESC LIMIT 1), '') AS action, c.status AS \"complaintStatus\" FROM violations v JOIN drivers d ON d.id = v.driver_id JOIN complaints c ON c.id = v.complaint_id ORDER BY v.confirmation_date DESC")->fetchAll();
         }
+        foreach ($rows as &$violation) {
+            $authorizedAction = row($pdo, "SELECT description FROM complaint_actions WHERE complaint_id = ? AND action_type = 'Authorized action' ORDER BY created_at DESC LIMIT 1", [$violation['complaintId']]);
+            $violation['action'] = $authorizedAction['description'] ?? '';
+        }
+        unset($violation);
         json_response(['violations' => $rows]);
     }
 
@@ -961,22 +1024,26 @@ function rows(PDO $pdo, string $sql, array $params): array {
 
 function save_uploads(PDO $pdo, array $config, string $complaintId, string $userId): void {
     if (empty($_FILES['attachments'])) return;
-    $allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-    $dir = $config['upload_dir'];
-    if (!is_dir($dir)) mkdir($dir, 0775, true);
+    $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
+    $dir = upload_directory($config);
     $files = $_FILES['attachments'];
     $names = is_array($files['name']) ? $files['name'] : [$files['name']];
+    if (count($names) > 5) fail(400, 'You can attach up to 5 evidence files per report.');
     for ($i = 0; $i < count($names); $i++) {
         $error = is_array($files['error']) ? $files['error'][$i] : $files['error'];
-        if ($error !== UPLOAD_ERR_OK) continue;
+        if ($error !== UPLOAD_ERR_OK) {
+            if ($error === UPLOAD_ERR_NO_FILE) continue;
+            if ($error === UPLOAD_ERR_INI_SIZE || $error === UPLOAD_ERR_FORM_SIZE) {
+                fail(400, 'Each evidence file must be 5 MB or smaller.');
+            }
+            fail(400, 'An evidence file could not be uploaded. Please try again.');
+        }
         $tmp = is_array($files['tmp_name']) ? $files['tmp_name'][$i] : $files['tmp_name'];
         $size = is_array($files['size']) ? (int) $files['size'][$i] : (int) $files['size'];
         $original = basename(is_array($files['name']) ? $files['name'][$i] : $files['name']);
-        $reportedMime = is_array($files['type']) ? (string) $files['type'][$i] : (string) $files['type'];
-        $mime = function_exists('mime_content_type') ? (mime_content_type($tmp) ?: $reportedMime) : $reportedMime;
-        if ($mime === '') $mime = 'application/octet-stream';
-        if ($size > 5 * 1024 * 1024 || !in_array($mime, $allowed, true)) fail(400, 'Invalid attachment type or size.');
-        $stored = uuidv4() . '.' . strtolower(pathinfo($original, PATHINFO_EXTENSION));
+        $mime = (new finfo(FILEINFO_MIME_TYPE))->file($tmp) ?: '';
+        if ($size > 5 * 1024 * 1024 || !isset($extensions[$mime])) fail(400, 'Invalid attachment type or size.');
+        $stored = uuidv4() . '.' . $extensions[$mime];
         $target = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR . $stored;
         if (!move_uploaded_file($tmp, $target)) fail(400, 'Attachment upload failed.');
         $stmt = $pdo->prepare('INSERT INTO complaint_attachments (id, complaint_id, original_name, stored_name, mime_type, size_bytes, storage_path, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');

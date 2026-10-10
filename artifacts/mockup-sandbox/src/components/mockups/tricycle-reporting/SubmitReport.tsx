@@ -19,7 +19,6 @@ import {
   ShieldCheck,
   Trash2,
   UploadCloud,
-  UserRound,
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
@@ -33,6 +32,11 @@ type Driver = {
   id: number;
   name: string;
   identifier: string;
+  driverCode?: string | null;
+  plateNumber?: string | null;
+  contactNumber?: string | null;
+  todaName?: string | null;
+  todaAddress?: string | null;
   color: string;
   initials: string;
   route: string;
@@ -94,9 +98,8 @@ const fallbackCategoryDescriptions: Record<string, string> = {
   Other: "This concern does not match another category.",
 };
 
-function getDescriptionTemplate(categoryName: string, categoryDescription?: string) {
-  const context = categoryDescription || fallbackCategoryDescriptions[categoryName] || "A tricycle conduct concern was observed.";
-  return `I am reporting a concern about ${categoryName.toLowerCase()}. ${context} What I observed was: `;
+function getCategoryDescription(categoryName: string, categoryDescription?: string) {
+  return categoryDescription || fallbackCategoryDescriptions[categoryName] || "Choose the category that best matches what you observed.";
 }
 
 const stepDetails = [
@@ -123,6 +126,15 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit" }).format(date);
 }
 
+function getDeviceIncidentDateTime() {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return {
+    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+  };
+}
+
 export function SubmitReport() {
   useEffect(() => {
     if (getCurrentUser()?.role !== "STUDENT") {
@@ -139,22 +151,23 @@ export function SubmitReport() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [category, setCategory] = useState<string>("");
   const [otherCategory, setOtherCategory] = useState("");
-  const [incidentDate, setIncidentDate] = useState("");
-  const [incidentTime, setIncidentTime] = useState("");
+  const [incidentDate, setIncidentDate] = useState(() => getDeviceIncidentDateTime().date);
+  const [incidentTime, setIncidentTime] = useState(() => getDeviceIncidentDateTime().time);
   const [location, setLocation] = useState("");
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number; accuracy: number; capturedAt: string } | null>(null);
   const [locationStatus, setLocationStatus] = useState("");
   const [description, setDescription] = useState("");
-  const [lastDescriptionTemplate, setLastDescriptionTemplate] = useState("");
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
+  const [submissionState, setSubmissionState] = useState<"submitted" | "queued" | null>(null);
+  const [hasAcknowledged, setHasAcknowledged] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      apiRequest<{ drivers: Array<{ id: number; fullName: string; tricycleIdentifier: string; routeArea: string | null }> }>("/drivers"),
+      apiRequest<{ drivers: Array<{ id: number; fullName: string; driverCode?: string | null; tricycleIdentifier: string; plateNumber?: string | null; routeArea: string | null; contactNumber?: string | null; todaName?: string | null; todaBarangay?: string | null; todaCity?: string | null; todaProvince?: string | null }> }>("/drivers"),
       apiRequest<{ categories: Array<{ id: number; name: string; description?: string }> }>("/categories"),
     ])
       .then(([driverData, categoryData]) => {
@@ -164,6 +177,11 @@ export function SubmitReport() {
             id: driver.id,
             name: driver.fullName,
             identifier: driver.tricycleIdentifier,
+            driverCode: driver.driverCode,
+            plateNumber: driver.plateNumber,
+            contactNumber: driver.contactNumber,
+            todaName: driver.todaName,
+            todaAddress: [driver.todaBarangay, driver.todaCity, driver.todaProvince].filter(Boolean).join(", "),
             route: driver.routeArea ?? "Old Sagay TODA",
             initials: driver.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
             color: "bg-[#dceeff] text-[#1660a8]",
@@ -172,10 +190,7 @@ export function SubmitReport() {
         setLiveCategories(categoryData.categories);
         if (categoryData.categories[0]) {
           const firstCategory = categoryData.categories[0];
-          const template = getDescriptionTemplate(firstCategory.name, firstCategory.description);
           setCategory(firstCategory.name);
-          setDescription(template);
-          setLastDescriptionTemplate(template);
         }
       })
       .catch(async () => {
@@ -185,16 +200,18 @@ export function SubmitReport() {
             id: driver.id,
             name: driver.fullName,
             identifier: driver.tricycleIdentifier,
+            driverCode: driver.driverCode,
+            plateNumber: driver.plateNumber,
+            contactNumber: driver.contactNumber,
+            todaName: driver.todaName,
+            todaAddress: [driver.todaBarangay, driver.todaCity, driver.todaProvince].filter(Boolean).join(", "),
             route: driver.routeArea ?? "Old Sagay TODA",
             initials: driver.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
             color: "bg-[#dceeff] text-[#1660a8]",
           })));
           setLiveCategories(cached.categories);
           const firstCategory = cached.categories[0];
-          const template = getDescriptionTemplate(firstCategory.name, firstCategory.description);
           setCategory(firstCategory.name);
-          setDescription(template);
-          setLastDescriptionTemplate(template);
           setNotice("Offline mode: using the account data saved on this device.");
         } else {
           setNotice("Connect once while online to download official drivers and categories before using offline mode.");
@@ -210,20 +227,15 @@ export function SubmitReport() {
   const filteredDrivers = visibleDrivers.filter((driver) => {
     const query = driverSearch.trim().toLowerCase();
     if (!query) return true;
-    return `${driver.name} ${driver.identifier} ${driver.route}`.toLowerCase().includes(query);
+    return `${driver.name} ${driver.identifier} ${driver.driverCode ?? ""} ${driver.plateNumber ?? ""} ${driver.contactNumber ?? ""} ${driver.route} ${driver.todaName ?? ""} ${driver.todaAddress ?? ""}`.toLowerCase().includes(query);
   });
 
   const selected = liveDrivers.find((driver) => driver.identifier === selectedDriver);
   const visibleCategories = liveCategories.map((item) => item.name);
+  const selectedCategoryDescription = getCategoryDescription(category, liveCategories.find((item) => item.name === category)?.description);
 
   const selectCategory = (nextCategory: string) => {
     setCategory(nextCategory);
-    const selectedCategory = liveCategories.find((item) => item.name === nextCategory);
-    const template = getDescriptionTemplate(nextCategory, selectedCategory?.description);
-    if (!description.trim() || description === lastDescriptionTemplate) {
-      setDescription(template);
-      setLastDescriptionTemplate(template);
-    }
   };
 
   const removeEvidence = (id: number) => {
@@ -255,6 +267,15 @@ export function SubmitReport() {
     setStep(1);
     setIsSubmitted(false);
     setReportId("");
+    setSubmissionState(null);
+    setHasAcknowledged(false);
+    setDescription("");
+    setOtherCategory("");
+    setCategory(liveCategories[0]?.name ?? "");
+    setLocation("");
+    setCoordinates(null);
+    setIncidentDate("");
+    setIncidentTime("");
     setEvidence([]);
     setAttachmentFiles([]);
   };
@@ -266,6 +287,10 @@ export function SubmitReport() {
     }
     if (step === 2 && (!incidentDate || !incidentTime)) {
       setNotice("Please provide the date and approximate time of the incident before continuing.");
+      return;
+    }
+    if (step === 2 && category === "Other" && !otherCategory.trim()) {
+      setNotice("Please name the type of concern before continuing.");
       return;
     }
     if (step === 2 && !location.trim()) {
@@ -290,9 +315,18 @@ export function SubmitReport() {
       setStep(2);
       return;
     }
+    if (category === "Other" && !otherCategory.trim()) {
+      setNotice("Please name the type of concern before submitting.");
+      setStep(2);
+      return;
+    }
     if (!location.trim() || description.trim().length < 15) {
       setNotice(!location.trim() ? "Please enter where the incident happened." : "Please describe what happened in at least 15 characters.");
       setStep(2);
+      return;
+    }
+    if (!hasAcknowledged) {
+      setNotice("Please confirm that your report is accurate to the best of your knowledge.");
       return;
     }
     const categoryRecord = liveCategories.find((item) => item.name === category);
@@ -322,6 +356,7 @@ export function SubmitReport() {
       try {
         await saveOfflineReport(offlineReport);
         setReportId(`OFFLINE-${localReportId.slice(-8).toUpperCase()}`);
+        setSubmissionState("queued");
         setNotice("No internet connection. Your report was saved on this device.");
         setIsSubmitted(true);
       } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to save the report offline."); }
@@ -346,12 +381,14 @@ export function SubmitReport() {
     try {
       const data = await apiRequest<{ complaint: { referenceNumber: string } }>("/complaints", { method: "POST", body });
       setReportId(data.complaint.referenceNumber);
+      setSubmissionState("submitted");
       setIsSubmitted(true);
     } catch (error) {
       try {
         await saveOfflineReport({ ...offlineReport, status: "Upload failed", lastError: error instanceof Error ? error.message : "Upload failed." });
         setReportId(`OFFLINE-${localReportId.slice(-8).toUpperCase()}`);
-        setNotice("The connection was lost. Your report was saved on this device for retry.");
+        setSubmissionState("queued");
+        setNotice("The report could not be submitted yet. It was saved on this device; check Pending reports for its sync status.");
         setIsSubmitted(true);
       } catch (offlineError) {
         setNotice(offlineError instanceof Error ? offlineError.message : "Unable to submit or save the complaint.");
@@ -369,23 +406,23 @@ export function SubmitReport() {
             <div className="relative overflow-hidden bg-[#f0f7ff] px-6 pb-9 pt-10 text-center sm:px-12">
               <div className="absolute -right-14 -top-20 h-56 w-56 rounded-full border-[24px] border-white/60" />
               <div className="absolute -bottom-20 -left-16 h-48 w-48 rounded-full border-[20px] border-[#dceeff]/80" />
-              <div className="relative mx-auto flex h-[76px] w-[76px] items-center justify-center rounded-full bg-[#d9f3e8] text-[#16815a] shadow-[0_8px_22px_rgba(21,125,87,0.12)]">
-                <Check size={36} strokeWidth={2.6} />
+              <div className={`relative mx-auto flex h-[76px] w-[76px] items-center justify-center rounded-full ${submissionState === "queued" ? "bg-[#fff1d3] text-[#a77518] shadow-[0_8px_22px_rgba(167,117,24,0.12)]" : "bg-[#d9f3e8] text-[#16815a] shadow-[0_8px_22px_rgba(21,125,87,0.12)]"}`}>
+                {submissionState === "queued" ? <CircleAlert size={34} strokeWidth={2.2} /> : <Check size={36} strokeWidth={2.6} />}
               </div>
               <p className="relative mt-6 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2b906c]">
-                Report received
+                {submissionState === "queued" ? "Saved on this device" : "Report received"}
               </p>
               <h2 className="relative mt-2 text-[28px] font-extrabold tracking-[-0.04em] text-[#163154] sm:text-[34px]">
                 Thank you for speaking up.
               </h2>
               <p className="relative mx-auto mt-3 max-w-[540px] text-[14px] leading-6 text-[#607993]">
-                Your report has been recorded for review. It is an account for the conduct team to assess, not a confirmed violation.
+                {submissionState === "queued" ? "Your report has not reached the review team yet. It is saved on this device and will be sent when the connection is available." : "Your report has been recorded for review. It is an account for the conduct team to assess, not a confirmed violation."}
               </p>
             </div>
             <div className="space-y-5 px-6 py-6 sm:px-12 sm:py-8">
               <div className="flex items-center justify-between rounded-2xl border border-[#e1eaf2] bg-[#fbfdff] px-4 py-4">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a7bb]">Database reference</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a7bb]">{submissionState === "queued" ? "Local queue reference" : "Database reference"}</p>
                   <p className="mt-1 font-mono text-[17px] font-bold tracking-[0.08em] text-[#18385e]">{reportId}</p>
                 </div>
                 <BadgeCheck size={23} className="text-[#278b68]" />
@@ -393,9 +430,10 @@ export function SubmitReport() {
               <div className="flex gap-3 rounded-2xl bg-[#fff9eb] px-4 py-4 text-[#82652d]">
                 <Info size={17} className="mt-0.5 shrink-0" />
                 <p className="text-[12px] leading-5">
-                  You can check the status of this report in My reports. Reviews may take time as the team checks the details and any supporting evidence.
+                  {submissionState === "queued" ? "Open Pending reports to check its sync status. It will appear in My reports after the server accepts it." : "You can check the status of this report in My reports. Reviews may take time as the team checks the details and any supporting evidence."}
                 </p>
               </div>
+              {submissionState === "queued" ? <button type="button" onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/PendingReports`; }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-3 text-[12px] font-extrabold text-[#0c5bce] hover:bg-[#f0f7ff]">View pending reports <ArrowRight size={15} /></button> : null}
               <button
                 type="button"
                 onClick={resetReport}
@@ -456,7 +494,7 @@ export function SubmitReport() {
                         {complete ? <Check size={15} strokeWidth={2.6} /> : item.number}
                       </span>
                       <span className="min-w-0">
-                        <span className={`block text-[9px] font-extrabold sm:text-[10px] lg:text-[12px] ${active ? "text-[#0c5bce]" : "text-[#3f5873]"}`}>{item.label}</span>
+                        <span className={`block text-[11px] font-extrabold lg:text-[12px] ${active ? "text-[#0c5bce]" : "text-[#3f5873]"}`}>{item.label}</span>
                         <span className="mt-0.5 hidden whitespace-nowrap text-[10px] font-medium text-[#93a5b8] sm:block lg:whitespace-normal">{item.caption}</span>
                       </span>
                     </button>
@@ -534,14 +572,20 @@ export function SubmitReport() {
                     </div>
                     {selected ? (
                       <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                        <div className="min-w-0 rounded-2xl bg-[#f5f9fd] p-4">
-                          <div className="flex items-center gap-2 text-[#6384a5]"><CarFront size={16} /><span className="text-[10px] font-extrabold uppercase tracking-[0.13em]">Vehicle identifier</span></div>
-                          <p className="mt-2 font-mono text-[18px] font-extrabold tracking-[0.08em] text-[#17375d]">{selected.identifier}</p>
-                        </div>
-                        <div className="min-w-0 rounded-2xl bg-[#f5f9fd] p-4">
-                          <div className="flex items-center gap-2 text-[#6384a5]"><UserRound size={16} /><span className="text-[10px] font-extrabold uppercase tracking-[0.13em]">Confirmed driver</span></div>
-                          <p className="mt-2 break-words text-[15px] font-extrabold text-[#17375d]">{selected.name}</p>
-                        </div>
+                        {[
+                          ["Driver code", selected.driverCode],
+                          ["Vehicle identifier", selected.identifier],
+                          ["Plate number", selected.plateNumber],
+                          ["Mobile number", selected.contactNumber],
+                          ["Route / service area", selected.route],
+                          ["TODA", selected.todaName],
+                          ["Registered TODA address", selected.todaAddress],
+                        ].map(([label, value]) => (
+                          <div key={label} className="min-w-0 rounded-2xl bg-[#f5f9fd] p-4">
+                            <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#6384a5]">{label}</p>
+                            {label === "Mobile number" && value ? <a href={`tel:${value}`} className="mt-2 block break-words text-[14px] font-extrabold text-[#0c5bce] underline">{value}</a> : <p className="mt-2 break-words text-[14px] font-extrabold text-[#17375d]">{value || "Not recorded"}</p>}
+                          </div>
+                        ))}
                       </div>
                     ) : null}
                     <div className="flex min-w-0 gap-3 rounded-2xl border border-[#dbeaf7] bg-[#f5faff] px-4 py-3.5 text-[#547493]">
@@ -579,6 +623,7 @@ export function SubmitReport() {
                           className="mt-3 h-11 w-full rounded-xl border border-[#dbe5f0] px-3.5 text-[12px] text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]"
                         />
                       ) : null}
+                      <p className="mt-2 text-[11px] leading-5 text-[#8295aa]">{selectedCategoryDescription}</p>
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block">
@@ -590,6 +635,7 @@ export function SubmitReport() {
                         <input required type="time" value={incidentTime} onChange={(event) => setIncidentTime(event.target.value)} className="h-11 w-full rounded-xl border border-[#dbe5f0] bg-white px-3 text-[12px] font-medium text-[#274563] outline-none focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                       </label>
                     </div>
+                    <p className="-mt-2 text-[10px] text-[#8294a8]">Defaults to this phone’s date and time. Change it if the incident happened earlier.</p>
                     <label className="block">
                       <span className="mb-2 flex items-center gap-2 text-[12px] font-extrabold text-[#49647e]"><MapPin size={15} className="text-[#7190ad]" />Where did this happen?</span>
                       <div className="relative">
@@ -606,7 +652,7 @@ export function SubmitReport() {
                     </label>
                     <label className="block">
                       <span className="mb-2 block text-[12px] font-extrabold text-[#49647e]">What happened?</span>
-                      <textarea value={description} onChange={(event) => { setDescription(event.target.value); setLastDescriptionTemplate(""); }} rows={5} placeholder="Share only what you observed..." className="w-full resize-none rounded-xl border border-[#dbe5f0] px-3.5 py-3 text-[12px] leading-5 text-[#274563] outline-none placeholder:text-[#a1b0bf] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
+                      <textarea value={description} maxLength={500} onChange={(event) => setDescription(event.target.value)} rows={5} placeholder="Describe what happened in your own words (at least 15 characters)..." className="w-full resize-none rounded-xl border border-[#dbe5f0] px-3.5 py-3 text-[12px] leading-5 text-[#274563] outline-none placeholder:text-[#a1b0bf] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                       <span className="mt-1.5 block text-right text-[10px] text-[#9aaabd]">{description.length}/500</span>
                     </label>
                   </div>
@@ -636,10 +682,14 @@ export function SubmitReport() {
                           className="sr-only"
                           onChange={(event) => {
                             const files = Array.from(event.target.files ?? []);
-                            setAttachmentFiles((current) => [...current, ...files]);
+                            const allowedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+                            const validFiles = files.filter((file) => file.size <= 5 * 1024 * 1024 && allowedTypes.includes(file.type));
+                            if (validFiles.length !== files.length) setNotice("Only JPG, PNG, WebP, or PDF files up to 5 MB each can be attached. Invalid files were skipped.");
+                            if (!validFiles.length) { event.target.value = ""; return; }
+                            setAttachmentFiles((current) => [...current, ...validFiles]);
                             setEvidence((current) => [
                               ...current,
-                              ...files.map((file, index) => ({
+                              ...validFiles.map((file, index) => ({
                                 id: Date.now() + index,
                                 name: file.name,
                                 size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
@@ -689,7 +739,7 @@ export function SubmitReport() {
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Place and description</p><p className="mt-1 text-[12px] font-bold text-[#294664]">{location}</p><p className="mt-1 max-w-[480px] text-[11px] leading-5 text-[#71859e]">{description || "No description provided."}</p></div><MapPin size={18} className="shrink-0 text-[#6d8baa]" /></div>
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Supporting evidence</p><p className="mt-1 text-[12px] font-extrabold text-[#294664]">{evidence.length ? `${evidence.length} attachment${evidence.length === 1 ? "" : "s"}` : "None added"}</p></div><Paperclip size={18} className="text-[#6d8baa]" /></div>
                     </div>
-                    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0e8f0] bg-[#fbfdff] px-4 py-3.5"><input type="checkbox" defaultChecked className="mt-0.5 h-4 w-4 accent-[#0c5bce]" /><span className="text-[11px] leading-5 text-[#637b93]">I have shared what I observed as accurately as I can. I understand this report will be reviewed and is not a confirmed violation.</span></label>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0e8f0] bg-[#fbfdff] px-4 py-3.5"><input type="checkbox" checked={hasAcknowledged} onChange={(event) => setHasAcknowledged(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[#0c5bce]" /><span className="text-[11px] leading-5 text-[#637b93]">I have shared what I observed as accurately as I can. I understand this report will be reviewed and is not a confirmed violation.</span></label>
                   </div>
                 ) : null}
               </div>

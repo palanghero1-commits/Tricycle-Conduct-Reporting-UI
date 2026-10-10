@@ -39,6 +39,7 @@ export function Notifications() {
       ? "Driver space / updates"
       : "My space / updates";
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loadError, setLoadError] = useState("");
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
   const [page, setPage] = useState(1);
@@ -46,7 +47,9 @@ export function Notifications() {
 
   useEffect(() => {
     apiRequest<{ notifications: Array<{ id: string; type: string; message: string; relatedComplaintId: string | null; reportReference: string | null; readAt: string | null; createdAt: string }> }>("/notifications")
-      .then(({ notifications: rows }) => setNotifications(rows.map((row) => ({
+      .then(({ notifications: rows }) => {
+        setLoadError("");
+        setNotifications(rows.map((row) => ({
         id: row.id,
         title: row.type.replaceAll("_", " ").toLowerCase().replace(/(^| )\w/g, (match) => match.toUpperCase()),
         message: row.message,
@@ -56,10 +59,14 @@ export function Notifications() {
         icon: row.type.includes("RESOLVED") ? BadgeCheck : row.type.includes("STATUS") ? SearchCheck : Inbox,
         accent: "#0c5bce",
         iconBackground: "#e7f0ff",
-      }))))
+        })));
+      })
       .catch(async () => {
         const cached = await getOfflineAccountData().catch(() => null);
-        setNotifications((cached?.notifications ?? []).map((row) => ({
+        const belongsToCurrentAccount = Boolean(cached && currentUser && cached.user.id === currentUser.id && cached.user.role === currentUser.role);
+        const cachedNotifications = cached && belongsToCurrentAccount ? cached.notifications : [];
+        setLoadError(cachedNotifications.length ? "Offline: showing your last saved notifications; new updates may not appear." : "Could not load notifications for this account. Check your connection and try again.");
+        setNotifications(cachedNotifications.map((row) => ({
           id: String(row.id ?? "offline-notification"),
           title: String(row.type ?? "Notification").replaceAll("_", " ").toLowerCase().replace(/(^| )\w/g, (match) => match.toUpperCase()),
           message: String(row.message ?? ""),
@@ -71,6 +78,37 @@ export function Notifications() {
           iconBackground: "#e7f0ff",
         })));
       });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      apiRequest<{ notifications: Array<{ id: string; type: string; message: string; relatedComplaintId: string | null; reportReference: string | null; readAt: string | null; createdAt: string }> }>("/notifications")
+        .then(({ notifications: rows }) => {
+          if (!active) return;
+          setLoadError("");
+          setNotifications(rows.map((row) => ({
+            id: row.id,
+            title: row.type.replaceAll("_", " ").toLowerCase().replace(/(^| )\w/g, (match) => match.toUpperCase()),
+            message: row.message,
+            time: formatPhilippineDateTime(row.createdAt),
+            reportId: row.reportReference ?? row.relatedComplaintId ?? "",
+            read: Boolean(row.readAt),
+            icon: row.type.includes("RESOLVED") ? BadgeCheck : row.type.includes("STATUS") ? SearchCheck : Inbox,
+            accent: "#0c5bce",
+            iconBackground: "#e7f0ff",
+          })));
+        })
+        .catch(() => undefined);
+    };
+    const interval = window.setInterval(refresh, 10_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, []);
 
   useEffect(() => {
@@ -213,6 +251,7 @@ export function Notifications() {
           </div>
 
           <div className="mt-4 space-y-3">
+            {loadError ? <p role="status" className="rounded-xl border border-[#f0d8a8] bg-[#fff9eb] px-4 py-3 text-[12px] text-[#805b16]">{loadError}</p> : null}
             {paginatedNotifications.length > 0 ? (
               paginatedNotifications.map((notification) => {
                 const Icon = notification.icon;

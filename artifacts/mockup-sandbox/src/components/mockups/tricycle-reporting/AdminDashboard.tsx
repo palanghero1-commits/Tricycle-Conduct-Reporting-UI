@@ -309,8 +309,8 @@ export function AdminDashboard() {
   const [liveStats, setLiveStats] = useState<Record<string, number> | null>(
     null,
   );
-  const [liveReports, setLiveReports] = useState<Report[]>([]);
-  const [liveActivity, setLiveActivity] = useState<ActivityItem[]>([]);
+  const [liveReports, setLiveReports] = useState<Report[]>(reports);
+  const [liveActivity, setLiveActivity] = useState<ActivityItem[]>(activity);
   const [showPersonnelForm, setShowPersonnelForm] = useState(false);
   const [isCreatingPersonnel, setIsCreatingPersonnel] = useState(false);
   const [personnelForm, setPersonnelForm] = useState({
@@ -859,11 +859,12 @@ export function AdminDashboard() {
                     </div>
                   </div>
                 </div>
-                <div className="hidden grid-cols-[0.82fr_1.15fr_0.78fr_0.55fr] gap-3 border-b border-[#edf1f5] px-5 py-2.5 text-[9px] font-extrabold uppercase tracking-[0.13em] text-[#9aaaba] md:grid">
-                  <span>Reference</span>
-                  <span>Location / topic</span>
+                <div className="hidden grid-cols-[1.2fr_1fr_1fr_1.15fr_0.65fr] gap-4 border-b border-[#edf1f5] px-5 py-3.5 text-[9px] font-extrabold uppercase tracking-[0.13em] text-[#9aaaba] md:grid">
+                  <span>Report</span>
+                  <span>Category</span>
+                  <span>Date submitted</span>
                   <span>Status</span>
-                  <span className="text-right">Received</span>
+                  <span className="text-right">Action</span>
                 </div>
                 <div className="divide-y divide-[#edf1f5]">
                   {filteredReports.length ? (
@@ -872,40 +873,37 @@ export function AdminDashboard() {
                         key={report.id}
                         type="button"
                         onClick={() => setSelectedReportId(report.id)}
-                        className={`grid w-full gap-3 px-5 py-4 text-left transition hover:bg-[#f8fbfd] md:grid-cols-[0.82fr_1.15fr_0.78fr_0.55fr] md:items-center ${selectedReportId === report.id ? "bg-[#f5f9fc]" : "bg-white"}`}
+                        className={`grid w-full gap-4 px-5 py-4 text-left transition hover:bg-[#f8fbfd] md:grid-cols-[1.2fr_1fr_1fr_1.15fr_0.65fr] md:items-center ${selectedReportId === report.id ? "bg-[#f5f9fc]" : "bg-white"}`}
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span
                               className={`h-1.5 w-1.5 shrink-0 rounded-full ${report.status === "Pending review" ? "bg-[#d58b3d]" : report.status === "In review" ? "bg-[#4381ad]" : "bg-[#65a07e]"}`}
                             />
-                            <span className="font-mono text-[11px] font-bold text-[#2b5576]">
+                            <span className="font-mono text-[12px] font-bold text-[#2b5576]">
                               {report.id}
                             </span>
                           </div>
                           <p className="mt-1 truncate text-[10px] font-semibold text-[#9aabba]">
-                            {report.reference}
+                            {report.location}
                           </p>
                         </div>
                         <div className="min-w-0">
                           <p className="truncate text-[12px] font-bold text-[#345570]">
-                            {report.location}
+                            {report.category}
                           </p>
                           <p className="mt-1 truncate text-[10px] text-[#8a9bac]">
                             {report.category} · {report.subject}
                           </p>
                         </div>
-                        <div>
-                          <StatusPill status={report.status} />
-                        </div>
                         <div className="flex items-center justify-between md:block md:text-right">
                           <span className="text-[10px] font-semibold text-[#71869b]">
                             {report.received}
                           </span>
-                          <ChevronRight
-                            size={15}
-                            className="inline text-[#b1bfcb] md:hidden"
-                          />
+                        </div>
+                        <div><StatusPill status={report.status} /></div>
+                        <div className="flex items-center justify-between md:justify-end md:gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#dbe5f0] bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#0c5bce]">View details <ChevronRight size={13} /></span>
                         </div>
                       </button>
                     ))
@@ -1122,7 +1120,7 @@ export function AdminDashboard() {
         </footer>
       </div>
       {notice ? (
-        <div className="fixed bottom-[84px] right-5 z-30 flex items-center gap-2 rounded-xl border border-[#c8dce7] bg-[#214f6a] px-4 py-3 text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(29,72,97,0.22)] lg:bottom-6">
+        <div className="fixed bottom-[calc(84px+env(safe-area-inset-bottom,0px))] right-5 z-30 flex items-center gap-2 rounded-xl border border-[#c8dce7] bg-[#214f6a] px-4 py-3 text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(29,72,97,0.22)] lg:bottom-6">
           <Check size={14} className="text-[#a8d7c0]" /> {notice}
         </div>
       ) : null}

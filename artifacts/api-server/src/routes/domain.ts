@@ -4,7 +4,7 @@ import path from "node:path";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
-import { and, asc, count, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import {
@@ -224,7 +224,10 @@ function buildComplaintWhere(req: Request) {
 }
 
 router.get("/complaints", requireAuth, async (req, res) => {
-  const complaints = await db.select().from(complaintsTable).where(buildComplaintWhere(req)).orderBy(desc(complaintsTable.createdAt)).limit(100);
+  const complaints = await db.select({
+    ...getTableColumns(complaintsTable),
+    confirmedViolation: sql<boolean>`exists (select 1 from ${violationsTable} where ${violationsTable.complaintId} = ${complaintsTable.id})`,
+  }).from(complaintsTable).where(buildComplaintWhere(req)).orderBy(desc(complaintsTable.createdAt)).limit(100);
   res.json({ complaints });
 });
 
@@ -265,6 +268,8 @@ router.patch("/complaints/:id/status", requireAuth, requireRoles("TODA_OFFICER",
     return [row];
   });
   await notify(existing.studentUserId, "COMPLAINT_STATUS_UPDATED", `Complaint ${existing.referenceNumber} is now ${input.status.replaceAll("_", " ")}.`, existing.id);
+  const [driver] = await db.select({ userId: driversTable.userId }).from(driversTable).where(eq(driversTable.id, existing.driverId)).limit(1);
+  if (driver?.userId) await notify(driver.userId, "COMPLAINT_STATUS_UPDATED", `Report ${existing.referenceNumber} status changed to ${input.status.replaceAll("_", " ")}.`, existing.id);
   res.json({ complaint: updated });
 });
 
@@ -276,6 +281,8 @@ router.post("/complaints/:id/actions", requireAuth, requireRoles("TODA_OFFICER",
   const [action] = await db.insert(complaintActionsTable).values({ complaintId: complaint.id, actionType: input.actionType, description: input.description, actionTakenBy: req.user!.id }).returning();
   await audit(req.user!.id, "COMPLAINT_ACTION_CREATE", "complaint_actions", String(action.id), { complaintId: complaint.id });
   await notify(complaint.studentUserId, "COMPLAINT_ACTION_RECORDED", `An action was recorded for complaint ${complaint.referenceNumber}.`, complaint.id);
+  const [driver] = await db.select({ userId: driversTable.userId }).from(driversTable).where(eq(driversTable.id, complaint.driverId)).limit(1);
+  if (driver?.userId) await notify(driver.userId, "COMPLAINT_ACTION_RECORDED", `An update was recorded for report ${complaint.referenceNumber}.`, complaint.id);
   res.status(201).json({ action });
 });
 
@@ -285,9 +292,32 @@ router.post("/complaints/:id/violations", requireAuth, requireRoles("TODA_OFFICE
   const [complaint] = await db.select().from(complaintsTable).where(eq(complaintsTable.id, complaintId)).limit(1);
   if (!complaint) return sendError(res, 404, "Complaint not found.");
   if (!["VERIFIED", "RESOLVED", "CLOSED"].includes(complaint.status)) return sendError(res, 400, "A confirmed violation can only be recorded after appropriate review.");
+  const [existingViolation] = await db.select({ id: violationsTable.id }).from(violationsTable).where(eq(violationsTable.complaintId, complaint.id)).limit(1);
+  if (existingViolation) return sendError(res, 409, "A violation has already been recorded for this report.");
   const [violation] = await db.insert(violationsTable).values({ ...input, complaintId: complaint.id, driverId: complaint.driverId, confirmedBy: req.user!.id }).returning();
   await audit(req.user!.id, "VIOLATION_CREATE", "violations", String(violation.id), { complaintId: complaint.id });
+  const [driver] = await db.select({ userId: driversTable.userId }).from(driversTable).where(eq(driversTable.id, complaint.driverId)).limit(1);
+  if (driver?.userId) await notify(driver.userId, "VIOLATION_CONFIRMED", `A confirmed violation was recorded for report ${complaint.referenceNumber}.`, complaint.id);
   res.status(201).json({ violation });
+});
+
+router.get("/violations", requireAuth, requireRoles("DRIVER", "TODA_OFFICER", "ADMIN", "PNP"), async (req, res) => {
+  const violations = await db.select({
+    id: violationsTable.id,
+    complaintId: violationsTable.complaintId,
+    driver: driversTable.fullName,
+    relatedReport: complaintsTable.referenceNumber,
+    type: violationsTable.violationCategory,
+    dateValue: sql<string>`to_char(${violationsTable.confirmationDate}, 'YYYY-MM-DD')`,
+    summary: violationsTable.description,
+    action: sql<string>`coalesce((select ${complaintActionsTable.description} from ${complaintActionsTable} where ${complaintActionsTable.complaintId} = ${violationsTable.complaintId} and ${complaintActionsTable.actionType} = 'Authorized action' order by ${complaintActionsTable.createdAt} desc limit 1), '')`,
+    complaintStatus: complaintsTable.status,
+  }).from(violationsTable)
+    .innerJoin(driversTable, eq(violationsTable.driverId, driversTable.id))
+    .innerJoin(complaintsTable, eq(violationsTable.complaintId, complaintsTable.id))
+    .where(req.user!.role === "DRIVER" ? eq(driversTable.userId, req.user!.id) : undefined)
+    .orderBy(desc(violationsTable.confirmationDate)).limit(100);
+  res.json({ violations });
 });
 
 router.get("/notifications", requireAuth, async (req, res) => {

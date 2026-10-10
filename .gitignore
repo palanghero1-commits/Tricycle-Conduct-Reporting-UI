@@ -55,3 +55,4 @@ Thumbs.db
 api-php/config.php
 api-php/php.ini
 api-php/storage/
+/private-storage/

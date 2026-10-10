@@ -356,10 +356,14 @@ export function DriverDirectory() {
   const [notice, setNotice] = useState("");
   const [showAllReports, setShowAllReports] = useState(false);
   const [liveDrivers, setLiveDrivers] = useState<Driver[]>([]);
+  const [loadError, setLoadError] = useState("");
+  const [detailsWarning, setDetailsWarning] = useState("");
 
   useEffect(() => {
     const loadDrivers = () => apiRequest<{ drivers: Array<{ id: number; fullName: string; driverCode: string; tricycleIdentifier: string; plateNumber: string | null; routeArea: string | null; contactNumber: string | null; reportCount: number; confirmedViolationCount: number }> }>("/drivers")
-      .then(({ drivers: rows }) => setLiveDrivers(rows.map((driver) => ({
+      .then(({ drivers: rows }) => {
+        setLoadError("");
+        setLiveDrivers(rows.map((driver) => ({
         id: driver.driverCode,
         databaseId: driver.id,
         name: driver.fullName,
@@ -377,20 +381,27 @@ export function DriverDirectory() {
         reportsHistory: [],
         violations: [],
         activity: [],
-      }))));
-    void loadDrivers().catch(() => setLiveDrivers([]));
+        })));
+      })
+      .catch((error) => { setLoadError(error instanceof Error ? error.message : "Driver directory could not be loaded."); });
+    void loadDrivers();
   }, []);
 
   useEffect(() => {
     if (!liveDrivers.length) return;
     Promise.all(liveDrivers.map(async (driver) => {
-      if (!driver.databaseId) return { id: driver.id, details: null };
-      const details = await apiRequest<{
-        reports: Array<{ id: string; date: string; category: string; summary: string; status: string }>;
-        violations: Array<{ reference: string; date: string; finding: string; action: string }>;
-      }>(`/drivers/${driver.id}`);
-      return { id: driver.id, details };
+      try {
+        if (!driver.databaseId) return { id: driver.id, details: null };
+        const details = await apiRequest<{
+          reports: Array<{ id: string; date: string; category: string; summary: string; status: string }>;
+          violations: Array<{ reference: string; date: string; finding: string; action: string }>;
+        }>(`/drivers/${driver.databaseId}`);
+        return { id: driver.id, details };
+      } catch {
+        return { id: driver.id, details: null };
+      }
     })).then((records) => {
+      setDetailsWarning(records.some((record) => !record.details) ? "Some driver history could not be loaded." : "");
       setLiveDrivers((current) => current.map((driver) => {
         const record = records.find((item) => item.id === driver.id);
         if (!record || !record.details) return driver;
@@ -401,7 +412,7 @@ export function DriverDirectory() {
           activity: [],
         };
       }));
-    }).catch(() => undefined);
+    });
   }, [liveDrivers.length]);
 
   const filteredDrivers = useMemo(() => {
@@ -457,6 +468,9 @@ export function DriverDirectory() {
             </div>
           </div>
         </section>
+
+        {loadError ? <div role="alert" className="rounded-xl border border-[#f0d1d1] bg-[#fff7f7] px-4 py-3 text-[12px] text-[#9c4444]">Driver directory could not be loaded: {loadError}</div> : null}
+        {detailsWarning ? <div role="status" className="rounded-xl border border-[#f0d8a8] bg-[#fff9eb] px-4 py-3 text-[12px] text-[#805b16]">{detailsWarning}</div> : null}
 
         <section className="flex flex-col gap-3 rounded-[20px] border border-[#dbe5f0] bg-white p-3.5 shadow-[0_5px_20px_rgba(35,64,95,0.04)] lg:flex-row lg:items-center">
           <label className="relative min-w-0 flex-1">
@@ -743,7 +757,7 @@ export function DriverDirectory() {
       </div>
 
       {notice ? (
-        <div className="fixed bottom-[84px] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#c8dce7] bg-[#214f6a] px-4 py-2.5 text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(29,72,97,0.22)] lg:bottom-7">
+        <div className="fixed bottom-[calc(84px+env(safe-area-inset-bottom,0px))] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#c8dce7] bg-[#214f6a] px-4 py-2.5 text-[11px] font-bold text-white shadow-[0_8px_24px_rgba(29,72,97,0.22)] lg:bottom-7">
           <BadgeCheck size={14} className="text-[#a8d7c0]" />
           {notice}
         </div>

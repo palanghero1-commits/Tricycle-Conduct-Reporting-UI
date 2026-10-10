@@ -10,3 +10,8 @@
 ; extension_dir="C:\xampp\php\ext"
 ; extension=pdo_mysql
 ; extension=fileinfo
+
+; Match the local report upload limits (5 files, up to 5 MB each).
+upload_max_filesize=5M
+post_max_size=28M
+max_file_uploads=5

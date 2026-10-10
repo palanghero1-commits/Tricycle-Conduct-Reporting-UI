@@ -82,7 +82,7 @@ const driverNav = [
 
 const officerNav = [
   { label: "Dashboard", icon: Gauge, component: "OfficerDashboard" },
-  { label: "Reports", icon: ClipboardList, component: "ReviewWorkspace" },
+  { label: "Reports", icon: ClipboardList, component: "ReportsQueue" },
   { label: "Emergency SOS", icon: Siren, component: "UnderDevelopment" },
   { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
   { label: "Violations", icon: ShieldCheck, component: "Violations" },
@@ -91,7 +91,7 @@ const officerNav = [
 
 const adminNav = [
   { label: "Dashboard", icon: Gauge, component: "AdminDashboard" },
-  { label: "Reports", icon: ClipboardList, component: "ReviewWorkspace" },
+  { label: "Reports", icon: ClipboardList, component: "ReportsQueue" },
   { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
   { label: "Violations", icon: ShieldCheck, component: "Violations" },
   { label: "Analytics", icon: BarChart3, component: "Analytics" },
@@ -128,7 +128,7 @@ export function AppLayout({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const roleUsesReviewWorkspace = ["TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "PNP", "SUPERADMIN"].includes(currentUser?.role ?? "");
   const workspaceOfficer = officer || roleUsesReviewWorkspace;
-  const navItems: NavItem[] = currentUser?.role === "SUPERADMIN" ? adminNav : currentUser?.role === "DRIVER" ? driverNav : workspaceOfficer ? (["AUTHORIZED_PERSONNEL", "PNP"].includes(currentUser?.role ?? "") ? [...officerNav, { label: "TODAs", icon: UsersRound, component: "OfficerDashboard", hash: "#todas" }] : officerNav) : studentNav;
+  const navItems: NavItem[] = currentUser?.role === "SUPERADMIN" ? adminNav : currentUser?.role === "DRIVER" ? driverNav : workspaceOfficer ? (currentUser?.role === "AUTHORIZED_PERSONNEL" ? [...officerNav, { label: "TODAs", icon: UsersRound, component: "OfficerDashboard", hash: "#todas" }] : officerNav) : studentNav;
   const initials = getUserInitials(currentUser);
   const displayTitle = title ?? (workspaceOfficer ? "Authorized personnel workspace" : currentUser?.role === "DRIVER" ? "Driver workspace" : "Student workspace");
   const displayRole = currentUser?.role === "PNP" ? "AUTHORIZED PERSONNEL" : currentUser?.role;
@@ -203,7 +203,7 @@ export function AppLayout({
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f4f7fb] text-[#132238]">
-      <div className="flex h-screen overflow-hidden">
+      <div className="app-viewport-height flex overflow-hidden">
         <aside className="sticky top-0 hidden h-screen w-[250px] shrink-0 flex-col overflow-hidden border-r border-[#dbe5f0] bg-white px-5 py-6 lg:flex">
           <div className="flex items-center gap-3 px-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#0c5bce] text-white shadow-[0_6px_18px_rgba(12,91,206,0.22)]">
@@ -272,7 +272,7 @@ export function AppLayout({
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 overflow-y-auto pb-20 lg:pb-0">
+        <main className="mobile-content-padding min-w-0 flex-1 overflow-y-auto">
           <header className="sticky top-0 z-10 flex h-[74px] items-center justify-between border-b border-[#dbe5f0]/80 bg-[#f4f7fb]/90 px-5 backdrop-blur lg:px-10">
             <div className="flex items-center gap-3">
               <button type="button" onClick={() => setMobileNavOpen(true)} className="rounded-xl p-2 text-[#6f849d] hover:bg-white lg:hidden" aria-label="Open navigation" aria-expanded={mobileNavOpen}>
@@ -361,11 +361,11 @@ export function AppLayout({
         </div>
       ) : null}
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 flex h-[72px] items-center justify-around border-t border-[#dbe5f0] bg-white/95 px-2 backdrop-blur lg:hidden">
+      <nav className="mobile-bottom-navigation fixed inset-x-0 bottom-0 z-20 flex items-center justify-around border-t border-[#dbe5f0] bg-white/95 px-2 backdrop-blur lg:hidden">
         {navItems.slice(0, 5).map(({ label, icon: Icon, component, hash }) => {
           const isActive = active === label;
           return (
-            <button key={label} type="button" onClick={() => navigateTo(component, hash)} className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[9px] font-bold ${isActive ? "text-[#0c5bce]" : "text-[#8ca0b6]"}`}>
+            <button key={label} type="button" onClick={() => navigateTo(component, hash)} className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-1.5 text-[10px] leading-tight font-bold sm:text-[11px] ${isActive ? "text-[#0c5bce]" : "text-[#8ca0b6]"}`}>
               <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
               <span>{label === "Submit report" ? "Report" : label.replace("My ", "")}</span>
             </button>

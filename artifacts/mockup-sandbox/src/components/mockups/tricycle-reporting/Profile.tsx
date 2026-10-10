@@ -325,7 +325,7 @@ export function Profile() {
       </div>
 
       {savedNotice ? (
-        <div className="fixed bottom-[86px] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#cce7d8] bg-[#f3fbf6] px-4 py-2.5 text-[11px] font-bold text-[#287652] shadow-[0_10px_25px_rgba(38,99,70,0.12)] lg:bottom-7">
+        <div className="fixed bottom-[calc(86px+env(safe-area-inset-bottom,0px))] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#cce7d8] bg-[#f3fbf6] px-4 py-2.5 text-[11px] font-bold text-[#287652] shadow-[0_10px_25px_rgba(38,99,70,0.12)] lg:bottom-7">
           <Check size={14} />
           Profile details updated
         </div>

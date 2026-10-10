@@ -16,8 +16,8 @@ import {
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, philippineDateKey } from "../../../lib/api";
 
-type ReportStatus = "Open" | "In review" | "Resolved";
-type ReportCategory = "Unsafe driving" | "Overcharging" | "Route concern" | "Vehicle condition";
+type ReportStatus = "Received" | "In review" | "Verified" | "Referred" | "Resolved" | "Closed";
+type ReportCategory = string;
 type PeriodFilter = "30d" | "90d" | "year";
 
 type AnalyticsReport = {
@@ -29,26 +29,25 @@ type AnalyticsReport = {
   resolutionDays: number | null;
 };
 
-const months = [
-  { key: "01", label: "Jan" },
-  { key: "02", label: "Feb" },
-  { key: "03", label: "Mar" },
-  { key: "04", label: "Apr" },
-  { key: "05", label: "May" },
-  { key: "06", label: "Jun" },
-];
+const months = Array.from({ length: 12 }, (_, index) => ({
+  key: String(index + 1).padStart(2, "0"),
+  label: new Date(2026, index, 1).toLocaleString("en", { month: "short" }),
+}));
 
-const categoryColors: Record<ReportCategory, string> = {
-  "Unsafe driving": "#0c5bce",
-  Overcharging: "#e8794f",
-  "Route concern": "#56a886",
-  "Vehicle condition": "#806bb2",
+const categoryPalette = ["#0c5bce", "#e8794f", "#56a886", "#806bb2", "#d19a27", "#328b9b", "#bd6682", "#687c92"];
+const categoryColor = (name: string) => {
+  let hash = 0;
+  for (const character of name) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return categoryPalette[hash % categoryPalette.length];
 };
 
 const statusColors: Record<ReportStatus, string> = {
-  Resolved: "#56a886",
+  Received: "#e8794f",
   "In review": "#e2a84b",
-  Open: "#e8794f",
+  Verified: "#806bb2",
+  Referred: "#328b9b",
+  Resolved: "#56a886",
+  Closed: "#687c92",
 };
 
 const formatPercent = (value: number) => `${value.toFixed(1)}%`;
@@ -92,6 +91,8 @@ function ChartLegend({ color, children }: { color: string; children: ReactNode }
 
 export function Analytics() {
   const [liveReports, setLiveReports] = useState<AnalyticsReport[]>([]);
+  const [loadError, setLoadError] = useState("");
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [period, setPeriod] = useState<PeriodFilter>("year");
   const [category, setCategory] = useState<"All" | ReportCategory>("All");
   const [status, setStatus] = useState<"All" | ReportStatus>("All");
@@ -102,16 +103,22 @@ export function Analytics() {
       apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; driverName: string; categoryName: string; createdAt: string; resolvedAt: string | null }> }>("/complaints")
         .then(({ complaints }) => {
           if (!active) return;
+          setLoadError("");
+          setHasLoaded(true);
           setLiveReports(complaints.map((item) => ({
             id: item.referenceNumber || item.id,
             date: philippineDateKey(item.createdAt),
-            category: (item.categoryName as ReportCategory) || "Route concern",
-            status: item.status === "CLOSED" || item.status === "RESOLVED" ? "Resolved" : item.status === "UNDER_REVIEW" || item.status === "REFERRED" ? "In review" : "Open",
+            category: item.categoryName || "Uncategorized",
+            status: ({ SUBMITTED: "Received", RECEIVED: "Received", UNDER_REVIEW: "In review", VERIFIED: "Verified", REFERRED: "Referred", RESOLVED: "Resolved", CLOSED: "Closed" } as Record<string, ReportStatus>)[item.status] ?? "Received",
             driver: item.driverName || "Unknown driver",
             resolutionDays: item.resolvedAt ? Math.max(0, (new Date(item.resolvedAt.replace(" ", "T")).getTime() - new Date(item.createdAt.replace(" ", "T")).getTime()) / 86400000) : null,
           })));
         })
-        .catch(() => { if (active) setLiveReports([]); });
+        .catch((error: unknown) => {
+          if (!active) return;
+          setHasLoaded(true);
+          setLoadError(error instanceof Error ? error.message : "Analytics data could not be refreshed.");
+        });
     };
     load();
     const timer = window.setInterval(load, 10000);
@@ -135,12 +142,12 @@ export function Analytics() {
   }, [category, liveReports, period, status]);
 
   const metrics = useMemo(() => {
-    const resolved = filteredReports.filter((report) => report.status === "Resolved");
+    const resolved = filteredReports.filter((report) => report.status === "Resolved" || report.status === "Closed");
     const responseDays = resolved.filter((report) => report.resolutionDays !== null).map((report) => report.resolutionDays as number);
     return {
       total: filteredReports.length,
       resolved: resolved.length,
-      pending: filteredReports.filter((report) => report.status !== "Resolved").length,
+      pending: filteredReports.filter((report) => report.status !== "Resolved" && report.status !== "Closed").length,
       resolutionRate: filteredReports.length ? (resolved.length / filteredReports.length) * 100 : 0,
       averageResponse: responseDays.length ? responseDays.reduce((sum, days) => sum + days, 0) / responseDays.length : 0,
     };
@@ -157,7 +164,7 @@ export function Analytics() {
 
   const categoryData = useMemo(
     () =>
-      (Object.keys(categoryColors) as ReportCategory[])
+      [...new Set(filteredReports.map((report) => report.category))]
         .map((name) => ({ name, total: filteredReports.filter((report) => report.category === name).length }))
         .sort((a, b) => b.total - a.total),
     [filteredReports],
@@ -175,7 +182,7 @@ export function Analytics() {
     () =>
       months.map((month) => {
         const monthReports = filteredReports.filter((report) => report.date.slice(5, 7) === month.key);
-        const resolved = monthReports.filter((report) => report.status === "Resolved").length;
+        const resolved = monthReports.filter((report) => report.status === "Resolved" || report.status === "Closed").length;
         return { ...month, resolved, pending: monthReports.length - resolved };
       }),
     [filteredReports],
@@ -199,7 +206,7 @@ export function Analytics() {
   const categoryMax = Math.max(...categoryData.map((item) => item.total), 1);
   const driverMax = Math.max(...driverData.map((item) => item.total), 1);
   const linePoints = resolutionData
-    .map((month, index) => `${40 + index * 108},${144 - (month.resolved / Math.max(...resolutionData.map((item) => item.resolved), 1)) * 108}`)
+    .map((month, index) => `${40 + index * 56},${144 - (month.resolved / Math.max(...resolutionData.map((item) => item.resolved), 1)) * 108}`)
     .join(" ");
   const circumference = 100;
   let donutOffset = 0;
@@ -216,8 +223,8 @@ export function Analytics() {
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-[#dbe5f0] bg-white px-3 py-2 text-[11px] font-semibold text-[#71859e] shadow-[0_4px_15px_rgba(39,72,108,0.04)]">
-            <span className="h-2 w-2 rounded-full bg-[#56a886]" />
-            Live data · refreshed every 10 seconds
+            <span className={`h-2 w-2 rounded-full ${loadError ? "bg-[#d05b4b]" : hasLoaded ? "bg-[#56a886]" : "bg-[#e2a84b]"}`} />
+            {loadError ? "Connection issue · showing last successful data" : hasLoaded ? "Live data · refreshed every 10 seconds" : "Connecting to live data…"}
           </div>
         </section>
 
@@ -240,7 +247,7 @@ export function Analytics() {
               </SelectField>
               <SelectField label="Category" value={category} onChange={(value) => setCategory(value as "All" | ReportCategory)}>
                 <option value="All">All categories</option>
-                {(Object.keys(categoryColors) as ReportCategory[]).map((item) => (
+                {[...new Set(liveReports.map((report) => report.category))].sort().map((item) => (
                   <option key={item} value={item}>
                     {item}
                   </option>
@@ -273,6 +280,8 @@ export function Analytics() {
           <MetricCard icon={<TrendingUp size={17} />} label="Average response" value={metrics.averageResponse ? `${metrics.averageResponse.toFixed(1)}d` : "—"} detail="Resolved reports only" accent="#806bb2" />
         </section>
 
+        {loadError ? <div role="alert" className="rounded-xl border border-[#f0c9c2] bg-[#fff6f4] px-4 py-3 text-[12px] text-[#9d493d]">Analytics could not refresh: {loadError}</div> : null}
+
         {filteredReports.length === 0 ? (
           <section className="rounded-2xl border border-dashed border-[#b8cade] bg-white px-6 py-14 text-center">
             <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f0f7ff] text-[#7890aa]">
@@ -292,7 +301,7 @@ export function Analytics() {
               icon={<CalendarDays size={17} />}
               className="min-h-[330px]"
             >
-              <div className="mt-5 overflow-x-auto pb-1">
+              <div className="mt-5 hidden overflow-x-auto pb-1 lg:block">
                 <svg viewBox="0 0 700 230" className="min-w-[600px] w-full" role="img" aria-label="Bar chart showing reports by month">
                   <title>Reports by month</title>
                   {[0, 1, 2, 3].map((line) => {
@@ -308,15 +317,15 @@ export function Analytics() {
                   })}
                   {monthlyData.map((month, index) => {
                     const height = (month.total / monthlyMax) * 135;
-                    const x = 58 + index * 104;
+                    const x = 50 + index * 52;
                     return (
                       <g key={month.key}>
-                        <rect x={x} y={169 - height} width="48" height={height} rx="8" fill="#d9eaff" />
-                        <rect x={x} y={169 - height} width="48" height={Math.max(height * 0.72, 4)} rx="8" fill="#0c5bce" />
-                        <text x={x + 24} y="193" textAnchor="middle" fill="#71859e" fontSize="11" fontWeight="700">
+                        <rect x={x} y={169 - height} width="32" height={height} rx="6" fill="#d9eaff" />
+                        <rect x={x} y={169 - height} width="32" height={Math.max(height * 0.72, 4)} rx="6" fill="#0c5bce" />
+                        <text x={x + 16} y="193" textAnchor="middle" fill="#71859e" fontSize="9" fontWeight="700">
                           {month.label}
                         </text>
-                        <text x={x + 24} y={Math.max(169 - height - 9, 13)} textAnchor="middle" fill="#23405f" fontSize="11" fontWeight="800">
+                        <text x={x + 16} y={Math.max(169 - height - 9, 13)} textAnchor="middle" fill="#23405f" fontSize="10" fontWeight="800">
                           {month.total}
                         </text>
                       </g>
@@ -324,7 +333,18 @@ export function Analytics() {
                   })}
                 </svg>
               </div>
-              <div className="mt-1 flex items-center gap-4">
+              <div className="mt-5 space-y-3 lg:hidden" aria-label="Monthly report totals">
+                {monthlyData.map((month) => (
+                  <div key={month.key} className="grid grid-cols-[3.25rem_minmax(0,1fr)_2rem] items-center gap-3">
+                    <span className="text-[12px] font-semibold text-[#526a84]">{month.label}</span>
+                    <div className="h-2 overflow-hidden rounded-full bg-[#eef3f8]">
+                      <div className="h-full rounded-full bg-[#0c5bce]" style={{ width: `${(month.total / monthlyMax) * 100}%` }} />
+                    </div>
+                    <span className="text-right text-[12px] font-extrabold text-[#23405f]">{month.total}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-1 hidden items-center gap-4 lg:flex">
                 <ChartLegend color="#0c5bce">Reports submitted</ChartLegend>
                 <ChartLegend color="#d9eaff">Available comparison space</ChartLegend>
               </div>
@@ -383,7 +403,7 @@ export function Analytics() {
                       <span className="font-extrabold text-[#23405f]">{item.total}</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-[#eef3f8]">
-                      <div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${(item.total / categoryMax) * 100}%`, backgroundColor: categoryColors[item.name] }} />
+                      <div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${(item.total / categoryMax) * 100}%`, backgroundColor: categoryColor(item.name) }} />
                     </div>
                   </div>
                 ))}
@@ -395,7 +415,7 @@ export function Analytics() {
             </ChartCard>
 
             <ChartCard title="Resolution trends" subtitle="Resolved versus still pending each month" icon={<TrendingUp size={17} />}>
-              <div className="mt-5 overflow-x-auto pb-1">
+              <div className="mt-5 hidden overflow-x-auto pb-1 lg:block">
                 <svg viewBox="0 0 700 205" className="min-w-[600px] w-full" role="img" aria-label="Line chart showing resolution trends">
                   <title>Resolution trends</title>
                   {[0, 1, 2, 3].map((line) => {
@@ -404,7 +424,7 @@ export function Analytics() {
                   })}
                   <polyline points={linePoints} fill="none" stroke="#56a886" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
                   {resolutionData.map((month, index) => {
-                    const x = 40 + index * 108;
+                    const x = 40 + index * 56;
                     const maxResolved = Math.max(...resolutionData.map((item) => item.resolved), 1);
                     const y = 144 - (month.resolved / maxResolved) * 108;
                     return (
@@ -421,7 +441,18 @@ export function Analytics() {
                   })}
                 </svg>
               </div>
-              <div className="mt-1 flex items-center gap-4">
+              <div className="mt-5 space-y-3 lg:hidden" aria-label="Monthly resolution totals">
+                {resolutionData.map((month) => (
+                  <div key={month.key} className="grid grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
+                    <span className="text-[12px] font-semibold text-[#526a84]">{month.label}</span>
+                    <span className="text-right text-[11px] font-bold text-[#526a84]">{month.resolved} resolved · {month.pending} pending</span>
+                    <div className="col-span-2 flex h-2 overflow-hidden rounded-full bg-[#f3eee8]" aria-label={`${month.resolved} resolved, ${month.pending} pending`}>
+                      <div className="h-full bg-[#56a886]" style={{ width: `${month.resolved + month.pending ? (month.resolved / (month.resolved + month.pending)) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-1 hidden items-center gap-4 lg:flex">
                 <ChartLegend color="#56a886">Resolved reports</ChartLegend>
                 <span className="text-[10px] font-medium text-[#9aabbe]">Counts, not case outcomes</span>
               </div>

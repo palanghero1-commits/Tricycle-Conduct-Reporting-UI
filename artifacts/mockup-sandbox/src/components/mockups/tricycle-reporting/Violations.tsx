@@ -151,24 +151,45 @@ export function Violations() {
   const [guidanceOpen, setGuidanceOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [actionNotice, setActionNotice] = useState("");
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    apiRequest<{ violations: Array<{ id: number; complaintId: string; driver: string; relatedReport: string; type: string; dateValue: string; summary: string; action: string }> }>("/violations")
-      .then(({ violations: rows }) => setViolations(rows.map((row) => ({
-        id: `VIO-${row.id}`,
-        complaintId: row.complaintId,
-        driver: row.driver,
-        driverInitials: row.driver.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
-        relatedReport: row.relatedReport,
-        type: row.type,
-        date: new Date(`${row.dateValue}T00:00:00`).toLocaleDateString(),
-        dateValue: row.dateValue,
-        status: row.action ? "Action recorded" : "Action pending",
-        action: row.action || "Review pending",
-        summary: row.summary,
-        evidence: "Authorized review record.",
-      } as Violation))))
-      .catch(() => setViolations([]));
+    let active = true;
+    let refreshing = false;
+    const refresh = async () => {
+      if (!active || refreshing || document.visibilityState !== "visible") return;
+      refreshing = true;
+      try {
+        const { violations: rows } = await apiRequest<{ violations: Array<{ id: number; complaintId: string; driver: string; relatedReport: string; type: string; dateValue: string; summary: string; action: string; complaintStatus?: string }> }>("/violations");
+        if (!active) return;
+        const refreshed = rows.map((row) => ({
+          id: `VIO-${row.id}`,
+          complaintId: row.complaintId,
+          driver: row.driver,
+          driverInitials: row.driver.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
+          relatedReport: row.relatedReport,
+          type: row.type,
+          date: new Date(`${row.dateValue}T00:00:00`).toLocaleDateString(),
+          dateValue: row.dateValue,
+          status: row.complaintStatus === "CLOSED" ? "Closed for review" : row.action ? "Action recorded" : "Action pending",
+          action: row.action || "Review pending",
+          summary: row.summary,
+          evidence: "Authorized review record.",
+        } as Violation));
+        setLoadError("");
+        setViolations(refreshed);
+        setSelectedViolation((current) => current ? refreshed.find((item) => item.id === current.id) ?? null : null);
+      } catch {
+        setLoadError("Confirmed violations could not be refreshed. Check your connection; previously loaded records remain visible.");
+      } finally {
+        refreshing = false;
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 10_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { active = false; window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   const types = useMemo(() => ["All types", ...Array.from(new Set(violations.map((item) => item.type)))], [violations]);
@@ -222,6 +243,7 @@ export function Violations() {
   return (
     <AppLayout officer active="Violations" title="Confirmed violations" eyebrow={isDriver ? "Driver space" : "Review center"}>
       <div className="space-y-7">
+        {loadError ? <p role="alert" className="rounded-xl border border-[#f0d8a8] bg-[#fff9eb] px-4 py-3 text-[12px] text-[#805b16]">{loadError}</p> : null}
         <section className="relative overflow-hidden rounded-[24px] border border-[#d8e4f1] bg-white px-6 py-6 shadow-[0_14px_34px_rgba(33,66,106,0.05)] lg:px-8 lg:py-7">
           <div className="absolute right-[-34px] top-[-45px] h-44 w-44 rounded-full border-[22px] border-[#edf4ff]" />
           <div className="absolute right-14 top-10 h-8 w-8 rounded-full bg-[#fff3df]" />
@@ -299,7 +321,7 @@ export function Violations() {
               <h3 className="mt-1 text-[21px] font-black tracking-[-0.035em] text-[#163154]">Review confirmed records</h3>
             </div>
             <div className="flex flex-col gap-2.5 sm:flex-row">
-              <label className="relative block min-w-[260px]">
+              <label className="relative block min-w-0 w-full sm:max-w-[360px] sm:flex-1">
                 <span className="sr-only">Search confirmed records</span>
                 <Search size={16} className="pointer-events-none absolute left-3.5 top-3 text-[#8ca0b6]" />
                 <input
@@ -456,7 +478,7 @@ export function Violations() {
         </section>
 
         {actionNotice ? (
-          <div className="fixed bottom-20 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-[#c5e8d8] bg-[#effaf4] px-4 py-3 text-[12px] font-bold text-[#277957] shadow-[0_12px_28px_rgba(31,82,58,0.15)] lg:bottom-6">
+          <div className="fixed bottom-[calc(80px+env(safe-area-inset-bottom,0px))] left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-[#c5e8d8] bg-[#effaf4] px-4 py-3 text-[12px] font-bold text-[#277957] shadow-[0_12px_28px_rgba(31,82,58,0.15)] lg:bottom-6">
             <Check size={15} />
             {actionNotice}
             <button type="button" onClick={() => setActionNotice("")} className="ml-2 rounded p-0.5 hover:bg-[#d8f1e5]" aria-label="Dismiss notice"><X size={14} /></button>

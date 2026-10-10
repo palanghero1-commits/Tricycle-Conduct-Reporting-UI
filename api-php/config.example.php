@@ -6,6 +6,6 @@ return [
     'db_user' => 'root',
     'db_pass' => '',
     'jwt_secret' => 'change-this-local-secret',
-    'upload_dir' => __DIR__ . '/storage/uploads',
+    'upload_dir' => dirname(__DIR__) . '/private-storage/uploads',
     'frontend_origin' => '*',
 ];

@@ -1,6 +1,6 @@
 import { apiRequest, type ApiUser } from "./api";
 
-export type OfflineDriver = { id: number; fullName: string; tricycleIdentifier: string; routeArea: string | null };
+export type OfflineDriver = { id: number; fullName: string; driverCode?: string | null; tricycleIdentifier: string; plateNumber?: string | null; routeArea: string | null; contactNumber?: string | null; todaName?: string | null; todaBarangay?: string | null; todaCity?: string | null; todaProvince?: string | null };
 export type OfflineCategory = { id: number; name: string; description?: string };
 export type OfflineAccountData = {
   user: ApiUser;

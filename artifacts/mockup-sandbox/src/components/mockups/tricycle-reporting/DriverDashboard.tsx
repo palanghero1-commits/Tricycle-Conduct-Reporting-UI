@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bell, CarFront, ChevronRight, FileCheck2, MapPin, Phone, ShieldCheck, UserRound } from "lucide-react";
+import { Bell, CarFront, ChevronRight, FileCheck2, MapPin, Phone, ShieldCheck, UserRound, RefreshCw } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, getCurrentUser } from "../../../lib/api";
 
@@ -19,6 +19,21 @@ function goTo(component: string) {
 export function DriverDashboard() {
   const currentUser = getCurrentUser();
   const [profile, setProfile] = useState<DriverProfile>({});
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [profileError, setProfileError] = useState("");
+
+  const loadProfile = async () => {
+    setLoadingProfile(true);
+    setProfileError("");
+    try {
+      const { profile: loaded } = await apiRequest<{ profile: DriverProfile }>("/me");
+      setProfile(loaded ?? {});
+    } catch {
+      setProfileError("Driver details could not be loaded. Check your connection and try again.");
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
 
   useEffect(() => {
     if (currentUser?.role !== "DRIVER") {
@@ -26,7 +41,7 @@ export function DriverDashboard() {
       window.location.replace(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/${destination}`);
       return;
     }
-    apiRequest<{ profile: DriverProfile }>("/me").then(({ profile: loaded }) => setProfile(loaded ?? {})).catch(() => undefined);
+    void loadProfile();
   }, [currentUser?.role]);
 
   return (
@@ -38,12 +53,14 @@ export function DriverDashboard() {
           <p className="mt-2 max-w-[620px] text-[13px] leading-6 text-[#c9d9ed]">Keep your driver details, route information, and review notices ready for authorized personnel.</p>
         </section>
 
+        {profileError ? <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-[#f0d8a8] bg-[#fff9eb] px-4 py-3 text-[12px] text-[#805b16] sm:flex-row sm:items-center sm:justify-between"><span>{profileError}</span><button type="button" onClick={() => void loadProfile()} className="inline-flex items-center gap-2 self-start rounded-lg border border-[#e8cf99] bg-white px-3 py-2 font-bold hover:bg-[#fff3d5]"><RefreshCw size={14} />Retry</button></div> : null}
+
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { label: "Driver code", value: profile.driverCode ?? "Not provided", icon: UserRound },
-            { label: "Tricycle", value: profile.tricycleIdentifier ?? "Not provided", icon: CarFront },
-            { label: "Route", value: profile.routeArea ?? "Not provided", icon: MapPin },
-            { label: "Contact", value: profile.contactNumber ?? "Not provided", icon: Phone },
+            { label: "Driver code", value: loadingProfile ? "Loading…" : profileError ? "Unavailable" : profile.driverCode ?? "Not provided", icon: UserRound },
+            { label: "Tricycle", value: loadingProfile ? "Loading…" : profileError ? "Unavailable" : profile.tricycleIdentifier ?? "Not provided", icon: CarFront },
+            { label: "Route", value: loadingProfile ? "Loading…" : profileError ? "Unavailable" : profile.routeArea ?? "Not provided", icon: MapPin },
+            { label: "Contact", value: loadingProfile ? "Loading…" : profileError ? "Unavailable" : profile.contactNumber ?? "Not provided", icon: Phone },
           ].map(({ label, value, icon: Icon }) => (
             <div key={label} className="rounded-2xl border border-[#d9e3ec] bg-white p-4 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
               <Icon size={17} className="text-[#0c5bce]" />
@@ -56,7 +73,7 @@ export function DriverDashboard() {
         <section className="grid gap-5 lg:grid-cols-2">
           <div className="rounded-2xl border border-[#d9e3ec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
             <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eaf2ff] text-[#0c5bce]"><ShieldCheck size={19} /></span><div><h3 className="text-[15px] font-extrabold text-[#23405f]">Account and vehicle details</h3><p className="mt-1 text-[11px] text-[#8295aa]">Keep your contact-tracing information complete.</p></div></div>
-            <p className="mt-5 text-[12px] leading-5 text-[#71859e]">{profile.todaName ?? "Your TODA assignment is managed by authorized personnel."}</p>
+            <p className="mt-5 text-[12px] leading-5 text-[#71859e]">{loadingProfile ? "Loading TODA assignment…" : profileError ? "TODA assignment is unavailable until your profile loads." : profile.todaName ?? "Your TODA assignment is managed by authorized personnel."}</p>
             <button type="button" onClick={() => goTo("Profile")} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0c5bce] px-4 py-3 text-[11px] font-extrabold text-white hover:bg-[#084da9]">View full profile <ChevronRight size={14} /></button>
           </div>
           <div className="rounded-2xl border border-[#d9e3ec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">

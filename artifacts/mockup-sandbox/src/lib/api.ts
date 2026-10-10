@@ -149,6 +149,7 @@ export async function registerStudent(input: {
   studentId?: string;
   driverCode?: string;
   tricycleIdentifier?: string;
+  todaId?: number;
   email: string;
   password: string;
   confirmPassword: string;
