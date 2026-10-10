@@ -26,6 +26,10 @@ npm install
 
 ## 2. Create the MySQL Database
 
+When you run `npm run dev`, the local setup checks `api-php/config.php` (or the example config if no local config exists). If the configured local MySQL database is missing or empty, it creates the database, installs the schema, and adds the starter superadmin account. It does not reset a database that already contains tables.
+
+MySQL must be running, and the configured MySQL account must be allowed to create a database. For XAMPP, start MySQL in the XAMPP Control Panel first. If your MySQL user cannot create databases, you can create/import the schema manually with the commands below.
+
 Import this file into MySQL or phpMyAdmin:
 
 ```text
@@ -116,6 +120,14 @@ extension=fileinfo
 ```
 
 Do not use a committed `api-php/php.ini` from another computer unchanged. If you intentionally create a local `api-php/php.ini`, copy `api-php/php.ini.example` and update `extension_dir` to your own PHP `ext` folder.
+
+For manual PHP API startup, initialize a missing or empty local MySQL database safely:
+
+```bash
+php api-php/setup-db.php
+```
+
+This does not execute the schema's destructive reset statements against an existing database with tables. `npm run dev` runs this setup automatically before starting the local servers.
 
 From the project root:
 

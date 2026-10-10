@@ -76,6 +76,16 @@ function start(label, command, args, cwd) {
 }
 
 verifyPhpExtensions();
+const databaseSetup = spawnSync(phpCommand, [resolve(apiDir, "setup-db.php")], {
+  cwd: root,
+  stdio: "inherit",
+  encoding: "utf8",
+});
+if (databaseSetup.error || databaseSetup.status !== 0) {
+  console.error("Local database setup did not complete; the development servers were not started.");
+  process.exit(1);
+}
+
 console.log("Starting PHP API at http://localhost:8000/index.php");
 console.log("Starting Vite frontend...");
 start("PHP API", phpCommand, ["-d", "upload_max_filesize=5M", "-d", "post_max_size=28M", "-d", "max_file_uploads=5", "-S", "localhost:8000", "-t", apiDir, resolve(apiDir, "router.php")], root);

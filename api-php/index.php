@@ -934,6 +934,9 @@ try {
             ? "Database driver is not enabled. Run `php --ini`, open the active php.ini, enable extension={$extension}, and restart the PHP server."
             : 'Database driver is not enabled on the server.');
     }
+    if ($localDatabase && str_contains(strtolower($e->getMessage()), 'unknown database')) {
+        fail(500, "Local database '{$config['db_name']}' is missing. Run `npm run dev` or `php api-php/setup-db.php` to create and initialize it.");
+    }
     // Registration commonly reaches this branch when the email or student/driver
     // identifier has already been used. Return a useful client-facing message
     // instead of hiding the constraint violation behind a generic 500.
