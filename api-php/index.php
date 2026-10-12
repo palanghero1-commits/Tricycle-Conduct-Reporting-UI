@@ -257,7 +257,8 @@ try {
                 if (empty($data[$field])) fail(400, "$field is required.");
             }
             if (empty($data['todaId'])) fail(400, 'Select the TODA location for this driver account.');
-            if (!row($pdo, 'SELECT id FROM todas WHERE id = ? AND is_active = 1 LIMIT 1', [(int) $data['todaId']])) fail(400, 'Select an active TODA location.');
+            $driverToda = row($pdo, 'SELECT id, barangay, city, province FROM todas WHERE id = ? AND is_active = 1 LIMIT 1', [(int) $data['todaId']]);
+            if (!$driverToda) fail(400, 'Select an active TODA location.');
         }
         if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) fail(400, 'Use a valid email address.');
         if (strlen($data['password']) < 8) fail(400, 'Password must be at least 8 characters.');
@@ -271,7 +272,7 @@ try {
             $stmt->execute([$userId, trim($data['studentId']), $data['program'] ?? null, $data['yearLevel'] ?? null]);
         } else {
             $stmt = $pdo->prepare('INSERT INTO drivers (user_id, toda_id, full_name, driver_code, tricycle_identifier, route_area, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$userId, (int) $data['todaId'], trim($data['fullName']), trim($data['driverCode']), trim($data['tricycleIdentifier']), $data['routeArea'] ?? null, $data['contactNumber'] ?? null]);
+            $stmt->execute([$userId, (int) $data['todaId'], trim($data['fullName']), trim($data['driverCode']), trim($data['tricycleIdentifier']), toda_route_area($driverToda), $data['contactNumber'] ?? null]);
         }
         audit($pdo, $userId, 'REGISTER', 'users', $userId);
         $pdo->commit();
@@ -421,7 +422,7 @@ try {
             if (empty($data['todaId'])) fail(400, 'todaId is required.');
             $todaId = (int) $data['todaId'];
         }
-        $toda = row($pdo, 'SELECT id FROM todas WHERE id = ? AND is_active = 1 LIMIT 1', [$todaId]);
+        $toda = row($pdo, 'SELECT id, barangay, city, province FROM todas WHERE id = ? AND is_active = 1 LIMIT 1', [$todaId]);
         if (!$toda) fail(400, 'A valid active TODA is required.');
         $pdo->beginTransaction();
         $user = create_user($pdo, $data, 'DRIVER', $creator['id']);
@@ -433,7 +434,7 @@ try {
             trim($data['driverCode']),
             trim($data['tricycleIdentifier']),
             $data['plateNumber'] ?? null,
-            $data['routeArea'] ?? null,
+            toda_route_area($toda),
             $data['contactNumber'] ?? null,
             $creator['id'],
             empty($data['contactNumber']) ? 'TODA_CREATED_NO_PHONE' : 'AUTHORIZED_CREATED',
@@ -455,7 +456,7 @@ try {
         if ($user['role'] === 'STUDENT') {
             $profile = array_merge($profile, row($pdo, 'SELECT student_id AS "studentId", program, year_level AS "yearLevel", campus FROM students WHERE user_id = ?', [$user['id']]) ?? []);
         } elseif ($user['role'] === 'DRIVER') {
-            $profile = array_merge($profile, row($pdo, 'SELECT d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", d.route_area AS "routeArea", d.contact_number AS "contactNumber", t.name AS "todaName", t.barangay, t.city, t.province FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.user_id = ?', [$user['id']]) ?? []);
+            $profile = array_merge($profile, row($pdo, 'SELECT d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", ' . toda_route_area_sql('t') . ' AS "routeArea", d.contact_number AS "contactNumber", t.name AS "todaName", t.barangay, t.city, t.province FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.user_id = ?', [$user['id']]) ?? []);
         }
         $preferences = row($pdo, 'SELECT report_updates AS updates, reminders FROM user_preferences WHERE user_id = ?', [$user['id']]) ?? ['updates' => 1, 'reminders' => 0];
         $preferences = ['updates' => (bool) $preferences['updates'], 'reminders' => (bool) $preferences['reminders']];
@@ -550,7 +551,7 @@ try {
         $admin = auth($pdo, $config);
         require_roles($admin, ['SUPERADMIN']);
         $students = $pdo->query("SELECT u.id, u.full_name AS \"fullName\", u.email, u.status, u.created_at AS \"createdAt\", s.student_id AS \"studentId\", s.program, s.year_level AS \"yearLevel\", s.campus FROM users u JOIN students s ON s.user_id = u.id WHERE u.role = 'STUDENT' ORDER BY u.created_at DESC")->fetchAll();
-        $drivers = $pdo->query("SELECT u.id, u.full_name AS \"fullName\", u.email, u.status, u.created_at AS \"createdAt\", d.driver_code AS \"driverCode\", d.tricycle_identifier AS \"tricycleIdentifier\", d.route_area AS \"routeArea\", t.name AS \"todaName\" FROM drivers d LEFT JOIN users u ON u.id = d.user_id JOIN todas t ON t.id = d.toda_id ORDER BY d.created_at DESC")->fetchAll();
+        $drivers = $pdo->query("SELECT u.id, u.full_name AS \"fullName\", u.email, u.status, u.created_at AS \"createdAt\", d.driver_code AS \"driverCode\", d.tricycle_identifier AS \"tricycleIdentifier\", CONCAT_WS(', ', NULLIF(t.barangay, ''), NULLIF(t.city, ''), NULLIF(t.province, '')) AS \"routeArea\", t.name AS \"todaName\" FROM drivers d LEFT JOIN users u ON u.id = d.user_id JOIN todas t ON t.id = d.toda_id ORDER BY d.created_at DESC")->fetchAll();
         $personnel = $pdo->query("SELECT u.id, u.full_name AS \"fullName\", u.email, u.role, u.status, u.created_at AS \"createdAt\", p.personnel_type AS \"personnelType\", p.office_name AS \"officeName\", p.position_title AS \"positionTitle\" FROM users u JOIN authorized_personnel p ON p.user_id = u.id WHERE u.role IN ('AUTHORIZED_PERSONNEL','PNP') ORDER BY u.created_at DESC")->fetchAll();
         $presidents = $pdo->query("SELECT u.id, u.full_name AS \"fullName\", u.email, u.status, u.created_at AS \"createdAt\", t.id AS \"todaId\", t.name AS \"todaName\" FROM users u JOIN todas t ON t.president_user_id = u.id WHERE u.role = 'TODA_PRESIDENT' ORDER BY u.created_at DESC")->fetchAll();
         json_response(['students' => $students, 'drivers' => $drivers, 'personnel' => $personnel, 'presidents' => $presidents]);
@@ -599,7 +600,7 @@ try {
         if ($user['role'] === 'TODA_PRESIDENT' && !$todaIds) json_response(['drivers' => []]);
         $todaScope = $todaIds ? ' AND d.toda_id IN (' . implode(',', array_fill(0, count($todaIds), '?')) . ')' : '';
         $search = '%' . ($_GET['search'] ?? '') . '%';
-        $stmt = $pdo->prepare('SELECT d.id, d.full_name AS "fullName", d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", d.route_area AS "routeArea", d.contact_number AS "contactNumber", t.name AS "todaName", t.barangay AS "todaBarangay", t.city AS "todaCity", t.province AS "todaProvince", d.is_active AS "isActive", (SELECT COUNT(*) FROM complaints c WHERE c.driver_id = d.id) AS "reportCount", (SELECT COUNT(*) FROM violations v WHERE v.driver_id = d.id) AS "confirmedViolationCount" FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.is_active = 1' . $todaScope . ' AND (d.full_name LIKE ? OR d.driver_code LIKE ? OR d.tricycle_identifier LIKE ?) ORDER BY d.full_name LIMIT 100');
+        $stmt = $pdo->prepare('SELECT d.id, d.full_name AS "fullName", d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", ' . toda_route_area_sql('t') . ' AS "routeArea", d.contact_number AS "contactNumber", t.name AS "todaName", t.barangay AS "todaBarangay", t.city AS "todaCity", t.province AS "todaProvince", d.is_active AS "isActive", (SELECT COUNT(*) FROM complaints c WHERE c.driver_id = d.id) AS "reportCount", (SELECT COUNT(*) FROM violations v WHERE v.driver_id = d.id) AS "confirmedViolationCount" FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.is_active = 1' . $todaScope . ' AND (d.full_name LIKE ? OR d.driver_code LIKE ? OR d.tricycle_identifier LIKE ?) ORDER BY d.full_name LIMIT 100');
         $stmt->execute([...$todaIds, $search, $search, $search]);
         json_response(['drivers' => $stmt->fetchAll()]);
     }
@@ -615,7 +616,7 @@ try {
         if ($latitude === false || $longitude === false || $latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) fail(400, 'A valid current location is required.');
         if ($accuracy !== null && ($accuracy === false || $accuracy < 0)) fail(400, 'The emergency location accuracy is invalid.');
         if (row($pdo, 'SELECT id FROM sos_alerts WHERE student_user_id = ? AND status = \'ACTIVE\' LIMIT 1', [$user['id']])) fail(409, 'You already have an active emergency alert.');
-        $driver = row($pdo, 'SELECT d.id, d.full_name AS driverName, d.tricycle_identifier AS tricycleIdentifier, d.driver_code AS driverCode, d.plate_number AS plateNumber, d.route_area AS routeArea, d.contact_number AS contactNumber, t.name AS todaName FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.id = ? AND d.is_active = 1', [(int) $data['driverId']]);
+        $driver = row($pdo, 'SELECT d.id, d.full_name AS driverName, d.tricycle_identifier AS tricycleIdentifier, d.driver_code AS driverCode, d.plate_number AS plateNumber, ' . toda_route_area_sql('t') . ' AS routeArea, d.contact_number AS contactNumber, t.name AS todaName FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.id = ? AND d.is_active = 1', [(int) $data['driverId']]);
         if (!$driver) fail(400, 'The selected driver is not available.');
         $id = uuidv4();
         $stmt = $pdo->prepare('INSERT INTO sos_alerts (id, student_user_id, driver_id, status, latitude, longitude, location_accuracy_meters) VALUES (?, ?, ?, \'ACTIVE\', ?, ?, ?)');
@@ -627,7 +628,7 @@ try {
     if ($method === 'GET' && $path === '/sos/active') {
         $user = auth($pdo, $config);
         require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
-        $stmt = $pdo->query('SELECT s.id, s.status, s.latitude, s.longitude, s.location_accuracy_meters AS locationAccuracyMeters, s.started_at AS startedAt, s.last_seen_at AS lastSeenAt, u.full_name AS studentName, d.full_name AS driverName, d.driver_code AS driverCode, d.plate_number AS plateNumber, d.route_area AS routeArea, d.contact_number AS contactNumber, t.name AS todaName, d.tricycle_identifier AS tricycleIdentifier FROM sos_alerts s JOIN users u ON u.id = s.student_user_id JOIN drivers d ON d.id = s.driver_id LEFT JOIN todas t ON t.id = d.toda_id WHERE s.status = \'ACTIVE\' ORDER BY s.started_at DESC');
+        $stmt = $pdo->query('SELECT s.id, s.status, s.latitude, s.longitude, s.location_accuracy_meters AS locationAccuracyMeters, s.started_at AS startedAt, s.last_seen_at AS lastSeenAt, u.full_name AS studentName, d.full_name AS driverName, d.driver_code AS driverCode, d.plate_number AS plateNumber, ' . toda_route_area_sql('t') . ' AS routeArea, d.contact_number AS contactNumber, t.name AS todaName, d.tricycle_identifier AS tricycleIdentifier FROM sos_alerts s JOIN users u ON u.id = s.student_user_id JOIN drivers d ON d.id = s.driver_id LEFT JOIN todas t ON t.id = d.toda_id WHERE s.status = \'ACTIVE\' ORDER BY s.started_at DESC');
         json_response(['alerts' => $stmt->fetchAll()]);
     }
 
@@ -1003,13 +1004,21 @@ function complaint_or_404(PDO $pdo, string $id, array $user): array {
 }
 
 function complaint_details(PDO $pdo, array $complaint): array {
-    $driver = row($pdo, 'SELECT * FROM drivers WHERE id = ?', [$complaint['driver_id']]);
+    $driver = row($pdo, 'SELECT d.*, ' . toda_route_area_sql('t') . ' AS route_area FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.id = ?', [$complaint['driver_id']]);
     $category = row($pdo, 'SELECT * FROM complaint_categories WHERE id = ?', [$complaint['category_id']]);
     $history = rows($pdo, 'SELECT h.*, u.full_name AS "actorName", u.role AS "actorRole" FROM complaint_status_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.complaint_id = ? ORDER BY h.created_at', [$complaint['id']]);
     $actions = rows($pdo, 'SELECT a.*, u.full_name AS "authorName", u.role AS "authorRole" FROM complaint_actions a LEFT JOIN users u ON u.id = a.action_taken_by WHERE a.complaint_id = ? ORDER BY a.created_at DESC', [$complaint['id']]);
     $attachments = rows($pdo, 'SELECT id, original_name AS "originalName", mime_type AS "mimeType", size_bytes AS "sizeBytes", created_at AS "createdAt" FROM complaint_attachments WHERE complaint_id = ?', [$complaint['id']]);
     $violation = row($pdo, 'SELECT * FROM violations WHERE complaint_id = ? LIMIT 1', [$complaint['id']]);
     return ['complaint' => $complaint, 'driver' => $driver, 'category' => $category, 'history' => $history, 'actions' => $actions, 'attachments' => $attachments, 'violation' => $violation ?: null];
+}
+
+function toda_route_area(array $toda): string {
+    return implode(', ', array_values(array_filter(array_map('trim', [(string) ($toda['barangay'] ?? ''), (string) ($toda['city'] ?? ''), (string) ($toda['province'] ?? '')]), static fn($part) => $part !== '')));
+}
+
+function toda_route_area_sql(string $alias): string {
+    return "CONCAT_WS(', ', NULLIF($alias.barangay, ''), NULLIF($alias.city, ''), NULLIF($alias.province, ''))";
 }
 
 function row(PDO $pdo, string $sql, array $params): ?array {

@@ -147,6 +147,10 @@ function previewUrl(component: string) {
   return `${base}/preview/tricycle-reporting/${component}`;
 }
 
+function getTodaRouteArea(toda: { barangay: string; city: string; province: string } | undefined) {
+  return [toda?.barangay, toda?.city, toda?.province].filter(Boolean).join(", ");
+}
+
 function getWorkspaceAfterLogin(email: string, role: AccountRole, user?: ApiUser) {
   if (user?.role === "SUPERADMIN") return "AdminDashboard";
   if (user?.role === "PNP") return "OfficerDashboard";
@@ -205,7 +209,13 @@ export function Auth() {
       .then(({ todas }) => {
         if (!active) return;
         setDriverTodas(todas);
-        setForm((current) => ({ ...current, todaId: current.todaId && todas.some((toda) => String(toda.id) === current.todaId) ? current.todaId : String(todas[0]?.id ?? "") }));
+        setForm((current) => {
+          const todaId = current.todaId && todas.some((toda) => String(toda.id) === current.todaId)
+            ? current.todaId
+            : String(todas[0]?.id ?? "");
+          const selectedToda = todas.find((toda) => String(toda.id) === todaId);
+          return { ...current, todaId, routeArea: getTodaRouteArea(selectedToda) };
+        });
       })
       .catch((error) => { if (active) setTodasError(error instanceof Error ? error.message : "TODA locations could not be loaded."); })
       .finally(() => { if (active) setTodasLoading(false); });
@@ -214,6 +224,12 @@ export function Auth() {
 
   const updateForm = (key: keyof typeof form, value: string | boolean) => {
     setForm((current) => ({ ...current, [key]: value }));
+    setNotice(null);
+  };
+
+  const selectDriverToda = (todaId: string) => {
+    const selectedToda = driverTodas.find((toda) => String(toda.id) === todaId);
+    setForm((current) => ({ ...current, todaId, routeArea: getTodaRouteArea(selectedToda) }));
     setNotice(null);
   };
 
@@ -683,16 +699,17 @@ export function Auth() {
                               <input id="tricycle-id" value={form.tricycleIdentifier} onChange={(event) => updateForm("tricycleIdentifier", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. OS-2048" />
                             </div>
                             <div className="sm:col-span-2">
-                              <label htmlFor="route-area" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Route area</label>
-                              <input id="route-area" value={form.routeArea} onChange={(event) => updateForm("routeArea", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. Old Sagay Market loop" />
-                            </div>
-                            <div className="sm:col-span-2">
                               <label htmlFor="driver-toda" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">TODA association</label>
-                              <select id="driver-toda" required value={form.todaId} onChange={(event) => updateForm("todaId", event.target.value)} disabled={todasLoading || !driverTodas.length} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd] disabled:opacity-60">
+                              <select id="driver-toda" required value={form.todaId} onChange={(event) => selectDriverToda(event.target.value)} disabled={todasLoading || !driverTodas.length} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd] disabled:opacity-60">
                                 <option value="">{todasLoading ? "Loading TODA locations…" : "Select your TODA"}</option>
                                 {driverTodas.map((toda) => <option key={toda.id} value={toda.id}>{toda.name} — {toda.barangay}, {toda.city}</option>)}
                               </select>
                               {todasError ? <p role="alert" className="mt-2 text-[11px] text-[#a64d42]">{todasError}</p> : !todasLoading && !driverTodas.length ? <p className="mt-2 text-[11px] text-[#a64d42]">No active TODA is available. Contact Authorized Personnel before registering.</p> : null}
+                            </div>
+                            <div className="sm:col-span-2">
+                              <label htmlFor="route-area" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Designated route area</label>
+                              <input id="route-area" value={form.routeArea} readOnly aria-readonly="true" className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#f3f7fa] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none placeholder:font-medium placeholder:text-[#a5b5c3]" placeholder="Select a TODA association to fill this area" />
+                              <p className="mt-1.5 text-[11px] text-[#879bac]">Automatically filled using the selected TODA's registered location.</p>
                             </div>
                           </>
                         )}
