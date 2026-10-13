@@ -3,6 +3,10 @@
 # compiled output
 dist
 public
+!artifacts/mockup-sandbox/public/
+!artifacts/mockup-sandbox/public/pwa-icon-192.png
+!artifacts/mockup-sandbox/public/pwa-icon-512.png
+!artifacts/mockup-sandbox/public/pwa-icon-maskable-512.png
 artifacts/api-server/dist
 artifacts/api-server/api/index.js
 tmp

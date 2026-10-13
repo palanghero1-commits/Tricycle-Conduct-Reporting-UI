@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PWAInstallButton } from "./_shared/PWAInstallPrompt";
 import {
   ArrowRight,
   BadgeCheck,
@@ -242,12 +243,12 @@ export function Landing() {
               <p className="mt-7 max-w-[560px] text-[17px] leading-8 text-[#5c7691] lg:text-[19px]">
                 A secure and organized reporting platform for SUNN students and authorized personnel.
               </p>
-              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-9 grid w-full grid-cols-[repeat(3,minmax(0,1fr))] items-center gap-2 sm:flex sm:flex-nowrap sm:gap-3">
                 <button
                   ref={reportButtonRef}
                   type="button"
                   onClick={openLogin}
-                  className="group inline-flex items-center justify-center gap-3 rounded-[13px] bg-[#0c5bce] px-5 py-3.5 text-[14px] font-extrabold text-white shadow-[0_12px_26px_rgba(12,91,206,0.2)] transition-all duration-200 hover:-translate-y-1 hover:bg-[#094fae] hover:shadow-[0_15px_30px_rgba(12,91,206,0.27)]"
+                  className="group inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-[13px] bg-[#0c5bce] px-2 py-3 text-[12px] font-extrabold text-white shadow-[0_12px_26px_rgba(12,91,206,0.2)] transition-all duration-200 hover:-translate-y-1 hover:bg-[#094fae] hover:shadow-[0_15px_30px_rgba(12,91,206,0.27)] sm:w-auto sm:gap-3 sm:px-5 sm:py-3.5 sm:text-[14px]"
                 >
                   Log in
                   <ArrowRight size={17} className="transition-transform duration-200 group-hover:translate-x-1" />
@@ -255,10 +256,11 @@ export function Landing() {
                 <button
                   type="button"
                   onClick={openRegister}
-                  className="inline-flex items-center justify-center gap-2.5 rounded-[13px] border border-[#cddfea] bg-white px-5 py-3.5 text-[14px] font-extrabold text-[#315271] shadow-[0_5px_18px_rgba(34,75,112,0.05)] transition-all duration-200 hover:-translate-y-1 hover:border-[#a5c3dd] hover:text-[#0c5bce]"
+                  className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-[13px] border border-[#cddfea] bg-white px-2 py-3 text-[12px] font-extrabold text-[#315271] shadow-[0_5px_18px_rgba(34,75,112,0.05)] transition-all duration-200 hover:-translate-y-1 hover:border-[#a5c3dd] hover:text-[#0c5bce] sm:w-auto sm:gap-2.5 sm:px-5 sm:py-3.5 sm:text-[14px]"
                 >
                   Register
                 </button>
+                <PWAInstallButton />
               </div>
               <div className="mt-8 flex items-center gap-3 text-[12px] font-semibold text-[#7890a8]">
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#dff2ec] text-[#248878]">
