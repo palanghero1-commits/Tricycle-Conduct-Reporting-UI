@@ -157,6 +157,7 @@ export function SubmitReport() {
   const [location, setLocation] = useState("");
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number; accuracy: number; capturedAt: string } | null>(null);
   const [locationStatus, setLocationStatus] = useState("");
+  const [isLocating, setIsLocating] = useState(false);
   const [description, setDescription] = useState("");
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
@@ -259,21 +260,36 @@ export function SubmitReport() {
   };
 
   const captureLocation = () => {
+    if (!window.isSecureContext) {
+      setLocationStatus("GPS requires a secure HTTPS connection. A plain HTTP address on your local network blocks location access. You can enter the incident location manually.");
+      return;
+    }
     if (!navigator.geolocation) {
       setLocationStatus("Location services are not supported on this device. Enter the place manually.");
       return;
     }
-    setLocationStatus("Requesting your current location…");
+    setIsLocating(true);
+    setLocationStatus("Requesting permission and locating your device...");
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        const capturedAt = new Date().toISOString();
+      (position) => {
+        const { coords } = position;
+        const capturedAt = new Date(position.timestamp).toISOString();
         const accuracy = Math.round(coords.accuracy);
         setCoordinates({ latitude: coords.latitude, longitude: coords.longitude, accuracy, capturedAt });
-        setLocation(`GPS location captured (±${accuracy} m accuracy)`);
+        setLocation("GPS location captured (accuracy +/- " + accuracy + " m)");
         setLocationStatus("Current location captured for this report.");
+        setIsLocating(false);
       },
-      () => setLocationStatus("Location access was not available. Allow permission or enter the place manually."),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+      (error) => {
+        const message = error.code === 1
+          ? "Location permission was denied. Allow location access for this site in your browser settings, then try again."
+          : error.code === 2
+            ? "Your device could not determine a location. Turn on device location services and try again."
+            : "Location request timed out. Move to an area with a clearer GPS signal and try again.";
+        setLocationStatus(message);
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 },
     );
   };
 
@@ -289,6 +305,8 @@ export function SubmitReport() {
     setCategory(liveCategories[0]?.name ?? "");
     setLocation("");
     setCoordinates(null);
+    setLocationStatus("");
+    setIsLocating(false);
     setIncidentDate("");
     setIncidentTime("");
     setEvidence([]);
@@ -666,11 +684,11 @@ export function SubmitReport() {
                         <ChevronDown size={15} className="absolute right-3.5 top-3.5 text-[#a0afbd]" />
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={captureLocation} className="inline-flex items-center gap-2 rounded-lg border border-[#b9d2e9] bg-[#f5faff] px-3 py-2 text-[11px] font-extrabold text-[#0c5bce] hover:bg-[#eaf3ff]"><MapPin size={14} />Use my current location</button>
+                        <button type="button" onClick={captureLocation} disabled={isLocating} className="inline-flex items-center gap-2 rounded-lg border border-[#b9d2e9] bg-[#f5faff] px-3 py-2 text-[11px] font-extrabold text-[#0c5bce] hover:bg-[#eaf3ff] disabled:cursor-wait disabled:opacity-60"><MapPin size={14} />{isLocating ? "Locating..." : "Use my current location"}</button>
                         {coordinates ? <span className="text-[10px] font-bold text-[#319369]">GPS attached: {coordinates.latitude.toFixed(6)}, {coordinates.longitude.toFixed(6)}</span> : null}
                       </div>
                       <p className="mt-2 text-[10px] leading-4 text-[#8295aa]">Location is captured only when you choose it and submitted with this report.</p>
-                      {locationStatus ? <p className="mt-1 text-[10px] font-semibold text-[#52718d]">{locationStatus}</p> : null}
+                      {locationStatus ? <p role="status" aria-live="polite" className="mt-1 text-[10px] font-semibold text-[#52718d]">{locationStatus}</p> : null}
                     </label>
                     <label className="block">
                       <span className="mb-2 block text-[12px] font-extrabold text-[#49647e]">What happened?</span>

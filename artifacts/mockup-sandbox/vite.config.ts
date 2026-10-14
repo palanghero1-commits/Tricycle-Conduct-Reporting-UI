@@ -23,6 +23,11 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const basePath = process.env.BASE_PATH ?? "/";
+const localApiProxy = () => ({
+  target: process.env.LOCAL_API_PROXY_TARGET ?? "http://localhost:8000",
+  changeOrigin: true,
+  rewrite: (requestPath: string) => requestPath.replace(/^\/api(?=\/|$)/, "/index.php"),
+});
 
 function offlinePrecacheManifest(): Plugin {
   const base = basePath.endsWith("/") ? basePath : `${basePath}/`;
@@ -75,6 +80,7 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: { "/api": localApiProxy() },
     fs: {
       strict: true,
     },
@@ -83,5 +89,6 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: { "/api": localApiProxy() },
   },
 });

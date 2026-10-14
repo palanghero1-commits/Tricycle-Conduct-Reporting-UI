@@ -1,7 +1,7 @@
 import { getOfflineApiResponse, saveOfflineApiResponse } from "./offlineApiCache";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/index.php";
-const IS_ONLINE_API = API_BASE.startsWith("/api") || !API_BASE.includes("localhost:8000");
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+const IS_ONLINE_API = import.meta.env.PROD || (!API_BASE.startsWith("/") && !API_BASE.includes("localhost:8000"));
 const TOKEN_KEY = "tricycle_auth_token";
 const USER_KEY = "tricycle_current_user";
 
