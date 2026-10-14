@@ -27,6 +27,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
+import { AiConductAssistant } from "./_shared/AiConductAssistant";
 
 type ReportStatus = "Pending review" | "In review" | "Resolved";
 type ActivityKind = "All activity" | "Reports" | "Users" | "System";
@@ -769,6 +770,7 @@ export function AdminDashboard() {
           </section>
         ) : activePanel === "Overview" ? (
           <>
+            <AiConductAssistant task="dashboard" compact content={JSON.stringify({ stats: liveStats ?? {}, categoryCounts: liveReports.reduce<Record<string, number>>((counts, report) => ({ ...counts, [report.category]: (counts[report.category] ?? 0) + 1 }), {}), statusCounts: liveReports.reduce<Record<string, number>>((counts, report) => ({ ...counts, [report.status]: (counts[report.status] ?? 0) + 1 }), {}) })} />
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {statDefinitions.map(({ key: statKey, ...stat }) => (
                 <MetricCard

@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, fetchAttachment, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
+import { AiConductAssistant } from "./_shared/AiConductAssistant";
 
 type ReviewStatus = "Received" | "Under Review" | "Verified" | "Referred" | "Resolved" | "Closed";
 
@@ -494,6 +495,7 @@ export function ReviewWorkspace() {
                   </div>
                   <p className="mt-3 text-[13px] leading-6 text-[#3f5873]">{incident.description}</p>
                 </div>
+                <div className="mt-4"><AiConductAssistant task="review" content={`Category: ${incident.category}\nReport: ${incident.description}`} compact /></div>
                 <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[11px] font-semibold text-[#7d90a6]">
                   <span className="inline-flex items-center gap-2"><UserRound size={14} />Submitted by {incident.reporter}</span>
                   <span className="inline-flex items-center gap-2"><FileCheck2 size={14} />Original report retained</span>

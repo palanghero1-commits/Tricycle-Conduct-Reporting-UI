@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { PWAInstallButton } from "./_shared/PWAInstallPrompt";
+import { apiRequest } from "../../../lib/api";
 import {
   ArrowRight,
   BadgeCheck,
@@ -22,6 +23,13 @@ import {
 } from "lucide-react";
 
 type DialogType = "report" | "track" | "access" | null;
+type PublicTrackingResult = {
+  status: string;
+  lastUpdated: string;
+  timeline: Array<{ status: string; occurredAt: string }>;
+  aiExplanation: string;
+  aiGenerated: boolean;
+};
 
 const steps = [
   {
@@ -92,6 +100,9 @@ export function Landing() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [referenceCode, setReferenceCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [trackingResult, setTrackingResult] = useState<PublicTrackingResult | null>(null);
+  const [trackingError, setTrackingError] = useState("");
+  const [isTracking, setIsTracking] = useState(false);
   const reportButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -112,7 +123,28 @@ export function Landing() {
   const openTrack = () => {
     setMobileOpen(false);
     setSubmitted(false);
+    setTrackingResult(null);
+    setTrackingError("");
     setDialog("track");
+  };
+
+  const trackReport = async () => {
+    const trackingNumber = referenceCode.trim().toUpperCase();
+    if (!trackingNumber) return;
+    setIsTracking(true);
+    setTrackingError("");
+    setTrackingResult(null);
+    try {
+      const response = await apiRequest<{ tracking: PublicTrackingResult }>("/public/track", {
+        method: "POST",
+        body: JSON.stringify({ trackingNumber }),
+      });
+      setTrackingResult(response.tracking);
+    } catch (cause) {
+      setTrackingError(cause instanceof Error ? cause.message : "Unable to look up that report. Please try again.");
+    } finally {
+      setIsTracking(false);
+    }
   };
 
   const authBase = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Auth`;
@@ -262,6 +294,11 @@ export function Landing() {
                 </button>
                 <PWAInstallButton />
               </div>
+              <button type="button" onClick={openTrack} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#bcd4e7] bg-white px-4 py-2.5 text-[12px] font-extrabold text-[#0c5bce] shadow-[0_4px_14px_rgba(34,75,112,0.05)] transition hover:border-[#83add2] hover:bg-[#f5faff]">
+                <Search size={15} />
+                Track your report
+                <span className="font-medium text-[#7890a8]">· Have a tracking number?</span>
+              </button>
               <div className="mt-8 flex items-center gap-3 text-[12px] font-semibold text-[#7890a8]">
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#dff2ec] text-[#248878]">
                   <LockKeyhole size={12} />
@@ -527,11 +564,20 @@ export function Landing() {
             {dialog === "track" ? (
               <>
                 <h2 id="dialog-title" className="mt-6 text-[23px] font-extrabold tracking-[-0.04em] text-[#173a61]">Track a report</h2>
-                <p className="mt-2 text-[13px] leading-6 text-[#71879b]">Enter the private reference code you received after reporting.</p>
+                <p className="mt-2 text-[13px] leading-6 text-[#71879b]">Enter the tracking number you received after reporting. You can check progress here without logging in.</p>
                 <label className="mt-6 block text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#7890a5]" htmlFor="reference-code">Reference code</label>
-                <input id="reference-code" value={referenceCode} onChange={(event) => { setReferenceCode(event.target.value.toUpperCase()); setSubmitted(false); }} placeholder="Example: TRC-2048" className="mt-2 w-full rounded-[13px] border border-[#d5e4ee] bg-white px-4 py-3.5 text-sm font-bold tracking-[0.08em] text-[#244565] outline-none transition-shadow placeholder:font-medium placeholder:tracking-normal placeholder:text-[#a5b5c3] focus:border-[#7eb0dc] focus:ring-4 focus:ring-[#dcecff]" />
-                {submitted ? <div className="mt-4 rounded-[13px] border border-[#cfe8e4] bg-[#eff9f7] p-4 text-[12px] leading-5 text-[#4d817d]"><strong className="font-extrabold text-[#267c78]">Reference status:</strong> Sign in to view the latest authorized review updates.</div> : null}
-                <button type="button" onClick={() => setSubmitted(true)} disabled={!referenceCode.trim()} className="mt-6 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white transition-colors hover:bg-[#094fae] disabled:cursor-not-allowed disabled:bg-[#b9cde0]">View status <ArrowRight size={16} /></button>
+                <input id="reference-code" value={referenceCode} onChange={(event) => { setReferenceCode(event.target.value.toUpperCase()); setSubmitted(false); setTrackingResult(null); setTrackingError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void trackReport(); }} placeholder="Example: TRC-2026-123456" autoComplete="off" className="mt-2 w-full rounded-[13px] border border-[#d5e4ee] bg-white px-4 py-3.5 text-sm font-bold tracking-[0.08em] text-[#244565] outline-none transition-shadow placeholder:font-medium placeholder:tracking-normal placeholder:text-[#a5b5c3] focus:border-[#7eb0dc] focus:ring-4 focus:ring-[#dcecff]" />
+                {trackingError ? <p role="alert" className="mt-3 rounded-[13px] bg-[#fff5f2] p-3 text-[11px] leading-5 text-[#9b4f38]">{trackingError}</p> : null}
+                {isTracking ? <p role="status" className="mt-3 rounded-[13px] bg-[#f3f8ff] p-3 text-[11px] text-[#567492]">Looking up your report and preparing an AI status explanation…</p> : null}
+                {trackingResult ? <section className="mt-4 max-h-[48vh] space-y-3 overflow-y-auto rounded-[15px] border border-[#cfe8e4] bg-[#eff9f7] p-4" aria-label="Report tracking result">
+                  <div className="flex items-center justify-between gap-3"><span className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-[#5e8984]">Current status</span><span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#267c78]">{trackingResult.status}</span></div>
+                  <p className="text-[12px] leading-5 text-[#426d69]">{trackingResult.aiExplanation}</p>
+                  <p className="text-[10px] text-[#708d89]">Last updated {new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(trackingResult.lastUpdated))}</p>
+                  {trackingResult.timeline.length ? <div className="border-t border-[#d4e9e4] pt-3"><p className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-[#6d9089]">Progress history</p><ol className="mt-2 space-y-2">{trackingResult.timeline.map((event, index) => <li key={`${event.occurredAt}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-[#426d69]"><span className="font-bold">{event.status}</span><time className="shrink-0 text-[#718d88]">{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(new Date(event.occurredAt))}</time></li>)}</ol></div> : null}
+                  {!trackingResult.aiGenerated ? <p className="text-[9px] text-[#8b958f]">AI explanation is temporarily unavailable; this is a general status guide.</p> : null}
+                  <p className="border-t border-[#d4e9e4] pt-2 text-[9px] leading-4 text-[#708d89]">This public view only shows report progress. For questions or to provide more information, contact the review team.</p>
+                </section> : null}
+                <button type="button" onClick={() => void trackReport()} disabled={!referenceCode.trim() || isTracking} className="mt-6 flex w-full items-center justify-center gap-2 rounded-[12px] bg-[#0c5bce] py-3.5 text-[13px] font-extrabold text-white transition-colors hover:bg-[#094fae] disabled:cursor-not-allowed disabled:bg-[#b9cde0]">{isTracking ? "Checking…" : "View status"} <ArrowRight size={16} /></button>
               </>
             ) : null}
             {dialog === "access" ? (

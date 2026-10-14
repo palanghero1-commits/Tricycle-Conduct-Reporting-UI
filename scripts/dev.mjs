@@ -2,13 +2,27 @@ import { spawn, spawnSync } from "node:child_process";
 import { execPath } from "node:process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const apiDir = resolve(root, "api-php");
 const frontendDir = resolve(root, "artifacts", "mockup-sandbox");
 const children = [];
 let phpCommand = "php";
+
+function loadGeminiEnvironment() {
+  const envFile = resolve(root, ".env.online");
+  if (!existsSync(envFile)) return {};
+  const configured = {};
+  for (const line of readFileSync(envFile, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*(GEMINI_API_KEY|GEMINI_MODEL)\s*=\s*(.*?)\s*$/);
+    if (!match) continue;
+    const value = match[2].replace(/^(['"])(.*)\1$/, "$2");
+    const resolvedValue = process.env[match[1]] || value;
+    if (resolvedValue) configured[match[1]] = resolvedValue;
+  }
+  return configured;
+}
 
 function phpCandidates() {
   return [
@@ -57,6 +71,7 @@ function verifyPhpExtensions() {
 
 function start(label, command, args, cwd) {
   const childEnv = { ...process.env };
+  if (label === "PHP API") Object.assign(childEnv, geminiEnvironment);
   if (label === "Vite") delete childEnv.REPL_ID;
   const child = spawn(command, args, {
     cwd,
@@ -75,6 +90,7 @@ function start(label, command, args, cwd) {
   return child;
 }
 
+const geminiEnvironment = loadGeminiEnvironment();
 verifyPhpExtensions();
 const databaseSetup = spawnSync(phpCommand, [resolve(apiDir, "setup-db.php")], {
   cwd: root,

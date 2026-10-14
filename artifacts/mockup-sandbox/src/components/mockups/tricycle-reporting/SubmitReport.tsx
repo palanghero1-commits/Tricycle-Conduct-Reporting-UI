@@ -25,6 +25,7 @@ import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, getCurrentUser } from "../../../lib/api";
 import { createLocalReportId, saveOfflineReport } from "../../../lib/offlineReports";
 import { getOfflineAccountData } from "../../../lib/offlineAccount";
+import { AiConductAssistant } from "./_shared/AiConductAssistant";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -655,6 +656,7 @@ export function SubmitReport() {
                       <textarea value={description} maxLength={500} onChange={(event) => setDescription(event.target.value)} rows={5} placeholder="Describe what happened in your own words (at least 15 characters)..." className="w-full resize-none rounded-xl border border-[#dbe5f0] px-3.5 py-3 text-[12px] leading-5 text-[#274563] outline-none placeholder:text-[#a1b0bf] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                       <span className="mt-1.5 block text-right text-[10px] text-[#9aaabd]">{description.length}/500</span>
                     </label>
+                    <AiConductAssistant task="report" content={`Category: ${category === "Other" ? otherCategory : category}\nReport: ${description}`} onApplyDraft={setDescription} />
                   </div>
                 ) : null}
 

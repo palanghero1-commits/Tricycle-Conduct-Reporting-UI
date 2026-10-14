@@ -303,3 +303,11 @@ VITE_API_BASE_URL=https://api.yourdomain.com/index.php
 ```
 
 The frontend never connects directly to Supabase. The PHP API owns database credentials and connects to either MySQL or PostgreSQL based on `db_driver`. The PHP server must have the `pdo_pgsql` extension enabled for the Supabase deployment.
+
+## AI Conduct Assistant
+
+The assistant is available while students draft reports, when authorized staff review a report, and on the superadmin dashboard. It can suggest neutral wording, questions to clarify, and summaries of aggregate dashboard counts. It never changes report data unless a student chooses to apply a suggested draft, and it does not decide fault or discipline.
+
+Configure `GEMINI_API_KEY` on the backend server (never in a `VITE_` variable or frontend code). `GEMINI_MODEL` is optional and defaults to `gemini-3.5-flash-lite`. The PHP backend reads these from its process environment; set them in the PHP host/deployment environment. The Node API reads the same variables from its runtime environment. Requests require a signed-in user and role checks. Only the report text/category or aggregated dashboard counts are sent to Gemini; users are prompted not to include identifying details. Review your provider and school privacy requirements before enabling it with real student data.
+
+See [AI_ASSISTANT_QA_SCENARIOS.md](AI_ASSISTANT_QA_SCENARIOS.md) for manual test cases.

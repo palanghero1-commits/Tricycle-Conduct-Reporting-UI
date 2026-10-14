@@ -60,3 +60,6 @@ api-php/config.php
 api-php/php.ini
 api-php/storage/
 /private-storage/
+
+# Local environment variables
+.env.online

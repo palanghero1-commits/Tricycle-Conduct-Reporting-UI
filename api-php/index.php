@@ -683,6 +683,101 @@ try {
         json_response(['categories' => $stmt->fetchAll()]);
     }
 
+    if ($method === 'POST' && $path === '/public/track') {
+        $input = input_json();
+        $trackingNumber = strtoupper(trim((string) ($input['trackingNumber'] ?? '')));
+        if (!preg_match('/^TRC-\d{4}-\d{6}$/', $trackingNumber)) fail(400, 'Enter the tracking number in the format TRC-YYYY-123456.');
+        $ipHash = hash_hmac('sha256', (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'), (string) $config['jwt_secret']);
+        $since = date('Y-m-d H:i:s', time() - 900);
+        $rate = row($pdo, 'SELECT COUNT(*) AS attempts FROM audit_logs WHERE action = ? AND target_type = ? AND target_id = ? AND created_at >= ?', ['PUBLIC_TRACK_LOOKUP', 'rate_limit_ip', $ipHash, $since]);
+        if ((int) ($rate['attempts'] ?? 0) >= 12) fail(429, 'Too many tracking lookups. Please wait a little while and try again.');
+        audit($pdo, null, 'PUBLIC_TRACK_LOOKUP', 'rate_limit_ip', $ipHash);
+
+        $complaint = row($pdo, 'SELECT id, status, created_at AS createdAt, updated_at AS updatedAt FROM complaints WHERE reference_number = ? LIMIT 1', [$trackingNumber]);
+        if (!$complaint) fail(404, 'No report was found for that tracking number. Check it and try again.');
+        $statusLabels = ['SUBMITTED' => 'Submitted', 'RECEIVED' => 'Received', 'UNDER_REVIEW' => 'Under review', 'VERIFIED' => 'Verified', 'REFERRED' => 'Referred', 'RESOLVED' => 'Resolved', 'CLOSED' => 'Closed'];
+        $status = $statusLabels[$complaint['status']] ?? 'Submitted';
+        $historyRows = rows($pdo, 'SELECT new_status AS status, created_at AS occurredAt FROM complaint_status_history WHERE complaint_id = ? ORDER BY created_at ASC LIMIT 20', [$complaint['id']]);
+        $timeline = array_map(fn($item) => ['status' => $statusLabels[$item['status']] ?? 'Updated', 'occurredAt' => date(DATE_ATOM, strtotime((string) $item['occurredAt']))], $historyRows);
+        if (!$timeline) $timeline[] = ['status' => $status, 'occurredAt' => date(DATE_ATOM, strtotime((string) $complaint['updatedAt']))];
+        $fallback = [
+            'SUBMITTED' => 'Your report has been submitted and is waiting for the review team to begin. This status does not mean a violation has been confirmed.',
+            'RECEIVED' => 'The review team has received your report. They will check the information and decide whether follow-up is needed.',
+            'UNDER_REVIEW' => 'Your report is being reviewed. The team may need time to check the details before recording an update.',
+            'VERIFIED' => 'The review team recorded a verification step. This is a workflow status; it is not by itself a final decision about responsibility.',
+            'REFERRED' => 'Your report was referred to another authorized desk for follow-up. Check again later for further status updates.',
+            'RESOLVED' => 'The review process is marked complete. This status alone does not mean a violation was confirmed.',
+            'CLOSED' => 'This report has been closed in the review queue. Contact the review team if you need more information.',
+        ];
+        $aiExplanation = $fallback[$complaint['status']] ?? $fallback['SUBMITTED'];
+        $aiGenerated = false;
+        $apiKey = getenv('GEMINI_API_KEY') ?: '';
+        if ($apiKey !== '') {
+            $instructions = 'Explain the report status to a student in 1-2 plain-language sentences. Use only the supplied status and status history. Do not reveal or infer personal or incident details, decide fault, promise an outcome, or recommend discipline. Clarify that status is a process update, not a finding of guilt. Return JSON with one string field: explanation.';
+            $model = getenv('GEMINI_MODEL') ?: 'gemini-3.5-flash-lite';
+            $payload = json_encode(['systemInstruction' => ['parts' => [['text' => $instructions]]], 'contents' => [['role' => 'user', 'parts' => [['text' => json_encode(['currentStatus' => $status, 'history' => array_column($timeline, 'status')])]]]], 'generationConfig' => ['responseMimeType' => 'application/json']]);
+            $context = stream_context_create(['http' => ['method' => 'POST', 'timeout' => 18, 'ignore_errors' => true, 'header' => "Content-Type: application/json\r\nx-goog-api-key: {$apiKey}\r\n", 'content' => $payload]]);
+            $endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent';
+            $raw = @file_get_contents($endpoint, false, $context);
+            if ($raw !== false) {
+                $provider = json_decode($raw, true);
+                $parts = $provider['candidates'][0]['content']['parts'] ?? [];
+                $text = is_array($parts) ? implode('', array_map(static fn($part) => is_array($part) ? (string) ($part['text'] ?? '') : '', $parts)) : '';
+                $answer = $text !== '' ? json_decode($text, true) : null;
+                if (is_array($answer) && !empty($answer['explanation']) && is_string($answer['explanation'])) {
+                    $aiExplanation = substr(trim($answer['explanation']), 0, 600);
+                    $aiGenerated = true;
+                }
+            }
+        }
+        json_response(['tracking' => ['status' => $status, 'lastUpdated' => date(DATE_ATOM, strtotime((string) $complaint['updatedAt'])), 'timeline' => $timeline, 'aiExplanation' => $aiExplanation, 'aiGenerated' => $aiGenerated]]);
+    }
+
+    if ($method === 'POST' && $path === '/ai/assist') {
+        $user = auth($pdo, $config);
+        $input = input_json();
+        $task = $input['task'] ?? '';
+        $content = trim((string) ($input['content'] ?? ''));
+        if (!in_array($task, ['report', 'review', 'dashboard'], true)) fail(400, 'Choose a supported AI assistant task.');
+        if ($content === '' || strlen($content) > 12000) fail(400, 'Provide content between 1 and 12,000 characters.');
+        if ($task === 'report') require_roles($user, ['STUDENT']);
+        if ($task === 'review') require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        if ($task === 'dashboard') require_roles($user, ['SUPERADMIN']);
+        $apiKey = getenv('GEMINI_API_KEY') ?: '';
+        if ($apiKey === '') fail(503, 'AI assistant is not configured. Set GEMINI_API_KEY on the server.');
+        $instructions = $task === 'report'
+            ? 'Help a student describe an incident clearly and neutrally. Write incidentDescription as a concise description of what happened, based only on the concern category and facts in the supplied report notes. Never infer what happened from the category alone, invent details, infer fault, or recommend discipline. If facts are insufficient, say so in incidentDescription and ask for the missing facts in missingDetails. Also provide draft as a cleaned-up version of the supplied notes, preserving all facts without adding new ones. Return JSON with summary (string), incidentDescription (string), draft (string), suggestions (array of strings), missingDetails (array of strings).'
+            : ($task === 'review'
+                ? 'Support a human reviewer. Summarize the provided report, list neutral review suggestions and details to verify. Do not decide whether an allegation is true, infer fault, or recommend discipline. Return JSON with summary (string), suggestions (array of strings), missingDetails (array of strings).'
+                : 'Summarize the provided aggregated report counts for an administrator. Mention only patterns visible in the data and limitations of the sample. Do not infer individual risk or recommend discipline. Return JSON with summary (string), suggestions (array of strings), missingDetails (array of strings).');
+        $model = getenv('GEMINI_MODEL') ?: 'gemini-3.5-flash-lite';
+        $payload = json_encode(['systemInstruction' => ['parts' => [['text' => $instructions]]], 'contents' => [['role' => 'user', 'parts' => [['text' => $content]]]], 'generationConfig' => ['responseMimeType' => 'application/json']]);
+        $context = stream_context_create(['http' => ['method' => 'POST', 'timeout' => 25, 'ignore_errors' => true, 'header' => "Content-Type: application/json\r\nx-goog-api-key: {$apiKey}\r\n", 'content' => $payload]]);
+        $endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent';
+        $raw = @file_get_contents($endpoint, false, $context);
+        if ($raw === false) fail(502, 'AI provider could not be reached. Please try again later.');
+        $httpStatus = 0;
+        foreach (($http_response_header ?? []) as $headerLine) {
+            if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $headerLine, $statusMatch)) $httpStatus = (int) $statusMatch[1];
+        }
+        if ($httpStatus >= 400) {
+            if ($httpStatus === 404) fail(502, 'The configured Gemini model is unavailable to this API key. Set GEMINI_MODEL to a model enabled for your account, such as gemini-3.5-flash-lite.');
+            fail(502, 'Gemini could not complete the request. Check the server API key and model settings, then try again.');
+        }
+        $providerResponse = json_decode($raw, true);
+        $parts = $providerResponse['candidates'][0]['content']['parts'] ?? [];
+        $message = is_array($parts) ? implode('', array_map(static fn($part) => is_array($part) ? (string) ($part['text'] ?? '') : '', $parts)) : '';
+        $result = $message !== '' ? json_decode($message, true) : null;
+        if (!is_array($result)) fail(502, 'AI provider returned an unreadable response. Please try again.');
+        $suggestions = is_array($result['suggestions'] ?? null) ? array_values(array_slice(array_filter($result['suggestions'], 'is_string'), 0, 8)) : [];
+        $missingDetails = is_array($result['missingDetails'] ?? null) ? array_values(array_slice(array_filter($result['missingDetails'], 'is_string'), 0, 8)) : [];
+        $draft = isset($result['draft']) ? substr((string) $result['draft'], 0, 500) : null;
+        $incidentDescription = isset($result['incidentDescription']) && trim((string) $result['incidentDescription']) !== ''
+            ? substr((string) $result['incidentDescription'], 0, 500)
+            : ($draft ?? 'Add more factual details so the incident can be described without guessing.');
+        json_response(['result' => ['summary' => substr((string) ($result['summary'] ?? ''), 0, 1800), 'draft' => $draft, 'incidentDescription' => $incidentDescription, 'suggestions' => $suggestions, 'missingDetails' => $missingDetails]]);
+    }
+
     if ($method === 'POST' && $path === '/complaints') {
         $user = auth($pdo, $config);
         require_roles($user, ['STUDENT']);

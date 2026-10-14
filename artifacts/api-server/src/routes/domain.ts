@@ -4,6 +4,7 @@ import path from "node:path";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
+import rateLimit from "express-rate-limit";
 import { and, asc, count, desc, eq, getTableColumns, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
@@ -26,6 +27,13 @@ import {
 import { db } from "@workspace/db";
 
 const router = Router();
+const publicTrackLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => sendError(res, 429, "Too many tracking lookups. Please wait a little while and try again."),
+});
 const jwtSecret = process.env.JWT_SECRET ?? "dev-only-change-me";
 const uploadRoot = process.env.UPLOAD_DIR ?? path.resolve(process.cwd(), "uploads");
 const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
@@ -334,6 +342,109 @@ router.patch("/notifications/:id/read", requireAuth, async (req, res) => {
 router.patch("/notifications/read-all", requireAuth, async (req, res) => {
   await db.update(notificationsTable).set({ readAt: new Date() }).where(eq(notificationsTable.recipientUserId, req.user!.id));
   res.json({ ok: true });
+});
+
+router.post("/public/track", publicTrackLimiter, async (req, res) => {
+  const trackingNumber = typeof req.body?.trackingNumber === "string" ? req.body.trackingNumber.trim().toUpperCase() : "";
+  if (!/^TRC-\d{4}-\d{6}$/.test(trackingNumber)) return sendError(res, 400, "Enter the tracking number in the format TRC-YYYY-123456.");
+  const [complaint] = await db.select({ id: complaintsTable.id, status: complaintsTable.status, createdAt: complaintsTable.createdAt, updatedAt: complaintsTable.updatedAt })
+    .from(complaintsTable).where(eq(complaintsTable.referenceNumber, trackingNumber)).limit(1);
+  if (!complaint) return sendError(res, 404, "No report was found for that tracking number. Check it and try again.");
+  const statusLabels: Record<ComplaintStatus, string> = {
+    SUBMITTED: "Submitted", RECEIVED: "Received", UNDER_REVIEW: "Under review", VERIFIED: "Verified", REFERRED: "Referred", RESOLVED: "Resolved", CLOSED: "Closed",
+  };
+  const history = await db.select({ status: complaintStatusHistoryTable.newStatus, occurredAt: complaintStatusHistoryTable.createdAt })
+    .from(complaintStatusHistoryTable).where(eq(complaintStatusHistoryTable.complaintId, complaint.id)).orderBy(asc(complaintStatusHistoryTable.createdAt)).limit(20);
+  const timeline = history.length ? history.map((item) => ({ status: statusLabels[item.status], occurredAt: item.occurredAt.toISOString() }))
+    : [{ status: statusLabels[complaint.status], occurredAt: complaint.updatedAt.toISOString() }];
+  const fallback: Record<ComplaintStatus, string> = {
+    SUBMITTED: "Your report has been submitted and is waiting for the review team to begin. This status does not mean a violation has been confirmed.",
+    RECEIVED: "The review team has received your report. They will check the information and decide whether follow-up is needed.",
+    UNDER_REVIEW: "Your report is being reviewed. The team may need time to check the details before recording an update.",
+    VERIFIED: "The review team recorded a verification step. This is a workflow status; it is not by itself a final decision about responsibility.",
+    REFERRED: "Your report was referred to another authorized desk for follow-up. Check again later for further status updates.",
+    RESOLVED: "The review process is marked complete. This status alone does not mean a violation was confirmed.",
+    CLOSED: "This report has been closed in the review queue. Contact the review team if you need more information.",
+  };
+  let aiExplanation = fallback[complaint.status];
+  let aiGenerated = false;
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (apiKey) {
+    try {
+      const model = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
+      const providerResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: "Explain the report status to a student in 1-2 plain-language sentences. Use only the supplied status and status history. Do not reveal or infer personal or incident details, decide fault, promise an outcome, or recommend discipline. Clarify that status is a process update, not a finding of guilt. Return JSON with one string field: explanation." }] },
+          contents: [{ role: "user", parts: [{ text: JSON.stringify({ currentStatus: statusLabels[complaint.status], history: timeline.map((item) => item.status) }) }] }],
+          generationConfig: { responseMimeType: "application/json" },
+        }),
+        signal: AbortSignal.timeout(18000),
+      });
+      if (providerResponse.ok) {
+        const payload = await providerResponse.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        const rawText = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+        const result = JSON.parse(rawText) as { explanation?: unknown };
+        if (typeof result.explanation === "string" && result.explanation.trim()) {
+          aiExplanation = result.explanation.trim().slice(0, 600);
+          aiGenerated = true;
+        }
+      }
+    } catch {
+      // Keep the safe status guide available if Gemini is temporarily unreachable.
+    }
+  }
+  return res.json({ tracking: { status: statusLabels[complaint.status], lastUpdated: complaint.updatedAt.toISOString(), timeline, aiExplanation, aiGenerated } });
+});
+
+router.post("/ai/assist", requireAuth, async (req, res) => {
+  const task = req.body?.task;
+  const content = typeof req.body?.content === "string" ? req.body.content.trim() : "";
+  if (!["report", "review", "dashboard"].includes(task)) return sendError(res, 400, "Choose a supported AI assistant task.");
+  if (!content || content.length > 12000) return sendError(res, 400, "Provide content between 1 and 12,000 characters.");
+  const allowed: Record<string, UserRole[]> = {
+    report: ["STUDENT"],
+    review: ["TODA_OFFICER", "ADMIN", "PNP"],
+    dashboard: ["ADMIN"],
+  };
+  if (!req.user || !allowed[task].includes(req.user.role)) return sendError(res, 403, "You are not authorized to use this AI assistant task.");
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return sendError(res, 503, "AI assistant is not configured. Set GEMINI_API_KEY on the server.");
+  const instructions = task === "report"
+    ? "Help a student describe an incident clearly and neutrally. Write incidentDescription as a concise description of what happened, based only on the concern category and facts in the supplied report notes. Never infer what happened from the category alone, invent details, infer fault, or recommend discipline. If facts are insufficient, say so in incidentDescription and ask for the missing facts in missingDetails. Also provide draft as a cleaned-up version of the supplied notes, preserving all facts without adding new ones. Return JSON with summary (string), incidentDescription (string), draft (string), suggestions (array of strings), missingDetails (array of strings)."
+    : task === "review"
+      ? "Support a human reviewer. Summarize the provided report, list neutral review suggestions and details to verify. Do not decide whether an allegation is true, infer fault, or recommend discipline. Return JSON with summary (string), suggestions (array of strings), missingDetails (array of strings)."
+      : "Summarize the provided aggregated report counts for an administrator. Mention only patterns visible in the data and limitations of the sample. Do not infer individual risk or recommend discipline. Return JSON with summary (string), suggestions (array of strings), missingDetails (array of strings).";
+  try {
+    const model = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
+    const providerResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: instructions }] },
+        contents: [{ role: "user", parts: [{ text: content }] }],
+        generationConfig: { responseMimeType: "application/json" },
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!providerResponse.ok) return sendError(res, 502, providerResponse.status === 404
+      ? "The configured Gemini model is unavailable to this API key. Set GEMINI_MODEL to a model enabled for your account, such as gemini-3.5-flash-lite."
+      : "Gemini could not complete the request. Check the server API key and model settings, then try again.");
+    const payload = await providerResponse.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+    const result = JSON.parse(payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "{}");
+    return res.json({ result: {
+      summary: typeof result.summary === "string" ? result.summary.slice(0, 1800) : "",
+      draft: typeof result.draft === "string" ? result.draft.slice(0, 500) : undefined,
+      incidentDescription: typeof result.incidentDescription === "string" && result.incidentDescription.trim()
+        ? result.incidentDescription.slice(0, 500)
+        : typeof result.draft === "string" ? result.draft.slice(0, 500) : "Add more factual details so the incident can be described without guessing.",
+      suggestions: Array.isArray(result.suggestions) ? result.suggestions.filter((item: unknown): item is string => typeof item === "string").slice(0, 8) : [],
+      missingDetails: Array.isArray(result.missingDetails) ? result.missingDetails.filter((item: unknown): item is string => typeof item === "string").slice(0, 8) : [],
+    } });
+  } catch {
+    return sendError(res, 502, "AI provider could not be reached or returned an unreadable response. Please try again.");
+  }
 });
 
 router.get("/dashboard/stats", requireAuth, requireRoles("TODA_OFFICER", "ADMIN", "PNP"), async (_req, res) => {
