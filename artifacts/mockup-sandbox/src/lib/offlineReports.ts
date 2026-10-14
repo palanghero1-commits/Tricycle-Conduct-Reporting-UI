@@ -19,10 +19,17 @@ export type OfflineReport = {
   lastError?: string;
 };
 
+export type SubmittedOfflineReport = {
+  localReportId: string;
+  trackingNumber: string;
+  submittedAt: string;
+};
+
 const DB_NAME = "tricycle-conduct-offline";
 const STORE_NAME = "reports";
-const DB_VERSION = 3;
-type SyncResult = Array<{ localReportId: string; ok: boolean; error?: string }>;
+const SUBMITTED_STORE = "submitted-reports";
+const DB_VERSION = 4;
+type SyncResult = Array<{ localReportId: string; ok: boolean; trackingNumber?: string; error?: string }>;
 let activeSync: Promise<SyncResult> | null = null;
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -32,6 +39,7 @@ function openDatabase(): Promise<IDBDatabase> {
       const database = request.result;
       if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME, { keyPath: "localReportId" });
       if (!database.objectStoreNames.contains("account-data")) database.createObjectStore("account-data", { keyPath: "id" });
+      if (!database.objectStoreNames.contains(SUBMITTED_STORE)) database.createObjectStore(SUBMITTED_STORE, { keyPath: "localReportId" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("Unable to open offline storage."));
@@ -69,6 +77,33 @@ export async function deleteOfflineReport(localReportId: string) {
   database.close();
 }
 
+export async function listSubmittedOfflineReports(): Promise<SubmittedOfflineReport[]> {
+  const database = await openDatabase();
+  const reports = await new Promise<SubmittedOfflineReport[]>((resolve, reject) => {
+    const request = database.transaction(SUBMITTED_STORE, "readonly").objectStore(SUBMITTED_STORE).getAll();
+    request.onsuccess = () => resolve((request.result as SubmittedOfflineReport[]).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)));
+    request.onerror = () => reject(request.error ?? new Error("Unable to read submitted report references."));
+  });
+  database.close();
+  return reports;
+}
+
+async function saveSubmittedAndRemoveFromQueue(localReportId: string, trackingNumber: string) {
+  const database = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction([STORE_NAME, SUBMITTED_STORE], "readwrite");
+      transaction.objectStore(SUBMITTED_STORE).put({ localReportId, trackingNumber, submittedAt: new Date().toISOString() } satisfies SubmittedOfflineReport);
+      transaction.objectStore(STORE_NAME).delete(localReportId);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("Unable to confirm the report upload."));
+      transaction.onabort = () => reject(transaction.error ?? new Error("Unable to confirm the report upload."));
+    });
+  } finally {
+    database.close();
+  }
+}
+
 async function performOfflineReportSync(): Promise<SyncResult> {
   const reports = await listOfflineReports();
   const results: SyncResult = [];
@@ -88,9 +123,14 @@ async function performOfflineReportSync(): Promise<SyncResult> {
       if (report.locationAccuracy !== undefined) body.append("locationAccuracy", String(report.locationAccuracy));
       if (report.locationCapturedAt) body.append("locationCapturedAt", report.locationCapturedAt);
       report.attachments.forEach((file) => body.append("attachments[]", file));
-      await apiRequest(`/complaints`, { method: "POST", body });
-      await deleteOfflineReport(report.localReportId);
-      results.push({ localReportId: report.localReportId, ok: true });
+      const response = await apiRequest<{ complaint?: { referenceNumber?: string } }>(`/complaints`, { method: "POST", body });
+      const trackingNumber = response?.complaint?.referenceNumber;
+      if (!trackingNumber || !/^TRC-\d{4}-\d{6}$/.test(trackingNumber)) {
+        throw new Error("The server did not return a valid tracking number. This report remains saved for retry.");
+      }
+      await saveSubmittedAndRemoveFromQueue(report.localReportId, trackingNumber);
+      window.dispatchEvent(new CustomEvent("app:offline-report-synced", { detail: { localReportId: report.localReportId, trackingNumber } }));
+      results.push({ localReportId: report.localReportId, ok: true, trackingNumber });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Upload failed.";
       await saveOfflineReport({

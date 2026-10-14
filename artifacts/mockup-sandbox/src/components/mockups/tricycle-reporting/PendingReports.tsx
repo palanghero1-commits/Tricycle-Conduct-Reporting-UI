@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, CloudOff, RefreshCw, Trash2, UploadCloud } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
-import { deleteOfflineReport, listOfflineReports, syncOfflineReports, type OfflineReport } from "../../../lib/offlineReports";
+import { deleteOfflineReport, listOfflineReports, listSubmittedOfflineReports, syncOfflineReports, type OfflineReport, type SubmittedOfflineReport } from "../../../lib/offlineReports";
 
 export function PendingReports() {
   const [reports, setReports] = useState<OfflineReport[]>([]);
+  const [submittedReports, setSubmittedReports] = useState<SubmittedOfflineReport[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const syncing = useRef(false);
   const load = async () => {
     try {
-      const saved = await listOfflineReports();
+      const [saved, submitted] = await Promise.all([listOfflineReports(), listSubmittedOfflineReports()]);
       setReports(saved);
+      setSubmittedReports(submitted);
       return saved;
     } catch {
       setNotice("Offline storage is unavailable in this browser.");
@@ -74,6 +76,14 @@ export function PendingReports() {
           </div>)}
           {!reports.length ? <div className="rounded-2xl bg-[#f7f9fc] p-8 text-center"><CheckCircle2 size={24} className="mx-auto text-[#4f8b72]" /><p className="mt-3 text-[12px] font-bold text-[#4a667e]">No pending reports</p><p className="mt-1 text-[11px] text-[#8295a9]">New reports saved without internet will appear here.</p></div> : null}
         </div>
+        {submittedReports.length ? <div className="mt-7 border-t border-[#e7edf3] pt-5">
+          <h2 className="text-[13px] font-extrabold text-[#294765]">Recently synced reports</h2>
+          <p className="mt-1 text-[10px] text-[#71869b]">The server accepted these reports. Their tracking numbers are ready to use online.</p>
+          <div className="mt-3 space-y-2">{submittedReports.slice(0, 10).map((report) => <div key={report.localReportId} className="flex flex-col gap-3 rounded-xl border border-[#dcebe4] bg-[#f7fcf9] p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#4b886f]">Submitted · {new Date(report.submittedAt).toLocaleString()}</p><p className="mt-1 font-mono text-[13px] font-extrabold tracking-[0.06em] text-[#214c69]">{report.trackingNumber}</p></div>
+            <button type="button" onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Landing?track=${encodeURIComponent(report.trackingNumber)}`; }} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#bdd8ca] bg-white px-3 py-2 text-[10px] font-extrabold text-[#287451]">Track online <UploadCloud size={13} /></button>
+          </div>)}</div>
+        </div> : null}
         {notice ? <p role="status" className="mt-5 break-words rounded-xl bg-[#f7f9fc] px-4 py-3 text-center text-[11px] font-semibold text-[#58718a]">{notice}</p> : null}
       </section>
     </div>

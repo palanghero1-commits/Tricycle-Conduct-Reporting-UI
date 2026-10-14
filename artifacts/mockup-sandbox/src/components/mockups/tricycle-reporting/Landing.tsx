@@ -128,8 +128,8 @@ export function Landing() {
     setDialog("track");
   };
 
-  const trackReport = async () => {
-    const trackingNumber = referenceCode.trim().toUpperCase();
+  const trackReport = async (input = referenceCode) => {
+    const trackingNumber = input.trim().toUpperCase();
     if (!trackingNumber) return;
     setIsTracking(true);
     setTrackingError("");
@@ -146,6 +146,14 @@ export function Landing() {
       setIsTracking(false);
     }
   };
+
+  useEffect(() => {
+    const trackingNumber = new URLSearchParams(window.location.search).get("track");
+    if (!trackingNumber) return;
+    setReferenceCode(trackingNumber.toUpperCase());
+    setDialog("track");
+    void trackReport(trackingNumber);
+  }, []);
 
   const authBase = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Auth`;
   const openLogin = () => {

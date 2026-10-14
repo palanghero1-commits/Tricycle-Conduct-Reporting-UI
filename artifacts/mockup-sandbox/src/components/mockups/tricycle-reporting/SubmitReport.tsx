@@ -162,8 +162,21 @@ export function SubmitReport() {
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
+  const [queuedReportLocalId, setQueuedReportLocalId] = useState<string | null>(null);
   const [submissionState, setSubmissionState] = useState<"submitted" | "queued" | null>(null);
   const [hasAcknowledged, setHasAcknowledged] = useState(false);
+
+  useEffect(() => {
+    const onSynced = (event: Event) => {
+      const detail = (event as CustomEvent<{ localReportId: string; trackingNumber: string }>).detail;
+      if (!detail || detail.localReportId !== queuedReportLocalId) return;
+      setReportId(detail.trackingNumber);
+      setSubmissionState("submitted");
+      setNotice("Your report reached the server. Use this tracking number to check its progress online.");
+    };
+    window.addEventListener("app:offline-report-synced", onSynced);
+    return () => window.removeEventListener("app:offline-report-synced", onSynced);
+  }, [queuedReportLocalId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -268,6 +281,7 @@ export function SubmitReport() {
     setStep(1);
     setIsSubmitted(false);
     setReportId("");
+    setQueuedReportLocalId(null);
     setSubmissionState(null);
     setHasAcknowledged(false);
     setDescription("");
@@ -356,6 +370,7 @@ export function SubmitReport() {
     if (!navigator.onLine) {
       try {
         await saveOfflineReport(offlineReport);
+        setQueuedReportLocalId(localReportId);
         setReportId(`OFFLINE-${localReportId.slice(-8).toUpperCase()}`);
         setSubmissionState("queued");
         setNotice("No internet connection. Your report was saved on this device.");
@@ -381,16 +396,21 @@ export function SubmitReport() {
     attachmentFiles.forEach((file) => body.append("attachments[]", file));
     try {
       const data = await apiRequest<{ complaint: { referenceNumber: string } }>("/complaints", { method: "POST", body });
+      if (!data?.complaint?.referenceNumber || !/^TRC-\d{4}-\d{6}$/.test(data.complaint.referenceNumber)) {
+        throw new Error("The server accepted the request without returning a tracking number. Check My reports before submitting again.");
+      }
       setReportId(data.complaint.referenceNumber);
       setSubmissionState("submitted");
       setIsSubmitted(true);
     } catch (error) {
       try {
         await saveOfflineReport({ ...offlineReport, status: "Upload failed", lastError: error instanceof Error ? error.message : "Upload failed." });
+        setQueuedReportLocalId(localReportId);
         setReportId(`OFFLINE-${localReportId.slice(-8).toUpperCase()}`);
         setSubmissionState("queued");
         setNotice("The report could not be submitted yet. It was saved on this device; check Pending reports for its sync status.");
         setIsSubmitted(true);
+        if (navigator.onLine) window.dispatchEvent(new Event("app:offline-report-queued"));
       } catch (offlineError) {
         setNotice(offlineError instanceof Error ? offlineError.message : "Unable to submit or save the complaint.");
       }
@@ -435,6 +455,7 @@ export function SubmitReport() {
                 </p>
               </div>
               {submissionState === "queued" ? <button type="button" onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/PendingReports`; }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-3 text-[12px] font-extrabold text-[#0c5bce] hover:bg-[#f0f7ff]">View pending reports <ArrowRight size={15} /></button> : null}
+              {submissionState === "submitted" && reportId ? <button type="button" onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Landing?track=${encodeURIComponent(reportId)}`; }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-3 text-[12px] font-extrabold text-[#0c5bce] hover:bg-[#f0f7ff]">Track this report online <ArrowRight size={15} /></button> : null}
               <button
                 type="button"
                 onClick={resetReport}

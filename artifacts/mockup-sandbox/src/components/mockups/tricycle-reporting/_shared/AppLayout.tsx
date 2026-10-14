@@ -190,10 +190,12 @@ export function AppLayout({
     const sync = () => { if (navigator.onLine) void syncOfflineReports().catch(() => undefined); };
     window.addEventListener("online", sync);
     window.addEventListener("app:api-reachable", sync);
+    window.addEventListener("app:offline-report-queued", sync);
     sync();
     return () => {
       window.removeEventListener("online", sync);
       window.removeEventListener("app:api-reachable", sync);
+      window.removeEventListener("app:offline-report-queued", sync);
     };
   }, [currentUser?.role]);
 

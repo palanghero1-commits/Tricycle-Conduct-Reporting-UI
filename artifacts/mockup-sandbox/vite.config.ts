@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
@@ -24,9 +24,28 @@ if (Number.isNaN(port) || port <= 0) {
 
 const basePath = process.env.BASE_PATH ?? "/";
 
+function offlinePrecacheManifest(): Plugin {
+  const base = basePath.endsWith("/") ? basePath : `${basePath}/`;
+  return {
+    name: "offline-precache-manifest",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const assets = Object.keys(bundle)
+        .filter((file) => !file.endsWith(".map"))
+        .map((file) => `${base}${file}`);
+      this.emitFile({
+        type: "asset",
+        fileName: "precache-manifest.json",
+        source: JSON.stringify({ assets }),
+      });
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath,
   plugins: [
+    offlinePrecacheManifest(),
     mockupPreviewPlugin(),
     react(),
     tailwindcss(),

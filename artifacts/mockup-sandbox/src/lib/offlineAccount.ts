@@ -14,7 +14,7 @@ export type OfflineAccountData = {
 
 const DB_NAME = "tricycle-conduct-offline";
 const STORE_NAME = "account-data";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const ACCOUNT_KEY = "current-account";
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -24,6 +24,7 @@ function openDatabase(): Promise<IDBDatabase> {
       const database = request.result;
       if (!database.objectStoreNames.contains("reports")) database.createObjectStore("reports", { keyPath: "localReportId" });
       if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME, { keyPath: "id" });
+      if (!database.objectStoreNames.contains("submitted-reports")) database.createObjectStore("submitted-reports", { keyPath: "localReportId" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("Unable to open offline account storage."));
