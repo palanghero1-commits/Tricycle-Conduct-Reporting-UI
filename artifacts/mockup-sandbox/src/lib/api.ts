@@ -1,3 +1,5 @@
+import { getOfflineApiResponse, saveOfflineApiResponse } from "./offlineApiCache";
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/index.php";
 const IS_ONLINE_API = API_BASE.startsWith("/api") || !API_BASE.includes("localhost:8000");
 const TOKEN_KEY = "tricycle_auth_token";
@@ -32,6 +34,23 @@ export function getCurrentUser(): ApiUser | null {
   } catch {
     window.localStorage.removeItem(USER_KEY);
     return null;
+  }
+}
+
+export async function checkApiHealth() {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${API_BASE.replace(/\/$/, "")}/healthz`, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 
@@ -92,6 +111,11 @@ export function deleteProfilePhoto() {
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
+  const method = (init.method ?? "GET").toUpperCase();
+  const user = getCurrentUser();
+  const offlineCacheKey = method === "GET" && token && user
+    ? `${user.role}:${user.id}:${path}`
+    : null;
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
@@ -101,6 +125,11 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   try {
     response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
+    window.dispatchEvent(new Event("app:api-unreachable"));
+    if (offlineCacheKey) {
+      const cached = await getOfflineApiResponse<T>(offlineCacheKey).catch(() => null);
+      if (cached !== null) return cached;
+    }
     throw new Error(IS_ONLINE_API ? "Cannot reach the online API. Check the deployment and API environment variables." : "Cannot reach the PHP API. Start it with: php -S localhost:8000 -t api-php");
   }
   const rawBody = await response.text();
@@ -112,6 +141,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   }
   if (!response.ok) {
     throw new Error(data?.error?.message ?? "Request failed.");
+  }
+  if (offlineCacheKey) {
+    await saveOfflineApiResponse(offlineCacheKey, data).catch(() => undefined);
   }
   return data as T;
 }
@@ -146,6 +178,7 @@ export async function login(email: string, password: string) {
 export async function registerStudent(input: {
   role: "STUDENT" | "DRIVER";
   fullName: string;
+  contactNumber: string;
   studentId?: string;
   driverCode?: string;
   tricycleIdentifier?: string;

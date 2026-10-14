@@ -187,6 +187,7 @@ export function Auth() {
     password: "",
     confirmPassword: "",
     fullName: "",
+    contactNumber: "",
     studentId: "",
     driverCode: "",
     tricycleIdentifier: "",
@@ -332,10 +333,10 @@ export function Auth() {
     }
 
     if (registrationStep === 2) {
-      const missingStudentFields = role === "student" && (!form.fullName.trim() || !form.studentId.trim() || !form.program || !form.yearLevel);
-      const missingDriverFields = role === "driver" && (!form.fullName.trim() || !form.driverCode.trim() || !form.tricycleIdentifier.trim() || !form.routeArea.trim() || !form.todaId);
+      const missingStudentFields = role === "student" && (!form.fullName.trim() || !form.contactNumber.trim() || !form.studentId.trim() || !form.program || !form.yearLevel);
+      const missingDriverFields = role === "driver" && (!form.fullName.trim() || !form.contactNumber.trim() || !form.driverCode.trim() || !form.tricycleIdentifier.trim() || !form.routeArea.trim() || !form.todaId);
       if (missingStudentFields || missingDriverFields) {
-        setNotice({ type: "error", message: `Complete each ${role} information field before continuing.` });
+        setNotice({ type: "error", message: "Enter your mobile number and complete each required account information field before continuing." });
         return;
       }
       if (!form.hasReadNotice) {
@@ -353,6 +354,7 @@ export function Auth() {
       role: role === "driver" ? "DRIVER" : "STUDENT",
       todaId: role === "driver" ? Number(form.todaId) : undefined,
       fullName: form.fullName,
+      contactNumber: form.contactNumber.trim(),
       studentId: form.studentId,
       driverCode: form.driverCode,
       tricycleIdentifier: form.tricycleIdentifier,
@@ -667,6 +669,11 @@ export function Auth() {
                             <input id="full-name" value={form.fullName} onChange={(event) => updateForm("fullName", event.target.value)} className="w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] py-3.5 pl-10 pr-4 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="Your name as it appears on school records" autoComplete="name" />
                           </div>
                         </div>
+                        <div className="sm:col-span-2">
+                          <label htmlFor="mobile-number" className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-[#617d98]">Mobile number <span className="text-[#b44a43]">*</span></label>
+                          <input id="mobile-number" type="tel" inputMode="tel" autoComplete="tel" required value={form.contactNumber} onChange={(event) => updateForm("contactNumber", event.target.value)} className="mt-2 w-full rounded-[13px] border border-[#d3e2ed] bg-[#fbfdff] px-4 py-3.5 text-[13px] font-semibold text-[#234564] outline-none transition-[border,box-shadow] placeholder:font-medium placeholder:text-[#a5b5c3] focus:border-[#79a9d1] focus:ring-4 focus:ring-[#e0effd]" placeholder="e.g. 0917 123 4567" maxLength={60} aria-describedby="mobile-number-help" />
+                          <p id="mobile-number-help" className="mt-1.5 text-[11px] text-[#879bac]">Required for account contact and report updates.</p>
+                        </div>
                         {role === "student" ? (
                           <>
                             <div>
@@ -737,6 +744,9 @@ export function Auth() {
                           </div>
                           <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                             <span className="shrink-0 text-[#879bac]">Name</span><span className="truncate font-extrabold text-[#315574] sm:max-w-[250px] sm:text-right">{form.fullName}</span>
+                          </div>
+                          <div className="flex flex-col gap-1 py-2.5 text-[12px] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                            <span className="shrink-0 text-[#879bac]">Mobile number</span><span className="font-extrabold text-[#315574] sm:text-right">{form.contactNumber}</span>
                           </div>
                           {role === "student" ? (
                             <>

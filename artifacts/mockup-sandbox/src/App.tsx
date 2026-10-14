@@ -135,6 +135,28 @@ function getPreviewPath(): string | null {
 function App() {
   const previewPath = getPreviewPath() ?? "tricycle-reporting/Landing";
 
+  useEffect(() => {
+    let cancelled = false;
+    const warmRoutes = async () => {
+      if (!navigator.onLine) return;
+      if ("serviceWorker" in navigator) {
+        await navigator.serviceWorker.ready.catch(() => undefined);
+      }
+      if (cancelled || !navigator.onLine) return;
+      await Promise.allSettled(Object.values(discoveredModules).map((loadModule) => loadModule()));
+    };
+    const onOnline = () => { void warmRoutes(); };
+    const onLoad = () => { void warmRoutes(); };
+    if (document.readyState === "complete") onLoad();
+    else window.addEventListener("load", onLoad, { once: true });
+    window.addEventListener("online", onOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("load", onLoad);
+      window.removeEventListener("online", onOnline);
+    };
+  }, []);
+
   if (previewPath) {
     return (
       <PWAInstallProvider>

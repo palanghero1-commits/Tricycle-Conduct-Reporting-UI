@@ -128,16 +128,16 @@ app.get(["/health", "/healthz", "/api/health", "/api/healthz"], async (_req, res
 app.get("/public/todas", async (_req, res, next) => { try { res.json({ todas: await q("SELECT id,name,barangay,city,province FROM todas WHERE is_active=1 ORDER BY name") }); } catch (e) { next(e); } });
 
 app.post("/auth/register", async (req, res, next) => { try {
-  const data = body(req); required(data, ["fullName", "email", "password", "confirmPassword"]); const role = String(data.role || "STUDENT").toUpperCase();
+  const data = body(req); required(data, ["fullName", "email", "password", "confirmPassword", "contactNumber"]); if (!String(data.contactNumber).trim()) error(400, "Mobile number is required."); if (String(data.contactNumber).trim().length > 60) error(400, "Mobile number must be 60 characters or fewer."); const role = String(data.role || "STUDENT").toUpperCase();
   if (!["STUDENT", "DRIVER"].includes(role)) error(400, "Only student and driver accounts can self-register.");
   if (!validEmail(data.email)) error(400, "Use a valid email address."); if (String(data.password).length < 8) error(400, "Password must be at least 8 characters."); if (data.password !== data.confirmPassword) error(400, "Passwords do not match.");
   let driverToda = null;
   if (role === "STUDENT") required(data, ["studentId"]); else { required(data, ["driverCode", "tricycleIdentifier", "todaId"]); driverToda = await one("SELECT id,barangay,city,province FROM todas WHERE id=$1 AND is_active=1", [Number(data.todaId)]); if (!driverToda) error(400, "Select an active TODA location."); }
   const result = await transaction(async (client) => {
     const userId = uuid(); const email = String(data.email).toLowerCase(); const hash = await bcrypt.hash(data.password, 12);
-    await q("INSERT INTO users (id,full_name,email,password_hash,role,contact_number) VALUES ($1,$2,$3,$4,$5,$6)", [userId, String(data.fullName).trim(), email, hash, role, data.contactNumber || null], client);
+    await q("INSERT INTO users (id,full_name,email,password_hash,role,contact_number) VALUES ($1,$2,$3,$4,$5,$6)", [userId, String(data.fullName).trim(), email, hash, role, String(data.contactNumber).trim()], client);
     if (role === "STUDENT") await q("INSERT INTO students (user_id,student_id,program,year_level) VALUES ($1,$2,$3,$4)", [userId, String(data.studentId).trim(), data.program || null, data.yearLevel || null], client);
-    else await q("INSERT INTO drivers (user_id,toda_id,full_name,driver_code,tricycle_identifier,route_area,contact_number) VALUES ($1,$2,$3,$4,$5,$6,$7)", [userId, Number(data.todaId), String(data.fullName).trim(), String(data.driverCode).trim(), String(data.tricycleIdentifier).trim(), [driverToda.barangay, driverToda.city, driverToda.province].filter((part) => String(part || "").trim()).join(", "), data.contactNumber || null], client);
+    else await q("INSERT INTO drivers (user_id,toda_id,full_name,driver_code,tricycle_identifier,route_area,contact_number) VALUES ($1,$2,$3,$4,$5,$6,$7)", [userId, Number(data.todaId), String(data.fullName).trim(), String(data.driverCode).trim(), String(data.tricycleIdentifier).trim(), [driverToda.barangay, driverToda.city, driverToda.province].filter((part) => String(part || "").trim()).join(", "), String(data.contactNumber).trim()], client);
     await audit(userId, "REGISTER", "users", userId, null, client); return await one("SELECT * FROM users WHERE id=$1", [userId], client);
   });
   res.status(201).json({ user: safeUser(result), token: tokenFor(result) });
@@ -160,7 +160,23 @@ app.get("/todas", auth, rolesOnly("AUTHORIZED_PERSONNEL", "TODA_PRESIDENT", "SUP
 app.post("/todas", auth, rolesOnly("AUTHORIZED_PERSONNEL"), async (req, res, next) => { try { const data = body(req); required(data, ["barangay", "city", "province"]); const name = String(data.name || `${data.barangay}, ${data.city}`).trim(); const row = await one("INSERT INTO todas (name,barangay,city,province) VALUES ($1,$2,$3,$4) RETURNING id,name,barangay,city,province,president_user_id AS \"presidentUserId\"", [name, data.barangay.trim(), data.city.trim(), data.province.trim()]); await audit(req.user.id, "TODA_CREATE", "todas", String(row.id)); res.status(201).json({ toda: row }); } catch (e) { next(e); } });
 
 app.get("/me", auth, async (req, res, next) => { try { let profile = { contactNumber: req.user.contact_number || null }; if (req.user.role === "STUDENT") profile = { ...profile, ...(await one("SELECT student_id AS \"studentId\",program,year_level AS \"yearLevel\",campus FROM students WHERE user_id=$1", [req.user.id]) || {}) }; if (req.user.role === "DRIVER") profile = { ...profile, ...(await one(`SELECT d.driver_code AS \"driverCode\",d.tricycle_identifier AS \"tricycleIdentifier\",${todaRouteAreaSql("t")} AS \"routeArea\",t.name AS \"todaName\",t.barangay,t.city,t.province FROM drivers d LEFT JOIN todas t ON t.id=d.toda_id WHERE d.user_id=$1`, [req.user.id]) || {}) }; const preferences = await one("SELECT report_updates AS updates,reminders FROM user_preferences WHERE user_id=$1", [req.user.id]); res.json({ user: safeUser(req.user), profile, preferences: { updates: preferences ? bool(preferences.updates) : true, reminders: preferences ? bool(preferences.reminders) : false } }); } catch (e) { next(e); } });
-app.patch("/me", auth, async (req, res, next) => { try { const data = body(req); const name = String(data.fullName || req.user.full_name).trim(); const email = String(data.email || req.user.email || "").trim().toLowerCase(); if (!name) error(400, "Full name is required."); if (email && !validEmail(email)) error(400, "Use a valid email address."); const user = await one("UPDATE users SET full_name=$1,email=NULLIF($2,'') WHERE id=$3 RETURNING *", [name, email, req.user.id]); await audit(req.user.id, "PROFILE_UPDATE", "users", req.user.id); res.json({ user: safeUser(user) }); } catch (e) { next(e); } });
+app.patch("/me", auth, async (req, res, next) => { try {
+  const data = body(req);
+  const name = String(data.fullName ?? req.user.full_name).trim();
+  const email = String(data.email ?? req.user.email ?? "").trim().toLowerCase();
+  const contactNumber = data.contactNumber === undefined ? req.user.contact_number : String(data.contactNumber).trim();
+  if (!name) error(400, "Full name is required.");
+  if (email && !validEmail(email)) error(400, "Use a valid email address.");
+  if (data.contactNumber !== undefined && !contactNumber) error(400, "Mobile number is required.");
+  if (contactNumber && contactNumber.length > 60) error(400, "Mobile number must be 60 characters or fewer.");
+  const user = await transaction(async (client) => {
+    const saved = await one("UPDATE users SET full_name=$1,email=NULLIF($2,''),contact_number=$3 WHERE id=$4 RETURNING *", [name, email, contactNumber || null, req.user.id], client);
+    if (req.user.role === "DRIVER") await q("UPDATE drivers SET full_name=$1,contact_number=$2 WHERE user_id=$3", [name, contactNumber || null, req.user.id], client);
+    await audit(req.user.id, "PROFILE_UPDATE", "users", req.user.id, null, client);
+    return saved;
+  });
+  res.json({ user: safeUser(user), profile: { contactNumber: user.contact_number || null } });
+} catch (e) { next(e); } });
 app.get("/me/photo", auth, async (req, res, next) => { try { const user = await one("SELECT profile_photo_path FROM users WHERE id=$1", [req.user.id]); if (!user?.profile_photo_path) error(404, "No profile photo has been uploaded."); const response = await fetch(user.profile_photo_path, { headers: { Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, apikey: process.env.SUPABASE_SERVICE_ROLE_KEY } }); if (!response.ok) error(404, "No profile photo has been uploaded."); res.setHeader("Content-Type", response.headers.get("content-type") || "application/octet-stream"); res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0"); res.send(Buffer.from(await response.arrayBuffer())); } catch (e) { next(e); } });
 app.post("/me/photo", auth, upload.single("photo"), async (req, res, next) => { try { const file = req.file; if (!file) error(400, "Choose a profile image to upload."); file.detectedMime = detectUploadMime(file.buffer); if (!["image/jpeg", "image/png", "image/webp"].includes(file.detectedMime) || file.detectedMime !== file.mimetype) error(400, "Only JPG, PNG, and WEBP profile images are supported."); const stored = await storageUpload(file, `profile-photos/${req.user.id}`); await q("UPDATE users SET profile_photo_path=$1 WHERE id=$2", [stored.url, req.user.id]); await audit(req.user.id, "PROFILE_PHOTO_UPLOAD", "users", req.user.id, { mimeType: file.detectedMime }); res.json({ ok: true }); } catch (e) { next(e); } });
 app.delete("/me/photo", auth, async (req, res, next) => { try { await q("UPDATE users SET profile_photo_path=NULL WHERE id=$1", [req.user.id]); await audit(req.user.id, "PROFILE_PHOTO_DELETE", "users", req.user.id); res.json({ ok: true }); } catch (e) { next(e); } });
@@ -171,32 +187,45 @@ app.get("/drivers", auth, async (req, res, next) => { try { const search = `%${S
 app.get("/drivers/:id", auth, rolesOnly("TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "SUPERADMIN", "PNP"), async (req, res, next) => { try { const id = Number(req.params.id); const driver = await one(`SELECT d.id,d.full_name AS \"fullName\",d.driver_code AS \"driverCode\",${todaRouteAreaSql("t")} AS \"routeArea\" FROM drivers d LEFT JOIN todas t ON t.id=d.toda_id WHERE d.id=$1 AND d.is_active=1`, [id]); if (!driver) error(404, "Driver not found."); if (req.user.role === "TODA_PRESIDENT" && !(await one("SELECT d.id FROM drivers d JOIN todas t ON t.id=d.toda_id WHERE d.id=$1 AND t.president_user_id=$2 AND t.is_active=1", [id, req.user.id]))) error(404, "Driver not found."); const reports = await q("SELECT c.reference_number AS id,c.incident_date AS date,cat.name AS category,LEFT(c.description,180) AS summary,c.status FROM complaints c JOIN complaint_categories cat ON cat.id=c.category_id WHERE c.driver_id=$1 ORDER BY c.created_at DESC", [id]); const violations = await q("SELECT CONCAT('VIO-',v.id) AS reference,v.confirmation_date AS date,v.violation_category AS finding,COALESCE(v.remarks,'Confirmed violation') AS action FROM violations v WHERE v.driver_id=$1 ORDER BY v.confirmation_date DESC", [id]); res.json({ driver, reports, violations }); } catch (e) { next(e); } });
 app.get("/categories", auth, async (_req, res, next) => { try { res.json({ categories: await q("SELECT id,name,description FROM complaint_categories WHERE is_active=1 ORDER BY name") }); } catch (e) { next(e); } });
 
-app.post("/complaints", auth, rolesOnly("STUDENT"), upload.array("attachments", 5), async (req, res, next) => {
+app.post("/complaints", auth, rolesOnly("STUDENT"), upload.fields([{ name: "attachments", maxCount: 5 }, { name: "attachments[]", maxCount: 5 }]), async (req, res, next) => {
   try {
     const data = body(req);
     required(data, ["driverId", "categoryId", "incidentDate", "incidentTime", "location", "description"]);
     if (String(data.description).length < 15) error(400, "Description must be at least 15 characters.");
-    const files = req.files || [];
+    const localReportId = typeof data.localReportId === "string" ? data.localReportId.trim() : "";
+    if (localReportId.length > 100) error(400, "Local report identifier is too long.");
+    if (localReportId) {
+      const existing = await one("SELECT id,reference_number AS \"referenceNumber\",status FROM complaints WHERE student_user_id=$1 AND local_report_id=$2 LIMIT 1", [req.user.id, localReportId]);
+      if (existing) return res.json({ complaint: existing });
+    }
+    const files = Object.values(req.files || {}).flat();
+    if (files.length > 5) error(400, "You can attach up to 5 evidence files per report.");
     for (const file of files) {
       file.detectedMime = detectUploadMime(file.buffer);
       if (!file.detectedMime || file.detectedMime !== file.mimetype) error(400, "Invalid attachment type or size.");
     }
     const result = await transaction(async (client) => {
       if (!(await one("SELECT id FROM drivers WHERE id=$1 AND is_active=1", [Number(data.driverId)], client)) || !(await one("SELECT id FROM complaint_categories WHERE id=$1 AND is_active=1", [Number(data.categoryId)], client))) error(400, "Invalid driver or category.");
+      if (localReportId) {
+        const existing = await one("SELECT id,reference_number AS \"referenceNumber\",status FROM complaints WHERE student_user_id=$1 AND local_report_id=$2 LIMIT 1", [req.user.id, localReportId], client);
+        if (existing) return { id: existing.id, reference: existing.referenceNumber, status: existing.status, created: false };
+      }
       const id = uuid();
       const reference = `TRC-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`;
-      await q("INSERT INTO complaints (id,reference_number,student_user_id,driver_id,category_id,status,incident_date,incident_time,location,description) VALUES ($1,$2,$3,$4,$5,'SUBMITTED',$6,$7,$8,$9)", [id, reference, req.user.id, Number(data.driverId), Number(data.categoryId), data.incidentDate, data.incidentTime, String(data.location).trim(), String(data.description).trim()], client);
+      await q("INSERT INTO complaints (id,local_report_id,reference_number,student_user_id,driver_id,category_id,status,incident_date,incident_time,location,description) VALUES ($1,$2,$3,$4,$5,$6,'SUBMITTED',$7,$8,$9,$10)", [id, localReportId || null, reference, req.user.id, Number(data.driverId), Number(data.categoryId), data.incidentDate, data.incidentTime, String(data.location).trim(), String(data.description).trim()], client);
       await q("INSERT INTO complaint_status_history (complaint_id,previous_status,new_status,changed_by,remarks) VALUES ($1,NULL,'SUBMITTED',$2,$3)", [id, req.user.id, "Complaint submitted by student."], client);
       for (const file of files) {
         const stored = await storageUpload(file, `complaints/${id}`);
         await q("INSERT INTO complaint_attachments (id,complaint_id,original_name,stored_name,mime_type,size_bytes,storage_path,uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [uuid(), id, file.originalname.split(/[\\/]/).pop(), stored.path, file.detectedMime, file.size, stored.url, req.user.id], client);
       }
       await audit(req.user.id, "COMPLAINT_CREATE", "complaints", id, null, client);
-      return { id, reference };
+      return { id, reference, status: "SUBMITTED", created: true };
     });
-    await notifySafely("complaint submission", () => notify(req.user.id, "COMPLAINT_SUBMITTED", `Complaint ${result.reference} was submitted.`, result.id));
-    await notifySafely("complaint submission", () => notifyOfficers("NEW_COMPLAINT", `New complaint ${result.reference} requires review.`, result.id));
-    res.status(201).json({ complaint: { id: result.id, referenceNumber: result.reference, status: "SUBMITTED" } });
+    if (result.created) {
+      await notifySafely("complaint submission", () => notify(req.user.id, "COMPLAINT_SUBMITTED", `Complaint ${result.reference} was submitted.`, result.id));
+      await notifySafely("complaint submission", () => notifyOfficers("NEW_COMPLAINT", `New complaint ${result.reference} requires review.`, result.id));
+    }
+    res.status(result.created ? 201 : 200).json({ complaint: { id: result.id, referenceNumber: result.reference, status: result.status } });
   } catch (e) { next(e); }
 });
 
@@ -284,6 +313,17 @@ app.get("/admin/dashboard", auth, rolesOnly("SUPERADMIN"), async (_req, res, nex
 app.post("/seed", auth, rolesOnly("SUPERADMIN"), async (_req, res, next) => { try { const hash = await bcrypt.hash(process.env.SEED_PASSWORD || "Password123!", 12); await q("INSERT INTO users (id,full_name,email,username,password_hash,role) VALUES ($1,'Super Administrator','superadmin@oldsagay.gov.ph','superadmin',$2,'SUPERADMIN') ON CONFLICT DO NOTHING", ["00000000-0000-4000-8000-000000000000", hash]); await q("INSERT INTO todas (id,name,barangay,city,province) VALUES (1,'Old Sagay TODA','Old Sagay','Sagay City','Negros Occidental') ON CONFLICT DO NOTHING"); for (const name of ["Overcharging", "Reckless Driving", "Refusal to Transport", "Discourteous Behavior", "Unsafe Driving", "Vehicle Condition", "Other"]) await q("INSERT INTO complaint_categories (name) VALUES ($1) ON CONFLICT DO NOTHING", [name]); res.json({ ok: true, seededPassword: process.env.SEED_PASSWORD ? undefined : "Password123!" }); } catch (e) { next(e); } });
 
 app.use((req, _res, next) => next(Object.assign(new Error("Route not found."), { status: 404 })));
-app.use((err, _req, res, _next) => { console.error(err); const status = Number(err.status || (err.code === "23505" ? 409 : 500)); const message = status === 500 ? "The request could not be completed." : err.message; res.status(status).json({ error: { message, ...(err.issues ? { issues: err.issues } : {}) } }); });
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  const isUploadError = err instanceof multer.MulterError;
+  const status = Number(err.status || (isUploadError ? 400 : err.code === "23505" ? 409 : 500));
+  const uploadMessage = err.code === "LIMIT_FILE_SIZE"
+    ? "Each evidence file must be 5 MB or smaller."
+    : err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE"
+      ? "You can attach up to 5 evidence files per report."
+      : "An evidence file could not be uploaded. Please try again.";
+  const message = status === 500 ? "The request could not be completed." : isUploadError ? uploadMessage : err.message;
+  res.status(status).json({ error: { message, ...(err.issues ? { issues: err.issues } : {}) } });
+});
 
 export default app;

@@ -119,7 +119,7 @@ const registerSchema = z.object({
   fullName: z.string().min(2).max(180),
   studentId: z.string().min(3).max(80),
   email: z.string().email().max(180),
-  contactNumber: z.string().max(60).optional(),
+  contactNumber: z.string().trim().min(1, "Mobile number is required.").max(60),
   program: z.string().max(180).optional(),
   yearLevel: z.string().max(40).optional(),
   password: z.string().min(8).max(100),
@@ -174,6 +174,7 @@ router.get("/categories", requireAuth, async (_req, res) => {
 });
 
 const complaintBodySchema = z.object({
+  localReportId: z.string().trim().min(1).max(100).optional(),
   driverId: z.coerce.number().int().positive(),
   categoryId: z.coerce.number().int().positive(),
   incidentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -182,9 +183,21 @@ const complaintBodySchema = z.object({
   description: z.string().min(15).max(2000),
 });
 
-router.post("/complaints", requireAuth, requireRoles("STUDENT"), upload.array("attachments", 5), async (req, res) => {
+router.post("/complaints", requireAuth, requireRoles("STUDENT"), upload.fields([{ name: "attachments", maxCount: 5 }, { name: "attachments[]", maxCount: 5 }]), async (req, res) => {
   const input = complaintBodySchema.parse(req.body);
-  const files = (req.files as Express.Multer.File[]) ?? [];
+  const filesByField = (req.files as Record<string, Express.Multer.File[]> | undefined) ?? {};
+  const files = Object.values(filesByField).flat();
+  if (files.length > 5) return sendError(res, 400, "You can attach up to 5 evidence files per report.");
+  if (input.localReportId) {
+    const [existing] = await db.select({ id: complaintsTable.id, referenceNumber: complaintsTable.referenceNumber, status: complaintsTable.status })
+      .from(complaintsTable)
+      .where(and(eq(complaintsTable.studentUserId, req.user!.id), eq(complaintsTable.localReportId, input.localReportId)))
+      .limit(1);
+    if (existing) {
+      files.forEach((file) => { try { fs.unlinkSync(file.path); } catch { /* Temporary upload cleanup is best-effort. */ } });
+      return res.json({ complaint: existing });
+    }
+  }
   const referenceNumber = `TRC-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`;
   const complaint = await db.transaction(async (tx) => {
     const [driver] = await tx.select().from(driversTable).where(and(eq(driversTable.id, input.driverId), eq(driversTable.isActive, true))).limit(1);

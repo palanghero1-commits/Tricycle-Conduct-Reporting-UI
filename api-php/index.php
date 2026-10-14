@@ -246,9 +246,11 @@ try {
 
     if ($method === 'POST' && $path === '/auth/register') {
         $data = input_json();
-        foreach (['fullName', 'email', 'password', 'confirmPassword'] as $field) {
+        foreach (['fullName', 'email', 'password', 'confirmPassword', 'contactNumber'] as $field) {
             if (empty($data[$field])) fail(400, "$field is required.");
         }
+        if (trim((string) $data['contactNumber']) === '') fail(400, 'Mobile number is required.');
+        if (strlen(trim((string) $data['contactNumber'])) > 60) fail(400, 'Mobile number must be 60 characters or fewer.');
         $role = strtoupper((string) ($data['role'] ?? 'STUDENT'));
         if (!in_array($role, ['STUDENT', 'DRIVER'], true)) fail(400, 'Only student and driver accounts can self-register.');
         if ($role === 'STUDENT' && empty($data['studentId'])) fail(400, 'studentId is required.');
@@ -266,13 +268,13 @@ try {
         $pdo->beginTransaction();
         $userId = uuidv4();
         $stmt = $pdo->prepare('INSERT INTO users (id, full_name, email, password_hash, role, contact_number) VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$userId, trim($data['fullName']), strtolower($data['email']), password_hash($data['password'], PASSWORD_DEFAULT), $role, $data['contactNumber'] ?? null]);
+        $stmt->execute([$userId, trim($data['fullName']), strtolower($data['email']), password_hash($data['password'], PASSWORD_DEFAULT), $role, trim((string) $data['contactNumber'])]);
         if ($role === 'STUDENT') {
             $stmt = $pdo->prepare('INSERT INTO students (user_id, student_id, program, year_level) VALUES (?, ?, ?, ?)');
             $stmt->execute([$userId, trim($data['studentId']), $data['program'] ?? null, $data['yearLevel'] ?? null]);
         } else {
             $stmt = $pdo->prepare('INSERT INTO drivers (user_id, toda_id, full_name, driver_code, tricycle_identifier, route_area, contact_number) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$userId, (int) $data['todaId'], trim($data['fullName']), trim($data['driverCode']), trim($data['tricycleIdentifier']), toda_route_area($driverToda), $data['contactNumber'] ?? null]);
+            $stmt->execute([$userId, (int) $data['todaId'], trim($data['fullName']), trim($data['driverCode']), trim($data['tricycleIdentifier']), toda_route_area($driverToda), trim((string) $data['contactNumber'])]);
         }
         audit($pdo, $userId, 'REGISTER', 'users', $userId);
         $pdo->commit();
@@ -468,13 +470,27 @@ try {
         $data = input_json();
         $name = trim((string) ($data['fullName'] ?? $user['full_name']));
         $email = strtolower(trim((string) ($data['email'] ?? $user['email'] ?? '')));
+        $contactNumber = array_key_exists('contactNumber', $data) ? trim((string) $data['contactNumber']) : ($user['contact_number'] ?? null);
         if ($name === '') fail(400, 'Full name is required.');
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) fail(400, 'Use a valid email address.');
-        $stmt = $pdo->prepare('UPDATE users SET full_name = ?, email = NULLIF(?, "") WHERE id = ?');
-        $stmt->execute([$name, $email, $user['id']]);
+        if (array_key_exists('contactNumber', $data) && $contactNumber === '') fail(400, 'Mobile number is required.');
+        if ($contactNumber !== null && strlen($contactNumber) > 60) fail(400, 'Mobile number must be 60 characters or fewer.');
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('UPDATE users SET full_name = ?, email = NULLIF(?, ""), contact_number = ? WHERE id = ?');
+            $stmt->execute([$name, $email, $contactNumber, $user['id']]);
+            if ($user['role'] === 'DRIVER') {
+                $stmt = $pdo->prepare('UPDATE drivers SET full_name = ?, contact_number = ? WHERE user_id = ?');
+                $stmt->execute([$name, $contactNumber, $user['id']]);
+            }
+            audit($pdo, $user['id'], 'PROFILE_UPDATE', 'users', $user['id']);
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $error;
+        }
         $updated = row($pdo, 'SELECT id, full_name, email, role, status FROM users WHERE id = ?', [$user['id']]);
-        audit($pdo, $user['id'], 'PROFILE_UPDATE', 'users', $user['id']);
-        json_response(['user' => public_user($updated)]);
+        json_response(['user' => public_user($updated), 'profile' => ['contactNumber' => $contactNumber]]);
     }
 
     if ($method === 'GET' && $path === '/me/photo') {

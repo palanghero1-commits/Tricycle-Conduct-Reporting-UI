@@ -22,6 +22,8 @@ export type OfflineReport = {
 const DB_NAME = "tricycle-conduct-offline";
 const STORE_NAME = "reports";
 const DB_VERSION = 3;
+type SyncResult = Array<{ localReportId: string; ok: boolean; error?: string }>;
+let activeSync: Promise<SyncResult> | null = null;
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -67,9 +69,9 @@ export async function deleteOfflineReport(localReportId: string) {
   database.close();
 }
 
-export async function syncOfflineReports() {
+async function performOfflineReportSync(): Promise<SyncResult> {
   const reports = await listOfflineReports();
-  const results: Array<{ localReportId: string; ok: boolean; error?: string }> = [];
+  const results: SyncResult = [];
   for (const report of reports) {
     try {
       await saveOfflineReport({ ...report, status: "Uploading", lastError: undefined });
@@ -101,6 +103,12 @@ export async function syncOfflineReports() {
     }
   }
   return results;
+}
+
+export function syncOfflineReports() {
+  if (activeSync) return activeSync;
+  activeSync = performOfflineReportSync().finally(() => { activeSync = null; });
+  return activeSync;
 }
 
 export function createLocalReportId() {

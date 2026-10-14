@@ -124,9 +124,11 @@ export function Profile() {
   }>({});
   const [draftName, setDraftName] = useState(displayName);
   const [draftEmail, setDraftEmail] = useState(email);
+  const [draftContactNumber, setDraftContactNumber] = useState("");
   const [activePanel, setActivePanel] = useState<"edit" | "password" | "notifications" | "privacy" | "sessions" | null>(null);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [profileNotice, setProfileNotice] = useState("");
   const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [passwordNotice, setPasswordNotice] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
@@ -182,14 +184,22 @@ export function Profile() {
   const openEdit = () => {
     setDraftName(displayName);
     setDraftEmail(email);
+    setDraftContactNumber(profile.contactNumber ?? "");
+    setProfileNotice("");
     setActivePanel("edit");
   };
 
   const saveProfile = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    apiRequest<{ user: typeof currentUser }>("/me", { method: "PATCH", body: JSON.stringify({ fullName: draftName.trim(), email: draftEmail.trim() }) })
-      .then(({ user }) => { if (user) { setCurrentUser(user); setDisplayName(user.fullName); setEmail(user.email ?? ""); } setActivePanel(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2600); })
-      .catch(() => setSavedNotice(false));
+    const contactNumber = draftContactNumber.trim();
+    if (!contactNumber) {
+      setProfileNotice("Mobile number is required.");
+      return;
+    }
+    setProfileNotice("");
+    apiRequest<{ user: typeof currentUser; profile?: { contactNumber?: string } }>("/me", { method: "PATCH", body: JSON.stringify({ fullName: draftName.trim(), email: draftEmail.trim(), contactNumber }) })
+      .then(({ user, profile: savedProfile }) => { if (user) { setCurrentUser(user); setDisplayName(user.fullName); setEmail(user.email ?? ""); } setProfile((current) => ({ ...current, contactNumber: savedProfile?.contactNumber ?? contactNumber })); setActivePanel(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2600); })
+      .catch((error) => setProfileNotice(error instanceof Error ? error.message : "Unable to update your profile."));
   };
 
   const togglePreference = (key: PreferenceKey) => {
@@ -309,7 +319,7 @@ export function Profile() {
               </div>
             </div>
             <div>
-              <SettingRow icon={PencilLine} iconClassName="bg-[#edf4ff] text-[#0c5bce]" title="Edit profile" description="Update your name or account email" onClick={openEdit} />
+              <SettingRow icon={PencilLine} iconClassName="bg-[#edf4ff] text-[#0c5bce]" title="Edit profile" description="Update your name, email, or contact number" onClick={openEdit} />
               <SettingRow icon={KeyRound} iconClassName="bg-[#fff1e9] text-[#c66846]" title="Change password" description="Keep your account password up to date" onClick={() => setActivePanel("password")} />
               <SettingRow icon={Bell} iconClassName="bg-[#fff7dd] text-[#b47c16]" title="Notification preferences" description="Choose which report updates reach you" status={`${Number(preferences.updates) + Number(preferences.reminders)} enabled`} onClick={() => setActivePanel("notifications")} />
               <SettingRow icon={Eye} iconClassName="bg-[#eaf7f1] text-[#27805b]" title="Privacy" description="Review how your report details are handled" onClick={() => setActivePanel("privacy")} />
@@ -332,7 +342,7 @@ export function Profile() {
       ) : null}
 
       {activePanel === "edit" ? (
-        <Modal title="Edit profile" description="Update the name and email saved to your account." onClose={() => setActivePanel(null)}>
+        <Modal title="Edit profile" description="Update the name, email, and mobile number saved to your account." onClose={() => setActivePanel(null)}>
           <form onSubmit={saveProfile} className="mt-5 space-y-4">
             <label className="block">
               <span className="mb-1.5 block text-[11px] font-bold text-[#59718a]">Display name</span>
@@ -342,6 +352,11 @@ export function Profile() {
               <span className="mb-1.5 block text-[11px] font-bold text-[#59718a]">Account email</span>
               <input type="email" value={draftEmail} onChange={(event) => setDraftEmail(event.target.value)} className="w-full rounded-xl border border-[#d5e2ec] bg-white px-3.5 py-3 text-[13px] font-semibold text-[#274461] outline-none transition focus:border-[#7faddb] focus:ring-4 focus:ring-[#eaf3ff]" />
             </label>
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] font-bold text-[#59718a]">Mobile number <span className="text-[#b44a43]">*</span></span>
+              <input type="tel" inputMode="tel" autoComplete="tel" required maxLength={60} value={draftContactNumber} onChange={(event) => setDraftContactNumber(event.target.value)} placeholder="e.g. 0917 123 4567" className="w-full rounded-xl border border-[#d5e2ec] bg-white px-3.5 py-3 text-[13px] font-semibold text-[#274461] outline-none transition focus:border-[#7faddb] focus:ring-4 focus:ring-[#eaf3ff]" />
+            </label>
+            {profileNotice ? <p role="alert" className="text-[11px] font-semibold text-[#b45f4d]">{profileNotice}</p> : null}
             <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => setActivePanel(null)} className="rounded-xl px-4 py-2.5 text-[11px] font-extrabold text-[#7890a7] hover:bg-[#f1f6fa]">Cancel</button>
               <button type="submit" className="rounded-xl bg-[#0c5bce] px-4 py-2.5 text-[11px] font-extrabold text-white shadow-[0_6px_16px_rgba(12,91,206,0.2)] hover:bg-[#0a50b6]">Save changes</button>

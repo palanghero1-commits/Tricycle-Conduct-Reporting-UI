@@ -123,6 +123,7 @@ export const complaintsTable = pgTable(
   "complaints",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    localReportId: varchar("local_report_id", { length: 100 }),
     referenceNumber: varchar("reference_number", { length: 40 }).notNull(),
     studentUserId: uuid("student_user_id").notNull().references(() => usersTable.id),
     driverId: integer("driver_id").notNull().references(() => driversTable.id),
@@ -138,6 +139,7 @@ export const complaintsTable = pgTable(
   },
   (table) => ({
     referenceUnique: uniqueIndex("complaints_reference_unique").on(table.referenceNumber),
+    studentLocalReportUnique: uniqueIndex("complaints_student_local_report_unique").on(table.studentUserId, table.localReportId),
     studentIndex: index("complaints_student_idx").on(table.studentUserId),
     driverIndex: index("complaints_driver_idx").on(table.driverId),
     statusIndex: index("complaints_status_idx").on(table.status),

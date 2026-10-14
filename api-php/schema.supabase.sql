@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS complaint_categories (
 
 CREATE TABLE IF NOT EXISTS complaints (
   id UUID PRIMARY KEY,
+  local_report_id VARCHAR(100),
   reference_number VARCHAR(40) NOT NULL UNIQUE,
   student_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   driver_id INTEGER NOT NULL REFERENCES drivers(id),
@@ -107,6 +108,8 @@ CREATE TABLE IF NOT EXISTS complaints (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE complaints ADD COLUMN IF NOT EXISTS local_report_id VARCHAR(100);
+CREATE UNIQUE INDEX IF NOT EXISTS complaints_local_report_unique ON complaints(student_user_id, local_report_id);
 CREATE INDEX IF NOT EXISTS complaints_student_idx ON complaints(student_user_id);
 CREATE INDEX IF NOT EXISTS complaints_driver_idx ON complaints(driver_id);
 CREATE INDEX IF NOT EXISTS complaints_status_idx ON complaints(status);

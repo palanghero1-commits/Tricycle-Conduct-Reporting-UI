@@ -19,7 +19,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { apiRequest, clearAuthToken, fetchProfilePhoto, formatPhilippineDateTime, getCurrentUser, getUserInitials } from "../../../../lib/api";
+import { apiRequest, checkApiHealth, clearAuthToken, fetchProfilePhoto, formatPhilippineDateTime, getCurrentUser, getUserInitials } from "../../../../lib/api";
 import { syncOfflineReports } from "../../../../lib/offlineReports";
 
 type AppLayoutProps = {
@@ -134,13 +134,38 @@ export function AppLayout({
   const displayRole = currentUser?.role === "PNP" ? "AUTHORIZED PERSONNEL" : currentUser?.role;
 
   useEffect(() => {
-    const online = () => setIsOnline(true);
+    let active = true;
+    let lastReachable: boolean | null = null;
+    const checkConnection = async () => {
+      if (!navigator.onLine) {
+        if (active) setIsOnline(false);
+        lastReachable = false;
+        return;
+      }
+      const reachable = await checkApiHealth();
+      if (active) {
+        if (lastReachable === false && reachable) window.dispatchEvent(new Event("app:api-reachable"));
+        lastReachable = reachable;
+        setIsOnline(reachable);
+      }
+    };
+    const online = () => { void checkConnection(); };
     const offline = () => setIsOnline(false);
+    const apiUnreachable = () => setIsOnline(false);
+    const onFocus = () => { void checkConnection(); };
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
+    window.addEventListener("app:api-unreachable", apiUnreachable);
+    window.addEventListener("focus", onFocus);
+    void checkConnection();
+    const timer = window.setInterval(() => { void checkConnection(); }, 5000);
     return () => {
+      active = false;
+      window.clearInterval(timer);
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
+      window.removeEventListener("app:api-unreachable", apiUnreachable);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 
@@ -164,8 +189,12 @@ export function AppLayout({
     if (currentUser?.role !== "STUDENT") return;
     const sync = () => { if (navigator.onLine) void syncOfflineReports().catch(() => undefined); };
     window.addEventListener("online", sync);
+    window.addEventListener("app:api-reachable", sync);
     sync();
-    return () => window.removeEventListener("online", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("app:api-reachable", sync);
+    };
   }, [currentUser?.role]);
 
   useEffect(() => {
@@ -273,8 +302,8 @@ export function AppLayout({
         </aside>
 
         <main className="mobile-content-padding min-w-0 flex-1 overflow-y-auto">
-          <header className="sticky top-0 z-10 flex h-[74px] items-center justify-between border-b border-[#dbe5f0]/80 bg-[#f4f7fb]/90 px-5 backdrop-blur lg:px-10">
-            <div className="flex items-center gap-3">
+          <header className="sticky top-0 z-10 flex min-h-[74px] min-w-0 items-center justify-between gap-2 border-b border-[#dbe5f0]/80 bg-[#f4f7fb]/90 px-3 py-2 backdrop-blur sm:px-5 lg:px-10">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
               <button type="button" onClick={() => setMobileNavOpen(true)} className="rounded-xl p-2 text-[#6f849d] hover:bg-white lg:hidden" aria-label="Open navigation" aria-expanded={mobileNavOpen}>
                 <Menu size={20} />
               </button>
@@ -283,11 +312,11 @@ export function AppLayout({
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ca0b6]">{eyebrow}</p>
                 ) : null}
                 <h1 className="truncate text-[17px] font-extrabold tracking-[-0.02em] text-[#163154] lg:text-[20px]">{displayTitle}</h1>
-                {currentUser ? <p className="mt-0.5 text-[11px] font-semibold text-[#879bb0]">{currentUser.fullName} / {displayRole?.replace("_", " ")}</p> : null}
+                {currentUser ? <p className="mt-0.5 truncate text-[11px] font-semibold text-[#879bb0]">{currentUser.fullName} / {displayRole?.replace("_", " ")}</p> : null}
               </div>
             </div>
-            <div className="flex items-center gap-2.5">
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-extrabold ${isOnline ? "bg-[#dcf5eb] text-[#20885d]" : "bg-[#fff2df] text-[#b47718]"}`} aria-label={`Account is ${isOnline ? "online" : "offline"}`}>
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+              <span role="status" aria-live="polite" className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-extrabold ${isOnline ? "bg-[#dcf5eb] text-[#20885d]" : "bg-[#fff2df] text-[#b47718]"}`} aria-label={`System is ${isOnline ? "online" : "offline"}`}>
                 <span className={`h-1.5 w-1.5 rounded-full ${isOnline ? "bg-[#2eaa72]" : "bg-[#d28b24]"}`} />
                 {isOnline ? "Online" : "Offline"}
               </span>
@@ -335,6 +364,11 @@ export function AppLayout({
               </div>
             ) : null}
           </header>
+          {!isOnline ? (
+            <div role="status" className="mx-4 mt-4 rounded-xl border border-[#f0d8aa] bg-[#fff8e9] px-4 py-3 text-[12px] leading-5 text-[#805d24] sm:mx-5 lg:mx-10">
+              Offline mode: previously loaded information is available from this device and may be out of date. New student reports stay in the pending queue; other changes need a connection.
+            </div>
+          ) : null}
           <div className="mx-auto min-w-0 w-full max-w-[1460px] px-4 py-6 sm:px-5 sm:py-7 lg:px-10 lg:py-9">{children}</div>
         </main>
       </div>

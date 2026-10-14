@@ -20,6 +20,46 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Keep controls usable and prevent iOS from zooming the page when a field is focused. */
+@media (max-width: 639px) {
+  /* Bring microcopy up to a readable size while keeping large headings compact. */
+  [class~="text-[9px]"],
+  [class~="text-[10px]"],
+  [class~="text-[11px]"] {
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+  }
+
+  [class~="text-[34px]"],
+  [class~="text-[35px]"],
+  [class~="text-[36px]"],
+  [class~="text-[37px]"],
+  [class~="text-[38px]"],
+  [class~="text-[42px]"],
+  .text-4xl,
+  .text-5xl,
+  .text-6xl,
+  .text-7xl,
+  .text-8xl,
+  .text-9xl {
+    font-size: clamp(1.75rem, 8vw, 2.125rem) !important;
+    line-height: 1.1 !important;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 44px;
+    font-size: 16px !important;
+  }
+
+  textarea {
+    min-height: 104px;
+  }
+}
+
 @media (min-width: 1024px) {
   .mobile-content-padding {
     padding-bottom: 0;
