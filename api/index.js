@@ -215,6 +215,69 @@ app.get("/violations", auth, async (req, res, next) => { try { let sql = "SELECT
 app.get("/dashboard/stats", auth, rolesOnly("TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "SUPERADMIN", "PNP"), async (req, res, next) => { try { const scope = req.user.role === "TODA_PRESIDENT" ? await todaIds(req.user) : null; const params = scope; const condition = scope ? ` WHERE d.toda_id IN (${placeholders(scope)})` : ""; const byStatus = await q(`SELECT c.status,COUNT(*) AS total FROM complaints c JOIN drivers d ON d.id=c.driver_id${condition} GROUP BY c.status`, params || []); const row = await one(`SELECT COUNT(*) AS total FROM violations v JOIN complaints c ON c.id=v.complaint_id JOIN drivers d ON d.id=c.driver_id${condition}`, params || []); res.json({ byStatus, confirmedViolations: Number(row.total) }); } catch (e) { next(e); } });
 app.get("/reports/summary", auth, rolesOnly("TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "SUPERADMIN", "PNP"), async (req, res, next) => { try { const scope = req.user.role === "TODA_PRESIDENT" ? await todaIds(req.user) : null; const params = scope || []; const join = scope ? ` JOIN drivers d ON d.id=r.driver_id WHERE d.toda_id IN (${placeholders(scope)})` : ""; const byStatus = await q(`SELECT r.status AS label,COUNT(*) AS total FROM complaints r${join} GROUP BY r.status`, params); const byCategory = await q(`SELECT cc.name AS label,COUNT(*) AS total FROM complaints r JOIN complaint_categories cc ON cc.id=r.category_id${scope ? ` JOIN drivers d ON d.id=r.driver_id WHERE d.toda_id IN (${placeholders(scope)})` : ""} GROUP BY cc.name`, params); const monthly = await q(`SELECT TO_CHAR(r.created_at,'YYYY-MM') AS label,COUNT(*) AS total FROM complaints r${join} GROUP BY TO_CHAR(r.created_at,'YYYY-MM')`, params); res.json({ byStatus, byCategory, monthly }); } catch (e) { next(e); } });
 
+app.post("/ai/assist", auth, async (req, res, next) => {
+  try {
+    const data = body(req);
+    const task = data.task;
+    const content = typeof data.content === "string" ? data.content.trim() : "";
+    if (!["report", "review", "dashboard"].includes(task)) error(400, "Choose a supported AI assistant task.");
+    if (!content || content.length > 12000) error(400, "Provide content between 1 and 12,000 characters.");
+
+    const allowed = {
+      report: ["STUDENT"],
+      review: ["TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "SUPERADMIN", "PNP"],
+      dashboard: ["SUPERADMIN"],
+    };
+    if (!allowed[task].includes(req.user.role)) error(403, "You are not authorized to use this AI assistant task.");
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) error(503, "AI assistant is not configured. Set GEMINI_API_KEY on the server.");
+
+    const instructions = task === "report"
+      ? "Help a student describe an incident clearly and neutrally. Write incidentDescription as a concise description of what happened, based only on the concern category and facts in the supplied report notes. Never infer what happened from the category alone, invent details, infer fault, or recommend discipline. If facts are insufficient, say so in incidentDescription and ask for the missing facts in missingDetails. Also provide draft as a cleaned-up version of the supplied notes, preserving all facts without adding new ones. Return JSON with summary (string), incidentDescription (string), draft (string), suggestions (array of strings), missingDetails (array of strings)."
+      : task === "review"
+        ? "Support a human reviewer. Summarize the provided report, list neutral review suggestions and details to verify. Do not decide whether an allegation is true, infer fault, or recommend discipline. Return JSON with summary (string), suggestions (array of strings), missingDetails (array of strings)."
+        : "Summarize the provided aggregated report counts for an administrator. Mention only patterns visible in the data and limitations of the sample. Do not infer individual risk or recommend discipline. Return JSON with summary (string), suggestions (array of strings), missingDetails (array of strings).";
+
+    let providerResponse;
+    try {
+      const model = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+      providerResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: instructions }] },
+          contents: [{ role: "user", parts: [{ text: content }] }],
+          generationConfig: { responseMimeType: "application/json" },
+        }),
+        signal: AbortSignal.timeout(25000),
+      });
+    } catch {
+      error(502, "Gemini could not be reached. Check the server API key and model settings, then try again.");
+    }
+    if (!providerResponse.ok) error(502, providerResponse.status === 404
+      ? "The configured Gemini model is unavailable to this API key. Check GEMINI_MODEL."
+      : "Gemini could not complete the request. Check the server API key and model settings, then try again.");
+
+    let generated;
+    try {
+      const payload = await providerResponse.json();
+      generated = JSON.parse(payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "{}");
+    } catch {
+      error(502, "Gemini returned an unreadable response. Please try again.");
+    }
+    res.json({ result: {
+      summary: typeof generated.summary === "string" ? generated.summary.slice(0, 1800) : "",
+      draft: typeof generated.draft === "string" ? generated.draft.slice(0, 500) : undefined,
+      incidentDescription: typeof generated.incidentDescription === "string" && generated.incidentDescription.trim()
+        ? generated.incidentDescription.slice(0, 500)
+        : typeof generated.draft === "string" ? generated.draft.slice(0, 500) : "Add more factual details so the incident can be described without guessing.",
+      suggestions: Array.isArray(generated.suggestions) ? generated.suggestions.filter((item) => typeof item === "string").slice(0, 8) : [],
+      missingDetails: Array.isArray(generated.missingDetails) ? generated.missingDetails.filter((item) => typeof item === "string").slice(0, 8) : [],
+    } });
+  } catch (e) { next(e); }
+});
+
 app.get("/admin/directory", auth, rolesOnly("SUPERADMIN"), async (_req, res, next) => { try { const [students, drivers, personnel, presidents] = await Promise.all([q("SELECT u.id,u.full_name AS \"fullName\",u.email,u.status,u.created_at AS \"createdAt\",s.student_id AS \"studentId\",s.program,s.year_level AS \"yearLevel\",s.campus FROM users u JOIN students s ON s.user_id=u.id WHERE u.role='STUDENT' ORDER BY u.created_at DESC"), q("SELECT u.id,u.full_name AS \"fullName\",u.email,u.status,u.created_at AS \"createdAt\",d.driver_code AS \"driverCode\",d.tricycle_identifier AS \"tricycleIdentifier\",CONCAT_WS(', ', NULLIF(t.barangay, ''), NULLIF(t.city, ''), NULLIF(t.province, '')) AS \"routeArea\",t.name AS \"todaName\" FROM drivers d LEFT JOIN users u ON u.id=d.user_id JOIN todas t ON t.id=d.toda_id ORDER BY d.created_at DESC"), q("SELECT u.id,u.full_name AS \"fullName\",u.email,u.role,u.status,u.created_at AS \"createdAt\",p.personnel_type AS \"personnelType\",p.office_name AS \"officeName\",p.position_title AS \"positionTitle\" FROM users u JOIN authorized_personnel p ON p.user_id=u.id WHERE u.role IN ('AUTHORIZED_PERSONNEL','PNP') ORDER BY u.created_at DESC"), q("SELECT u.id,u.full_name AS \"fullName\",u.email,u.status,u.created_at AS \"createdAt\",t.id AS \"todaId\",t.name AS \"todaName\" FROM users u JOIN todas t ON t.president_user_id=u.id WHERE u.role='TODA_PRESIDENT' ORDER BY u.created_at DESC")]); res.json({ students, drivers, personnel, presidents }); } catch (e) { next(e); } });
 app.delete("/admin/users/:id", auth, rolesOnly("SUPERADMIN"), async (req, res, next) => { try { if (req.params.id === req.user.id) error(400, "The active superadmin account cannot be deleted."); const target = await one("SELECT id,role FROM users WHERE id=$1", [req.params.id]); if (!target) error(404, "Account not found."); if (target.role === "SUPERADMIN") error(403, "Superadmin accounts cannot be deleted."); await transaction(async (client) => { await q("DELETE FROM users WHERE id=$1", [target.id], client); await audit(req.user.id, "USER_DELETE", "users", target.id, null, client); }); res.json({ ok: true, status: "DELETED" }); } catch (e) { next(e); } });
 app.get("/admin/dashboard", auth, rolesOnly("SUPERADMIN"), async (_req, res, next) => { try { const count = async (sql) => Number((await one(sql)).count); const stats = { totalUsers: await count("SELECT COUNT(*) FROM users"), students: await count("SELECT COUNT(*) FROM users WHERE role='STUDENT'"), personnel: await count("SELECT COUNT(*) FROM users WHERE role='AUTHORIZED_PERSONNEL'"), drivers: await count("SELECT COUNT(*) FROM drivers WHERE is_active=1"), reports: await count("SELECT COUNT(*) FROM complaints"), pendingReports: await count("SELECT COUNT(*) FROM complaints WHERE status IN ('SUBMITTED','RECEIVED','UNDER_REVIEW','REFERRED')"), resolvedReports: await count("SELECT COUNT(*) FROM complaints WHERE status IN ('RESOLVED','CLOSED')"), violations: await count("SELECT COUNT(*) FROM violations") }; const reports = await q("SELECT c.reference_number AS id,c.location,cat.name AS category,c.status,c.created_at AS received,d.tricycle_identifier AS reference,LEFT(c.description,120) AS subject FROM complaints c JOIN complaint_categories cat ON cat.id=c.category_id JOIN drivers d ON d.id=c.driver_id ORDER BY c.created_at DESC LIMIT 50"); const activity = await q("SELECT a.action,a.target_type AS \"targetType\",a.created_at AS \"createdAt\",COALESCE(u.full_name,'System') AS actor FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 25"); res.json({ stats, reports, activity }); } catch (e) { next(e); } });
