@@ -4,19 +4,19 @@ import "./index.css";
 
 createRoot(document.getElementById("root")!).render(<App />);
 
-if ("serviceWorker" in navigator) {
-  const hadController = Boolean(navigator.serviceWorker.controller);
-  let reloadingForUpdate = false;
-
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (!hadController || reloadingForUpdate) return;
-    reloadingForUpdate = true;
-    window.location.reload();
-  });
-
-  window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js").catch((error: unknown) => {
-      console.error("Service worker registration failed:", error);
-    });
-  });
+// Remove service workers and app-shell caches left by older web installs.
+// Offline report drafts use IndexedDB and are intentionally kept.
+async function removeLegacyWebAppCaching() {
+  if ("serviceWorker" in navigator) {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+  }
+  if ("caches" in window) {
+    const appCaches = (await caches.keys()).filter((name) => name.startsWith("tricycle-conduct-"));
+    await Promise.all(appCaches.map((name) => caches.delete(name)));
+  }
 }
+
+void removeLegacyWebAppCaching().catch((error: unknown) => {
+  console.warn("Could not remove legacy app-shell caching:", error);
+});

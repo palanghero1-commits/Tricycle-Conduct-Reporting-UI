@@ -1,5 +1,4 @@
 import { useEffect, useState, type ComponentType } from "react";
-import { PWAInstallProvider } from "./components/mockups/tricycle-reporting/_shared/PWAInstallPrompt";
 
 import { modules as discoveredModules } from "./.generated/mockup-components";
 
@@ -136,14 +135,7 @@ function App() {
   const previewPath = getPreviewPath() ?? "tricycle-reporting/Landing";
 
   if (previewPath) {
-    return (
-      <PWAInstallProvider>
-        <PreviewRenderer
-          componentPath={previewPath}
-          modules={discoveredModules}
-        />
-      </PWAInstallProvider>
-    );
+    return <PreviewRenderer componentPath={previewPath} modules={discoveredModules} />;
   }
 
   return <Gallery />;

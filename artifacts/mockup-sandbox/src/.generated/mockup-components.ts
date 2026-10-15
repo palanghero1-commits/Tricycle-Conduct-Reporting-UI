@@ -20,7 +20,6 @@ export const modules: ModuleMap = {
   "./components/mockups/tricycle-reporting/PNPLanding.tsx": () => import("../components/mockups/tricycle-reporting/PNPLanding.tsx"),
   "./components/mockups/tricycle-reporting/PNPReview.tsx": () => import("../components/mockups/tricycle-reporting/PNPReview.tsx"),
   "./components/mockups/tricycle-reporting/Profile.tsx": () => import("../components/mockups/tricycle-reporting/Profile.tsx"),
-  "./components/mockups/tricycle-reporting/PWAStates.tsx": () => import("../components/mockups/tricycle-reporting/PWAStates.tsx"),
   "./components/mockups/tricycle-reporting/ReportsQueue.tsx": () => import("../components/mockups/tricycle-reporting/ReportsQueue.tsx"),
   "./components/mockups/tricycle-reporting/ReportTracking.tsx": () => import("../components/mockups/tricycle-reporting/ReportTracking.tsx"),
   "./components/mockups/tricycle-reporting/ReviewWorkspace.tsx": () => import("../components/mockups/tricycle-reporting/ReviewWorkspace.tsx"),

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { PWAInstallButton } from "./_shared/PWAInstallPrompt";
 import { apiRequest } from "../../../lib/api";
 import {
   ArrowRight,
@@ -300,7 +299,6 @@ export function Landing() {
                 >
                   Register
                 </button>
-                <PWAInstallButton />
               </div>
               <button type="button" onClick={openTrack} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#bcd4e7] bg-white px-4 py-2.5 text-[12px] font-extrabold text-[#0c5bce] shadow-[0_4px_14px_rgba(34,75,112,0.05)] transition hover:border-[#83add2] hover:bg-[#f5faff]">
                 <Search size={15} />

@@ -1,6 +1,6 @@
 # Tricycle Drivers Conduct Reporting System
 
-Web and mobile-based PWA for SUNN students to submit tricycle driver conduct reports and for authorized Old Sagay TODA/admin/PNP personnel to review, document, and monitor complaints.
+Web application and Android APK for SUNN students to submit tricycle driver conduct reports and for authorized Old Sagay TODA/admin/PNP personnel to review, document, and monitor complaints.
 
 ## Run & Operate
 
@@ -39,14 +39,14 @@ Web and mobile-based PWA for SUNN students to submit tricycle driver conduct rep
 - API server: `artifacts/api-server/src`
 - API domain routes: `artifacts/api-server/src/routes/domain.ts`
 - Database schema: `lib/db/src/schema/index.ts`
-- PWA assets: `artifacts/mockup-sandbox/public/manifest.webmanifest`, `public/sw.js`, `public/pwa-icon.svg`
+- Android project: `artifacts/mockup-sandbox/android`
 
 ## Architecture Decisions
 
 - Complaints are reports, not confirmed violations. Violations are separate records created only by authorized roles.
 - The backend derives complainant identity from the authenticated session; complaint creation never accepts a student user ID.
 - Attachments are stored outside public frontend assets and are served only through an authenticated API endpoint.
-- The service worker caches static UI assets only and bypasses API requests so offline mode does not fake complaint submission or notifications.
+- Offline report drafts are stored in IndexedDB and sync through the API when it is reachable. The web app does not use PWA installation or service-worker caching.
 - Status changes are restricted to the configured workflow and always write status history plus audit records.
 
 ## Product
@@ -54,7 +54,7 @@ Web and mobile-based PWA for SUNN students to submit tricycle driver conduct rep
 - Student registration/login and complaint submission with driver/category selection.
 - TODA/admin/PNP complaint review, status updates, action records, confirmed violation creation, notifications, and database-backed reports.
 - Admin management endpoints for users, drivers, and complaint categories.
-- PWA installability and static offline fallback.
+- Android APK builds through Capacitor. The web deployment is accessed in a browser and is not installable as a PWA.
 
 ## Initial administrator account
 

@@ -275,16 +275,9 @@ Every offline report needs a `localReportId`.
 
 The API should accept this ID and reject it if the same report was already uploaded. This prevents duplicate complaints when the connection drops during upload.
 
-### 6. Add a Service Worker
+### 6. Service worker caching removed
 
-The service worker should cache:
-
-- Application shell
-- Report pages
-- CSS and JavaScript
-- Icons and static assets
-
-It should not cache private API responses or sensitive student reports.
+The app no longer uses PWA installation or service-worker caching. Offline report drafts and attachments continue to use IndexedDB and are uploaded when the API is reachable.
 
 ### 7. Offline Limitations
 
@@ -312,5 +305,4 @@ The first offline version should include a visible **Sync pending reports** butt
 4. Add attachment storage.
 5. Add upload synchronization.
 6. Add duplicate protection.
-7. Add service-worker caching.
-8. Test airplane mode, reconnection, failed uploads, and duplicate prevention.
+7. Test airplane mode, reconnection, failed uploads, and duplicate prevention.

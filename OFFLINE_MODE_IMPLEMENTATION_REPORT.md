@@ -6,6 +6,8 @@ The local application can now accept a student report even when the phone tempor
 
 This implementation is local-only. It does not change the Supabase or Vercel deployment.
 
+Offline report drafts use IndexedDB. PWA installation and service-worker caching are not part of the application.
+
 ## How the offline flow works
 
 1. The student opens **Submit report**.
