@@ -9,6 +9,15 @@ import pg from "pg";
 
 const { Pool } = pg;
 const app = express();
+const configuredOrigins = (process.env.FRONTEND_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const capacitorOrigins = new Set([
+  "https://localhost",
+  "http://localhost",
+  "capacitor://localhost",
+]);
 const pool = new Pool({
   connectionString: process.env.SUPABASE_DB_URL || process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
@@ -32,7 +41,16 @@ const upload = multer({
 });
 
 app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN?.split(",").map((v) => v.trim()) || true, allowedHeaders: ["Content-Type", "Authorization"], methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"] }));
+app.use(cors({
+  origin(origin, callback) {
+    // Capacitor WebViews use localhost as their origin even when the app's API
+    // is hosted remotely. Keep browser origins restricted to the configured
+    // frontend domains while allowing those packaged app origins.
+    callback(null, !origin || configuredOrigins.includes(origin) || capacitorOrigins.has(origin));
+  },
+  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+}));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use((req, _res, next) => {
