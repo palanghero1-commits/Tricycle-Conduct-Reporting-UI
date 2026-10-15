@@ -112,6 +112,7 @@ async function performOfflineReportSync(): Promise<SyncResult> {
       await saveOfflineReport({ ...report, status: "Uploading", lastError: undefined });
       const body = new FormData();
       body.append("localReportId", report.localReportId);
+      body.append("queueSync", "1");
       body.append("driverId", report.driverId);
       body.append("categoryId", report.categoryId);
       body.append("incidentDate", report.incidentDate);

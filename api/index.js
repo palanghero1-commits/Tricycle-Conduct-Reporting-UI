@@ -212,7 +212,13 @@ app.post("/complaints", auth, rolesOnly("STUDENT"), upload.fields([{ name: "atta
     if (String(data.description).length < 15) error(400, "Description must be at least 15 characters.");
     const localReportId = typeof data.localReportId === "string" ? data.localReportId.trim() : "";
     if (localReportId.length > 100) error(400, "Local report identifier is too long.");
-    if (localReportId) {
+    const queueSync = data.queueSync === "1";
+    const localReportIdColumn = await one("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='complaints' AND column_name='local_report_id') AS available");
+    const supportsQueuedReportIds = Boolean(localReportIdColumn?.available);
+    if (queueSync && !supportsQueuedReportIds) {
+      error(503, "Offline report sync is not enabled in the online database yet. Run api-php/migrations/supabase/006-offline-report-id.sql in Supabase, then retry.");
+    }
+    if (localReportId && supportsQueuedReportIds) {
       const existing = await one("SELECT id,reference_number AS \"referenceNumber\",status FROM complaints WHERE student_user_id=$1 AND local_report_id=$2 LIMIT 1", [req.user.id, localReportId]);
       if (existing) return res.json({ complaint: existing });
     }
@@ -224,13 +230,19 @@ app.post("/complaints", auth, rolesOnly("STUDENT"), upload.fields([{ name: "atta
     }
     const result = await transaction(async (client) => {
       if (!(await one("SELECT id FROM drivers WHERE id=$1 AND is_active=1", [Number(data.driverId)], client)) || !(await one("SELECT id FROM complaint_categories WHERE id=$1 AND is_active=1", [Number(data.categoryId)], client))) error(400, "Invalid driver or category.");
-      if (localReportId) {
+      if (localReportId && supportsQueuedReportIds) {
         const existing = await one("SELECT id,reference_number AS \"referenceNumber\",status FROM complaints WHERE student_user_id=$1 AND local_report_id=$2 LIMIT 1", [req.user.id, localReportId], client);
         if (existing) return { id: existing.id, reference: existing.referenceNumber, status: existing.status, created: false };
       }
       const id = uuid();
       const reference = `TRC-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`;
-      await q("INSERT INTO complaints (id,local_report_id,reference_number,student_user_id,driver_id,category_id,status,incident_date,incident_time,location,description) VALUES ($1,$2,$3,$4,$5,$6,'SUBMITTED',$7,$8,$9,$10)", [id, localReportId || null, reference, req.user.id, Number(data.driverId), Number(data.categoryId), data.incidentDate, data.incidentTime, String(data.location).trim(), String(data.description).trim()], client);
+      if (supportsQueuedReportIds) {
+        await q("INSERT INTO complaints (id,local_report_id,reference_number,student_user_id,driver_id,category_id,status,incident_date,incident_time,location,description) VALUES ($1,$2,$3,$4,$5,$6,'SUBMITTED',$7,$8,$9,$10)", [id, localReportId || null, reference, req.user.id, Number(data.driverId), Number(data.categoryId), data.incidentDate, data.incidentTime, String(data.location).trim(), String(data.description).trim()], client);
+      } else {
+        // Let a live online submission succeed even if the optional offline
+        // idempotency migration has not yet been applied in Supabase.
+        await q("INSERT INTO complaints (id,reference_number,student_user_id,driver_id,category_id,status,incident_date,incident_time,location,description) VALUES ($1,$2,$3,$4,$5,'SUBMITTED',$6,$7,$8,$9)", [id, reference, req.user.id, Number(data.driverId), Number(data.categoryId), data.incidentDate, data.incidentTime, String(data.location).trim(), String(data.description).trim()], client);
+      }
       await q("INSERT INTO complaint_status_history (complaint_id,previous_status,new_status,changed_by,remarks) VALUES ($1,NULL,'SUBMITTED',$2,$3)", [id, req.user.id, "Complaint submitted by student."], client);
       for (const file of files) {
         const stored = await storageUpload(file, `complaints/${id}`);
