@@ -22,7 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
-import { apiRequest, getCurrentUser } from "../../../lib/api";
+import { apiRequest, checkApiHealth, getCurrentUser } from "../../../lib/api";
 import { createLocalReportId, saveOfflineReport } from "../../../lib/offlineReports";
 import { getOfflineAccountData } from "../../../lib/offlineAccount";
 import { AiConductAssistant } from "./_shared/AiConductAssistant";
@@ -164,7 +164,8 @@ export function SubmitReport() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
   const [queuedReportLocalId, setQueuedReportLocalId] = useState<string | null>(null);
-  const [submissionState, setSubmissionState] = useState<"submitted" | "queued" | null>(null);
+  const [submissionState, setSubmissionState] = useState<"submitted" | "queued" | "pending" | null>(null);
+  const [submissionMessage, setSubmissionMessage] = useState("");
   const [hasAcknowledged, setHasAcknowledged] = useState(false);
 
   useEffect(() => {
@@ -385,12 +386,16 @@ export function SubmitReport() {
       savedAt: new Date().toISOString(),
       retryCount: 0,
     };
-    if (!navigator.onLine) {
+    // navigator.onLine only reports whether Android has a network interface.
+    // Use the actual API health endpoint to decide whether this is offline.
+    const apiIsReachable = await checkApiHealth();
+    if (!apiIsReachable) {
       try {
         await saveOfflineReport(offlineReport);
         setQueuedReportLocalId(localReportId);
         setReportId(`OFFLINE-${localReportId.slice(-8).toUpperCase()}`);
         setSubmissionState("queued");
+        setSubmissionMessage("The online API could not be reached. This report is saved on this device and will sync when the API is available.");
         setNotice("No internet connection. Your report was saved on this device.");
         setIsSubmitted(true);
       } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to save the report offline."); }
@@ -424,9 +429,13 @@ export function SubmitReport() {
       try {
         await saveOfflineReport({ ...offlineReport, status: "Upload failed", lastError: error instanceof Error ? error.message : "Upload failed." });
         setQueuedReportLocalId(localReportId);
-        setReportId(`OFFLINE-${localReportId.slice(-8).toUpperCase()}`);
-        setSubmissionState("queued");
-        setNotice("The report could not be submitted yet. It was saved on this device; check Pending reports for its sync status.");
+        // API health was successful, so this was an online attempt. The server
+        // did not accept it, therefore it has no tracking number yet.
+        setReportId("");
+        setSubmissionState("pending");
+        const failure = error instanceof Error ? error.message : "The server did not accept the report.";
+        setSubmissionMessage(`The server did not accept this report yet. It is saved on this device for retry. No tracking number has been assigned. ${failure}`);
+        setNotice("The server did not accept the report. It was saved on this device for retry.");
         setIsSubmitted(true);
         if (navigator.onLine) window.dispatchEvent(new Event("app:offline-report-queued"));
       } catch (offlineError) {
@@ -445,34 +454,34 @@ export function SubmitReport() {
             <div className="relative overflow-hidden bg-[#f0f7ff] px-6 pb-9 pt-10 text-center sm:px-12">
               <div className="absolute -right-14 -top-20 h-56 w-56 rounded-full border-[24px] border-white/60" />
               <div className="absolute -bottom-20 -left-16 h-48 w-48 rounded-full border-[20px] border-[#dceeff]/80" />
-              <div className={`relative mx-auto flex h-[76px] w-[76px] items-center justify-center rounded-full ${submissionState === "queued" ? "bg-[#fff1d3] text-[#a77518] shadow-[0_8px_22px_rgba(167,117,24,0.12)]" : "bg-[#d9f3e8] text-[#16815a] shadow-[0_8px_22px_rgba(21,125,87,0.12)]"}`}>
-                {submissionState === "queued" ? <CircleAlert size={34} strokeWidth={2.2} /> : <Check size={36} strokeWidth={2.6} />}
+              <div className={`relative mx-auto flex h-[76px] w-[76px] items-center justify-center rounded-full ${submissionState !== "submitted" ? "bg-[#fff1d3] text-[#a77518] shadow-[0_8px_22px_rgba(167,117,24,0.12)]" : "bg-[#d9f3e8] text-[#16815a] shadow-[0_8px_22px_rgba(21,125,87,0.12)]"}`}>
+                {submissionState !== "submitted" ? <CircleAlert size={34} strokeWidth={2.2} /> : <Check size={36} strokeWidth={2.6} />}
               </div>
               <p className="relative mt-6 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2b906c]">
-                {submissionState === "queued" ? "Saved on this device" : "Report received"}
+                {submissionState === "queued" ? "Saved offline on this device" : submissionState === "pending" ? "Waiting for server acceptance" : "Report received"}
               </p>
               <h2 className="relative mt-2 text-[28px] font-extrabold tracking-[-0.04em] text-[#163154] sm:text-[34px]">
                 Thank you for speaking up.
               </h2>
               <p className="relative mx-auto mt-3 max-w-[540px] text-[14px] leading-6 text-[#607993]">
-                {submissionState === "queued" ? "Your report has not reached the review team yet. It is saved on this device and will be sent when the connection is available." : "Your report has been recorded for review. It is an account for the conduct team to assess, not a confirmed violation."}
+                {submissionState === "queued" ? submissionMessage : submissionState === "pending" ? submissionMessage : "Your report has been recorded for review. It is an account for the conduct team to assess, not a confirmed violation."}
               </p>
             </div>
             <div className="space-y-5 px-6 py-6 sm:px-12 sm:py-8">
-              <div className="flex items-center justify-between rounded-2xl border border-[#e1eaf2] bg-[#fbfdff] px-4 py-4">
+              {reportId ? <div className="flex items-center justify-between rounded-2xl border border-[#e1eaf2] bg-[#fbfdff] px-4 py-4">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a7bb]">{submissionState === "queued" ? "Local queue reference" : "Database reference"}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#94a7bb]">{submissionState === "queued" ? "Offline queue reference" : "Online tracking number"}</p>
                   <p className="mt-1 font-mono text-[17px] font-bold tracking-[0.08em] text-[#18385e]">{reportId}</p>
                 </div>
                 <BadgeCheck size={23} className="text-[#278b68]" />
-              </div>
+              </div> : <div className="rounded-2xl border border-[#f2dfb8] bg-[#fff9eb] px-4 py-4 text-[12px] font-semibold leading-5 text-[#82652d]">No tracking number yet. The server assigns one after it accepts the report.</div>}
               <div className="flex gap-3 rounded-2xl bg-[#fff9eb] px-4 py-4 text-[#82652d]">
                 <Info size={17} className="mt-0.5 shrink-0" />
                 <p className="text-[12px] leading-5">
-                  {submissionState === "queued" ? "Open Pending reports to check its sync status. It will appear in My reports after the server accepts it." : "You can check the status of this report in My reports. Reviews may take time as the team checks the details and any supporting evidence."}
+                  {submissionState === "queued" || submissionState === "pending" ? "Open Pending reports to retry and check its sync status. It will appear in My reports after the server accepts it." : "You can check the status of this report in My reports. Reviews may take time as the team checks the details and any supporting evidence."}
                 </p>
               </div>
-              {submissionState === "queued" ? <button type="button" onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/PendingReports`; }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-3 text-[12px] font-extrabold text-[#0c5bce] hover:bg-[#f0f7ff]">View pending reports <ArrowRight size={15} /></button> : null}
+              {submissionState === "queued" || submissionState === "pending" ? <button type="button" onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/PendingReports`; }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-3 text-[12px] font-extrabold text-[#0c5bce] hover:bg-[#f0f7ff]">View pending reports <ArrowRight size={15} /></button> : null}
               {submissionState === "submitted" && reportId ? <button type="button" onClick={() => { window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Landing?track=${encodeURIComponent(reportId)}`; }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-3 text-[12px] font-extrabold text-[#0c5bce] hover:bg-[#f0f7ff]">Track this report online <ArrowRight size={15} /></button> : null}
               <button
                 type="button"
