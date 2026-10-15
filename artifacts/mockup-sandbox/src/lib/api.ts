@@ -69,18 +69,22 @@ export function getUserInitials(user: Pick<ApiUser, "fullName" | "email"> | null
 }
 
 export function formatPhilippineDateTime(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) return "Date unavailable";
   return new Intl.DateTimeFormat("en-PH", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Asia/Manila",
-  }).format(typeof value === "string" ? new Date(value) : value);
+  }).format(date);
 }
 
 export function formatPhilippineDate(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) return "Date unavailable";
   return new Intl.DateTimeFormat("en-PH", {
     dateStyle: "medium",
     timeZone: "Asia/Manila",
-  }).format(typeof value === "string" ? new Date(value) : value);
+  }).format(date);
 }
 
 export function philippineDateKey(value: string | Date = new Date()) {

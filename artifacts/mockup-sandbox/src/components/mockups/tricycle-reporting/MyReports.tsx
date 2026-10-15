@@ -127,11 +127,18 @@ const statusDotStyles: Record<ReportStatus, string> = {
 };
 
 function formatDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (!value || !Number.isFinite(date.getTime())) return "Date unavailable";
   return new Intl.DateTimeFormat("en-PH", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
+  }).format(date);
+}
+
+function dateValue(value: string) {
+  if (!value) return Number.NaN;
+  return new Date(`${value}T00:00:00`).getTime();
 }
 
 function reportStatus(value: string): ReportStatus {
@@ -395,11 +402,14 @@ export function MyReports() {
         const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
         const matchesStatus = status === "All statuses" || report.status === status;
         const matchesCategory = category === "All categories" || report.category === category;
-        const matchesDate = !cutoff || new Date(`${report.date}T00:00:00`) >= cutoff;
+        const reportDate = dateValue(report.date);
+        const matchesDate = !cutoff || (Number.isFinite(reportDate) && reportDate >= cutoff.getTime());
         return matchesQuery && matchesStatus && matchesCategory && matchesDate;
       })
       .sort((a, b) => {
-        const difference = new Date(`${a.date}T00:00:00`).getTime() - new Date(`${b.date}T00:00:00`).getTime();
+        const aDate = dateValue(a.date);
+        const bDate = dateValue(b.date);
+        const difference = (Number.isFinite(aDate) ? aDate : 0) - (Number.isFinite(bDate) ? bDate : 0);
         return sortDescending ? -difference : difference;
       });
   }, [category, dateRange, liveRecords, query, sortDescending, status]);
