@@ -777,7 +777,7 @@ export function Auth() {
                       </div>
                       <div className="mt-4 flex items-start gap-2.5 rounded-[13px] border border-[#d2e9e5] bg-[#eff9f6] p-3.5 text-[11px] leading-5 text-[#4b8179]">
                         <ShieldCheck size={15} className="mt-0.5 shrink-0" />
-                        <span>Review the details above. Completing this step creates the {role} account through the PHP API and stores it in the database.</span>
+                        <span>Review the details above. Completing this step creates the {role} account through the app backend and stores it in the database.</span>
                       </div>
                       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                         <button type="button" onClick={() => { setRegistrationStep(2); setNotice(null); }} className="flex items-center justify-center gap-2 rounded-[12px] border border-[#d3e2ed] bg-white px-4 py-3.5 text-[12px] font-extrabold text-[#62809a] transition-colors hover:bg-[#f2f7fb] sm:shrink-0">

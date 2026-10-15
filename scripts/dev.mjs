@@ -102,9 +102,9 @@ if (databaseSetup.error || databaseSetup.status !== 0) {
   process.exit(1);
 }
 
-console.log("Starting PHP API at http://localhost:8000/index.php");
+console.log("Starting PHP API at http://0.0.0.0:8000/index.php (also available to devices on your local network)");
 console.log("Starting Vite frontend...");
-start("PHP API", phpCommand, ["-d", "upload_max_filesize=5M", "-d", "post_max_size=28M", "-d", "max_file_uploads=5", "-S", "localhost:8000", "-t", apiDir, resolve(apiDir, "router.php")], root);
+start("PHP API", phpCommand, ["-d", "upload_max_filesize=5M", "-d", "post_max_size=28M", "-d", "max_file_uploads=5", "-S", "0.0.0.0:8000", "-t", apiDir, resolve(apiDir, "router.php")], root);
 start("Vite", execPath, [resolve(root, "node_modules", "vite", "bin", "vite.js"), "dev", "--configLoader", "runner"], frontendDir);
 
 function shutdown() {

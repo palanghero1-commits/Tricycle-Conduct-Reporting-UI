@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:android": "vite build --mode android && cap sync android",
+    "android:open": "cap open android",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.20",
     "@radix-ui/react-alert-dialog": "^1.1.23",
@@ -70,5 +73,9 @@
     "vaul": "^1.1.2",
     "vite": "^7.3.2",
     "zod": "^3.25.76"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3"
   }
 }

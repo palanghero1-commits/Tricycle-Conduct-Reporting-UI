@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Tricycle Conduct</string>
+    <string name="title_activity_main">Tricycle Conduct</string>
+    <string name="package_name">ph.sagay.tricycleconductreporting</string>
+    <string name="custom_url_scheme">ph.sagay.tricycleconductreporting</string>
+</resources>
