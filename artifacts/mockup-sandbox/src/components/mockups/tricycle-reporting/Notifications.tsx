@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -15,6 +16,7 @@ import {
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, formatPhilippineDateTime, getCurrentUser } from "../../../lib/api";
 import { getOfflineAccountData } from "../../../lib/offlineAccount";
+import { enableNativePushNotifications } from "../../../lib/nativePush";
 
 type NotificationFilter = "all" | "unread";
 
@@ -42,6 +44,8 @@ export function Notifications() {
   const [loadError, setLoadError] = useState("");
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushStatus, setPushStatus] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 5;
 
@@ -153,6 +157,19 @@ export function Notifications() {
     apiRequest("/notifications/read-all", { method: "PATCH" }).then(() => setNotifications((current) => current.map((notification) => ({ ...notification, read: true }))));
   };
 
+  const enablePush = async () => {
+    setPushBusy(true);
+    setPushStatus("Please allow notifications in the Android permission prompt.");
+    try {
+      await enableNativePushNotifications();
+      setPushStatus("Notifications are enabled on this device. New report updates can appear in your Android notification tray.");
+    } catch (error) {
+      setPushStatus(error instanceof Error ? error.message : "Could not enable Android notifications.");
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
   return (
     <AppLayout
       officer={isReviewRole}
@@ -193,6 +210,19 @@ export function Notifications() {
             </div>
           </div>
         </section>
+
+        {Capacitor.isNativePlatform() ? (
+          <section className="mt-5 flex flex-col gap-3 rounded-2xl border border-[#dbe5f0] bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[12px] font-extrabold text-[#294765]">Android push notifications</p>
+              <p className="mt-1 text-[11px] leading-5 text-[#71859e]">Allow notifications to receive report status updates when the app is in the background.</p>
+              {pushStatus ? <p role="status" className="mt-2 text-[11px] font-semibold text-[#52718d]">{pushStatus}</p> : null}
+            </div>
+            <button type="button" onClick={() => void enablePush()} disabled={pushBusy} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-4 text-[12px] font-extrabold text-white hover:bg-[#084da9] disabled:opacity-60">
+              <Bell size={15} />{pushBusy ? "Enabling…" : "Enable notifications"}
+            </button>
+          </section>
+        ) : null}
 
         <section className="mt-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, MapPin, ShieldAlert, Siren, UserRound } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, getCurrentUser } from "../../../lib/api";
+import { requestCurrentDeviceLocation } from "../../../lib/deviceLocation";
 
 type Driver = { id: number; fullName: string; tricycleIdentifier: string; routeArea: string | null };
 type ActiveAlert = { id: string; driverName: string; driverCode?: string | null; plateNumber?: string | null; routeArea?: string | null; contactNumber?: string | null; todaName?: string | null; tricycleIdentifier: string; status: "ACTIVE" | "CANCELLED" };
@@ -30,26 +31,26 @@ export function EmergencySOS() {
     body: JSON.stringify({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }),
   });
 
-  const startSOS = () => {
+  const startSOS = async () => {
     if (!driverId) { setStatus("Select the driver or tricycle first."); return; }
-    if (!navigator.geolocation) { setStatus("This device does not support GPS location."); return; }
     setBusy(true);
-    setStatus("Getting your current location…");
-    navigator.geolocation.getCurrentPosition(async (position) => {
-      try {
-        const result = await apiRequest<{ alert: ActiveAlert }>("/sos", {
-          method: "POST",
-          body: JSON.stringify({ driverId: Number(driverId), latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }),
-        });
-        setAlert(result.alert);
-        setStatus("Emergency alert is active. Authorized Personnel can see your live location.");
+    setStatus("Requesting location permission and getting your current location?");
+    try {
+      const position = await requestCurrentDeviceLocation();
+      const result = await apiRequest<{ alert: ActiveAlert }>("/sos", {
+        method: "POST",
+        body: JSON.stringify({ driverId: Number(driverId), latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }),
+      });
+      setAlert(result.alert);
+      setStatus("Emergency alert is active. Authorized Personnel can see your live location.");
+      if (navigator.geolocation) {
         watchId.current = navigator.geolocation.watchPosition((nextPosition) => {
           void sendLocation(result.alert.id, nextPosition).catch(() => undefined);
         }, () => setStatus("Emergency is active, but the latest GPS update failed."), { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 });
-      } catch (error) {
-        setStatus(error instanceof Error ? error.message : "Unable to start the emergency alert.");
-      } finally { setBusy(false); }
-    }, () => { setStatus("Location permission is required to start an emergency alert."); setBusy(false); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to start the emergency alert.");
+    } finally { setBusy(false); }
   };
 
   const stopSOS = async () => {

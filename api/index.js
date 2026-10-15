@@ -6,6 +6,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import pg from "pg";
+import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 
 const { Pool } = pg;
 const app = express();
@@ -78,7 +80,43 @@ const todaRouteAreaSql = (alias) => `CONCAT_WS(', ', NULLIF(${alias}.barangay, '
 async function q(text, params = [], client = pool) { const result = await client.query(text, params); return result.rows; }
 async function one(text, params = [], client = pool) { return (await q(text, params, client))[0] || null; }
 async function audit(userId, action, targetType = null, targetId = null, metadata = null, client = pool) { await q("INSERT INTO audit_logs (user_id, action, target_type, target_id, metadata) VALUES ($1,$2,$3,$4,$5)", [userId, action, targetType, targetId, metadata], client); }
-async function notify(recipientId, type, message, complaintId = null, client = pool) { if (!recipientId) return; await q("INSERT INTO notifications (id, recipient_user_id, type, message, related_complaint_id) VALUES ($1,$2,$3,$4,$5)", [uuid(), recipientId, type, message, complaintId], client); }
+let firebaseApp = null;
+function getFirebaseMessaging() {
+  const rawCredentials = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!rawCredentials) return null;
+  if (!firebaseApp) {
+    const credentials = JSON.parse(rawCredentials);
+    firebaseApp = getApps().find((app) => app.name === "tricycle-push") || initializeApp({ credential: cert(credentials) }, "tricycle-push");
+  }
+  return getMessaging(firebaseApp);
+}
+async function sendPushNotification(recipientId, title, message) {
+  try {
+    const messaging = getFirebaseMessaging();
+    if (!messaging) return;
+    const devices = await q("SELECT token FROM user_push_tokens WHERE user_id=$1", [recipientId]);
+    const tokens = devices.map((device) => device.token);
+    for (let offset = 0; offset < tokens.length; offset += 500) {
+      const batch = tokens.slice(offset, offset + 500);
+      if (!batch.length) continue;
+      const response = await messaging.sendEachForMulticast({
+        tokens: batch,
+        notification: { title, body: message },
+        data: { route: "/preview/tricycle-reporting/Notifications" },
+        android: { priority: "high", notification: { channelId: "report-updates" } },
+      });
+      const invalidTokens = response.responses.flatMap((result, index) => result.error?.code === "messaging/registration-token-not-registered" || result.error?.code === "messaging/invalid-registration-token" ? [batch[index]] : []);
+      if (invalidTokens.length) await q("DELETE FROM user_push_tokens WHERE token = ANY($1::text[])", [invalidTokens]);
+    }
+  } catch (pushError) {
+    console.error("Push notification delivery failed:", pushError);
+  }
+}
+async function notify(recipientId, type, message, complaintId = null, client = pool) {
+  if (!recipientId) return;
+  await q("INSERT INTO notifications (id, recipient_user_id, type, message, related_complaint_id) VALUES ($1,$2,$3,$4,$5)", [uuid(), recipientId, type, message, complaintId], client);
+  if (client === pool) await sendPushNotification(recipientId, type.replaceAll("_", " "), message);
+}
 async function notifySafely(context, work) { try { await work(); } catch (e) { console.error(`Notification failed after ${context}:`, e); } }
 async function notifyDriver(complaint, type, message, client = pool) { const driver = await one("SELECT user_id AS \"userId\" FROM drivers WHERE id=$1 LIMIT 1", [complaint.driver_id], client); if (driver?.userId) await notify(driver.userId, type, message, complaint.id, client); }
 async function notifyOfficers(type, message, complaintId, client = pool) { const officers = await q("SELECT id FROM users WHERE status='ACTIVE' AND role IN ('TODA_PRESIDENT','AUTHORIZED_PERSONNEL','SUPERADMIN','PNP')", [], client); for (const officer of officers) await notify(officer.id, type, message, complaintId, client); }
@@ -215,6 +253,17 @@ app.post("/complaints", auth, rolesOnly("STUDENT"), upload.fields([{ name: "atta
     const queueSync = data.queueSync === "1";
     const localReportIdColumn = await one("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='complaints' AND column_name='local_report_id') AS available");
     const supportsQueuedReportIds = Boolean(localReportIdColumn?.available);
+    const latitude = data.latitude === undefined || data.latitude === "" ? null : Number(data.latitude);
+    const longitude = data.longitude === undefined || data.longitude === "" ? null : Number(data.longitude);
+    const locationAccuracy = data.locationAccuracy === undefined || data.locationAccuracy === "" ? null : Number(data.locationAccuracy);
+    const locationCapturedAt = data.locationCapturedAt ? new Date(data.locationCapturedAt) : null;
+    const hasGpsCoordinates = latitude !== null || longitude !== null;
+    if (hasGpsCoordinates && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180)) error(400, "A valid GPS latitude and longitude are required.");
+    if (locationAccuracy !== null && (!Number.isFinite(locationAccuracy) || locationAccuracy < 0)) error(400, "GPS accuracy must be a non-negative number.");
+    if (locationCapturedAt && !Number.isFinite(locationCapturedAt.getTime())) error(400, "GPS capture time is invalid.");
+    const gpsColumns = await one("SELECT COUNT(*)::int AS count FROM information_schema.columns WHERE table_schema='public' AND table_name='complaints' AND column_name = ANY($1::text[])", [["latitude", "longitude", "location_accuracy_meters", "location_captured_at"]]);
+    const supportsGpsCoordinates = Number(gpsColumns?.count) === 4;
+    if (hasGpsCoordinates && !supportsGpsCoordinates) error(503, "GPS storage is not enabled in the online database yet. Run api-php/migrations/supabase/008-complaint-gps-coordinates.sql in Supabase, then retry.");
     if (queueSync && !supportsQueuedReportIds) {
       error(503, "Offline report sync is not enabled in the online database yet. Run api-php/migrations/supabase/006-offline-report-id.sql in Supabase, then retry.");
     }
@@ -236,13 +285,19 @@ app.post("/complaints", auth, rolesOnly("STUDENT"), upload.fields([{ name: "atta
       }
       const id = uuid();
       const reference = `TRC-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`;
-      if (supportsQueuedReportIds) {
-        await q("INSERT INTO complaints (id,local_report_id,reference_number,student_user_id,driver_id,category_id,status,incident_date,incident_time,location,description) VALUES ($1,$2,$3,$4,$5,$6,'SUBMITTED',$7,$8,$9,$10)", [id, localReportId || null, reference, req.user.id, Number(data.driverId), Number(data.categoryId), data.incidentDate, data.incidentTime, String(data.location).trim(), String(data.description).trim()], client);
-      } else {
-        // Let a live online submission succeed even if the optional offline
-        // idempotency migration has not yet been applied in Supabase.
-        await q("INSERT INTO complaints (id,reference_number,student_user_id,driver_id,category_id,status,incident_date,incident_time,location,description) VALUES ($1,$2,$3,$4,$5,'SUBMITTED',$6,$7,$8,$9)", [id, reference, req.user.id, Number(data.driverId), Number(data.categoryId), data.incidentDate, data.incidentTime, String(data.location).trim(), String(data.description).trim()], client);
+      const columns = ["id"];
+      const values = [id];
+      if (supportsQueuedReportIds) { columns.push("local_report_id"); values.push(localReportId || null); }
+      columns.push("reference_number", "student_user_id", "driver_id", "category_id", "status", "incident_date", "incident_time", "location");
+      values.push(reference, req.user.id, Number(data.driverId), Number(data.categoryId), "SUBMITTED", data.incidentDate, data.incidentTime, String(data.location).trim());
+      if (hasGpsCoordinates && supportsGpsCoordinates) {
+        columns.push("latitude", "longitude", "location_accuracy_meters", "location_captured_at");
+        values.push(latitude, longitude, locationAccuracy, locationCapturedAt);
       }
+      columns.push("description");
+      values.push(String(data.description).trim());
+      const placeholdersSql = values.map((_, index) => `$${index + 1}`).join(",");
+      await q(`INSERT INTO complaints (${columns.join(",")}) VALUES (${placeholdersSql})`, values, client);
       await q("INSERT INTO complaint_status_history (complaint_id,previous_status,new_status,changed_by,remarks) VALUES ($1,NULL,'SUBMITTED',$2,$3)", [id, req.user.id, "Complaint submitted by student."], client);
       for (const file of files) {
         const stored = await storageUpload(file, `complaints/${id}`);
@@ -268,6 +323,8 @@ app.post("/complaints/:id/actions", auth, rolesOnly("TODA_PRESIDENT", "AUTHORIZE
 app.post("/complaints/:id/violations", auth, rolesOnly("TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "SUPERADMIN", "PNP"), async (req, res, next) => { try { const data = body(req); required(data, ["violationCategory", "description"]); const complaint = await complaintOr404(req.params.id, req.user); if (!["VERIFIED", "RESOLVED", "CLOSED"].includes(complaint.status)) error(400, "A confirmed violation can only be recorded after appropriate review."); const saved = await transaction(async (client) => { await q("SELECT id FROM complaints WHERE id=$1 FOR UPDATE", [complaint.id], client); if (await one("SELECT id FROM violations WHERE complaint_id=$1 LIMIT 1", [complaint.id], client)) error(409, "A violation has already been recorded for this report."); const violation = await one("INSERT INTO violations (driver_id,complaint_id,violation_category,description,confirmed_by,remarks) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id", [complaint.driver_id, complaint.id, data.violationCategory, data.description, req.user.id, data.remarks || null], client); await audit(req.user.id, "VIOLATION_CREATE", "violations", String(violation.id), { complaintId: complaint.id }, client); return violation; }); await notifySafely("violation recording", () => notifyDriver(complaint, "VIOLATION_CONFIRMED", `A confirmed violation was recorded for report ${complaint.reference_number}.`)); res.status(201).json({ violation: { id: Number(saved.id) } }); } catch (e) { next(e); } });
 
 app.get("/notifications", auth, async (req, res, next) => { try { const rows = await q("SELECT n.id,n.type,n.message,n.related_complaint_id AS \"relatedComplaintId\",c.reference_number AS \"reportReference\",n.read_at AS \"readAt\",n.created_at AS \"createdAt\" FROM notifications n LEFT JOIN complaints c ON c.id=n.related_complaint_id WHERE n.recipient_user_id=$1 ORDER BY n.created_at DESC LIMIT 100", [req.user.id]); res.json({ notifications: rows, unread: rows.filter((r) => !r.readAt).length }); } catch (e) { next(e); } });
+app.post("/push/register", auth, async (req, res, next) => { try { const data = body(req); required(data, ["token"]); const token = String(data.token).trim(); if (token.length > 4096) error(400, "Invalid push notification token."); const platform = ["android", "ios"].includes(data.platform) ? data.platform : "unknown"; await q("INSERT INTO user_push_tokens (user_id, token, platform) VALUES ($1,$2,$3) ON CONFLICT (token) DO UPDATE SET user_id=EXCLUDED.user_id, platform=EXCLUDED.platform, updated_at=CURRENT_TIMESTAMP", [req.user.id, token, platform]); res.json({ ok: true }); } catch (e) { next(e); } });
+app.delete("/push/register", auth, async (req, res, next) => { try { const token = String(body(req).token || "").trim(); if (token) await q("DELETE FROM user_push_tokens WHERE user_id=$1 AND token=$2", [req.user.id, token]); res.json({ ok: true }); } catch (e) { next(e); } });
 app.patch("/notifications/:id/read", auth, async (req, res, next) => { try { await q("UPDATE notifications SET read_at=CURRENT_TIMESTAMP WHERE id=$1 AND recipient_user_id=$2", [req.params.id, req.user.id]); res.json({ ok: true }); } catch (e) { next(e); } });
 app.patch("/notifications/read-all", auth, async (req, res, next) => { try { await q("UPDATE notifications SET read_at=CURRENT_TIMESTAMP WHERE recipient_user_id=$1", [req.user.id]); res.json({ ok: true }); } catch (e) { next(e); } });
 app.get("/violations", auth, async (req, res, next) => { try { let sql = "SELECT v.id,v.complaint_id AS \"complaintId\",d.full_name AS driver,c.reference_number AS \"relatedReport\",v.violation_category AS type,DATE(v.confirmation_date) AS \"dateValue\",v.description AS summary,COALESCE((SELECT ca.description FROM complaint_actions ca WHERE ca.complaint_id=v.complaint_id ORDER BY ca.created_at DESC LIMIT 1),'') AS action,c.status AS \"complaintStatus\" FROM violations v JOIN drivers d ON d.id=v.driver_id JOIN complaints c ON c.id=v.complaint_id"; const params = []; if (req.user.role === "DRIVER") { sql += " WHERE d.user_id=$1"; params.push(req.user.id); } else if (req.user.role === "TODA_PRESIDENT") { const ids = await todaIds(req.user); if (!ids.length) return res.json({ violations: [] }); sql += ` WHERE d.toda_id IN (${placeholders(ids)})`; params.push(...ids); } sql += " ORDER BY v.confirmation_date DESC"; res.json({ violations: await q(sql, params) }); } catch (e) { next(e); } });

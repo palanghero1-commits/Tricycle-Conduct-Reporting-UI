@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest, checkApiHealth, getCurrentUser } from "../../../lib/api";
+import { requestCurrentDeviceLocation } from "../../../lib/deviceLocation";
 import { createLocalReportId, saveOfflineReport } from "../../../lib/offlineReports";
 import { getOfflineAccountData } from "../../../lib/offlineAccount";
 import { AiConductAssistant } from "./_shared/AiConductAssistant";
@@ -260,38 +261,25 @@ export function SubmitReport() {
     if (removedIndex >= 0) setAttachmentFiles((current) => current.filter((_, index) => index !== removedIndex));
   };
 
-  const captureLocation = () => {
+  const captureLocation = async () => {
     if (!window.isSecureContext) {
       setLocationStatus("GPS requires a secure HTTPS connection. A plain HTTP address on your local network blocks location access. You can enter the incident location manually.");
       return;
     }
-    if (!navigator.geolocation) {
-      setLocationStatus("Location services are not supported on this device. Enter the place manually.");
-      return;
-    }
     setIsLocating(true);
     setLocationStatus("Requesting permission and locating your device...");
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { coords } = position;
-        const capturedAt = new Date(position.timestamp).toISOString();
-        const accuracy = Math.round(coords.accuracy);
-        setCoordinates({ latitude: coords.latitude, longitude: coords.longitude, accuracy, capturedAt });
-        setLocation("GPS location captured (accuracy +/- " + accuracy + " m)");
-        setLocationStatus("Current location captured for this report.");
-        setIsLocating(false);
-      },
-      (error) => {
-        const message = error.code === 1
-          ? "Location permission was denied. Allow location access for this site in your browser settings, then try again."
-          : error.code === 2
-            ? "Your device could not determine a location. Turn on device location services and try again."
-            : "Location request timed out. Move to an area with a clearer GPS signal and try again.";
-        setLocationStatus(message);
-        setIsLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 },
-    );
+    try {
+      const position = await requestCurrentDeviceLocation();
+      const { coords } = position;
+      const accuracy = Math.round(coords.accuracy);
+      setCoordinates({ latitude: coords.latitude, longitude: coords.longitude, accuracy, capturedAt: new Date(position.timestamp).toISOString() });
+      setLocation("GPS location captured (accuracy +/- " + accuracy + " m)");
+      setLocationStatus("Current location captured for this report.");
+    } catch (error) {
+      setLocationStatus(error instanceof Error ? error.message : "Unable to access your location. You can enter the place manually.");
+    } finally {
+      setIsLocating(false);
+    }
   };
 
   const resetReport = () => {
