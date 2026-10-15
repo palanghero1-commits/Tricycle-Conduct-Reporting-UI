@@ -57,7 +57,7 @@ export function PendingReports() {
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#fff5df] text-[#b47718]"><CloudOff size={21} /></div>
-            <div><h1 className="text-[20px] font-extrabold text-[#17375d]">Offline report queue</h1><p className="mt-1 text-[11px] text-[#71869b]">Reports stay on this device until the server accepts them.</p></div>
+            <div><h1 className="text-[20px] font-extrabold text-[#17375d]">Saved report queue</h1><p className="mt-1 text-[11px] text-[#71869b]">Reports stay on this device until the server confirms they were received.</p></div>
           </div>
           <button type="button" onClick={() => void sync()} disabled={busy || !reports.length} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-4 py-2.5 text-[11px] font-extrabold text-white disabled:opacity-50 sm:w-auto"><RefreshCw size={14} className={busy ? "animate-spin" : ""} />{busy ? "Sending…" : "Send pending reports"}</button>
         </div>

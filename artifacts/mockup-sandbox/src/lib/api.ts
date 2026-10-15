@@ -1,7 +1,7 @@
 import { getOfflineApiResponse, saveOfflineApiResponse } from "./offlineApiCache";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
-const IS_ONLINE_API = import.meta.env.PROD || (!API_BASE.startsWith("/") && !API_BASE.includes("localhost:8000"));
+const IS_ONLINE_API = !API_BASE.startsWith("/") && !API_BASE.includes("localhost:8000");
 const TOKEN_KEY = "tricycle_auth_token";
 const USER_KEY = "tricycle_current_user";
 
@@ -122,15 +122,30 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers.set("Content-Type", "application/json");
   }
   let response: Response;
+  const requestController = new AbortController();
+  let requestTimedOut = false;
+  const abortRequest = () => requestController.abort(init.signal?.reason);
+  if (init.signal?.aborted) abortRequest();
+  else init.signal?.addEventListener("abort", abortRequest, { once: true });
+  const timeout = window.setTimeout(() => {
+    requestTimedOut = true;
+    requestController.abort();
+  }, 45_000);
   try {
-    response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    response = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: requestController.signal });
   } catch {
-    window.dispatchEvent(new Event("app:api-unreachable"));
+    if (!requestTimedOut) window.dispatchEvent(new Event("app:api-unreachable"));
     if (offlineCacheKey) {
       const cached = await getOfflineApiResponse<T>(offlineCacheKey).catch(() => null);
       if (cached !== null) return cached;
     }
-    throw new Error(IS_ONLINE_API ? "Cannot reach the online API. Check the deployment and API environment variables." : "Cannot reach the PHP API. Start it with: php -S localhost:8000 -t api-php");
+    if (requestTimedOut) {
+      throw new Error("The server took too long to accept this request. The report remains saved on this device; retry it from Pending reports.");
+    }
+    throw new Error(IS_ONLINE_API ? `Cannot reach the API at ${API_BASE}. Check that the backend is running and this device can reach that address.` : "Cannot reach the PHP API. Start it with: php -S localhost:8000 -t api-php");
+  } finally {
+    window.clearTimeout(timeout);
+    init.signal?.removeEventListener("abort", abortRequest);
   }
   const rawBody = await response.text();
   let data: any = {};

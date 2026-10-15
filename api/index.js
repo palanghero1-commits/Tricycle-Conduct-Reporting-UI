@@ -334,13 +334,16 @@ app.use((req, _res, next) => next(Object.assign(new Error("Route not found."), {
 app.use((err, _req, res, _next) => {
   console.error(err);
   const isUploadError = err instanceof multer.MulterError;
+  const isSchemaError = err.code === "42703" || err.code === "42P01";
   const status = Number(err.status || (isUploadError ? 400 : err.code === "23505" ? 409 : 500));
   const uploadMessage = err.code === "LIMIT_FILE_SIZE"
     ? "Each evidence file must be 5 MB or smaller."
     : err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE"
       ? "You can attach up to 5 evidence files per report."
       : "An evidence file could not be uploaded. Please try again.";
-  const message = status === 500 ? "The request could not be completed." : isUploadError ? uploadMessage : err.message;
+  const message = isSchemaError
+    ? "The online database schema needs an update. Run the offline report sync migration in Supabase, then retry."
+    : status === 500 ? "The request could not be completed." : isUploadError ? uploadMessage : err.message;
   res.status(status).json({ error: { message, ...(err.issues ? { issues: err.issues } : {}) } });
 });
 

@@ -20,6 +20,9 @@ Supabase PostgreSQL is used online. Supabase Storage is used for profile photos 
 
 1. Open the Supabase SQL editor.
 2. Run `api-php/schema.supabase.sql` against the online project.
+   If offline report sync was added after the initial setup, also run
+   `api-php/migrations/supabase/006-offline-report-id.sql`. It is additive and
+   safe to rerun; it adds the idempotency key used when the app retries a queued report.
 3. Create a private Storage bucket named `uploads`, or use the value configured by `SUPABASE_STORAGE_BUCKET`.
 4. Keep the service-role key server-side only. Never use it as a `VITE_` variable.
 
