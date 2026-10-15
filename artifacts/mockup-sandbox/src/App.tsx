@@ -1,8 +1,35 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { Component, useEffect, useState, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 
 import { modules as discoveredModules } from "./.generated/mockup-components";
 
 type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
+
+class PreviewErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Preview page failed to render:", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <main className="flex min-h-screen items-center justify-center bg-[#f4f7fb] px-5 py-12 text-center">
+          <section className="max-w-md rounded-2xl border border-[#dbe5f0] bg-white p-7 shadow-sm">
+            <h1 className="text-xl font-extrabold text-[#163154]">This page couldn’t load.</h1>
+            <p className="mt-2 text-sm leading-6 text-[#71859e]">Please reload the page. Your saved reports remain on this device.</p>
+            <button type="button" onClick={() => window.location.reload()} className="mt-5 rounded-xl bg-[#0c5bce] px-5 py-3 text-sm font-bold text-white">Reload page</button>
+          </section>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function _resolveComponent(
   mod: Record<string, unknown>,
@@ -82,7 +109,13 @@ function PreviewRenderer({
     );
   }
 
-  if (!Component) return null;
+  if (!Component) {
+    return (
+      <main role="status" aria-live="polite" className="flex min-h-screen items-center justify-center bg-[#f4f7fb] px-5 text-sm font-semibold text-[#607993]">
+        Loading your page…
+      </main>
+    );
+  }
 
   return <Component />;
 }
@@ -135,7 +168,7 @@ function App() {
   const previewPath = getPreviewPath() ?? "tricycle-reporting/Landing";
 
   if (previewPath) {
-    return <PreviewRenderer componentPath={previewPath} modules={discoveredModules} />;
+    return <PreviewErrorBoundary key={previewPath}><PreviewRenderer componentPath={previewPath} modules={discoveredModules} /></PreviewErrorBoundary>;
   }
 
   return <Gallery />;
