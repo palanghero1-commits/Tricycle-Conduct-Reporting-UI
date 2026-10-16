@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ClipboardCheck,
   ClipboardList,
-  Download,
   Eye,
   FileSearch,
   Globe2,
@@ -300,14 +299,6 @@ export function Landing() {
                 >
                   Register
                 </button>
-                <a
-                  href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/downloads/tricycle-conduct.apk`}
-                  download="tricycle-conduct.apk"
-                  className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-[13px] border border-[#cddfea] bg-white px-2 py-3 text-[12px] font-extrabold text-[#315271] shadow-[0_5px_18px_rgba(34,75,112,0.05)] transition-all duration-200 hover:-translate-y-1 hover:border-[#a5c3dd] hover:text-[#0c5bce] sm:w-auto sm:gap-2 sm:px-5 sm:py-3.5 sm:text-[14px]"
-                >
-                  <Download size={16} />
-                  Download app
-                </a>
               </div>
               <button type="button" onClick={openTrack} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#bcd4e7] bg-white px-4 py-2.5 text-[12px] font-extrabold text-[#0c5bce] shadow-[0_4px_14px_rgba(34,75,112,0.05)] transition hover:border-[#83add2] hover:bg-[#f5faff]">
                 <Search size={15} />
