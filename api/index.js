@@ -13,7 +13,7 @@ const { Pool } = pg;
 const app = express();
 const configuredOrigins = (process.env.FRONTEND_ORIGIN || "")
   .split(",")
-  .map((origin) => origin.trim())
+  .map((origin) => origin.trim().replace(/\/$/, ""))
   .filter(Boolean);
 const capacitorOrigins = new Set([
   "https://localhost",
@@ -23,7 +23,15 @@ const capacitorOrigins = new Set([
 const pool = new Pool({
   connectionString: process.env.SUPABASE_DB_URL || process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
-  max: Number(process.env.DB_CONNECTION_LIMIT || 10),
+  // Keep serverless instances from opening too many PostgreSQL connections.
+  max: Number(process.env.DB_CONNECTION_LIMIT || 3),
+  connectionTimeoutMillis: 8000,
+  idleTimeoutMillis: 10000,
+});
+pool.on("error", (err) => {
+  // A pool error must be logged, not emitted as an unhandled EventEmitter error
+  // that can terminate the Vercel function process.
+  console.error("Unexpected PostgreSQL pool error:", err);
 });
 
 const roles = ["STUDENT", "DRIVER", "TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "SUPERADMIN", "PNP"];
@@ -180,7 +188,19 @@ function detectUploadMime(buffer) {
   return "";
 }
 
-app.get(["/health", "/healthz", "/api/health", "/api/healthz"], async (_req, res, next) => { try { await q("SELECT 1"); res.json({ status: "ok" }); } catch (e) { next(e); } });
+// Liveness should not depend on PostgreSQL; callers use this route to decide
+// whether the API itself is reachable. Use /readyz when a DB check is needed.
+app.get(["/health", "/healthz", "/api/health", "/api/healthz"], (_req, res) => {
+  res.json({ status: "ok" });
+});
+app.get("/readyz", async (_req, res, next) => {
+  try {
+    await q("SELECT 1");
+    res.json({ status: "ok", database: "ok" });
+  } catch (e) {
+    next(e);
+  }
+});
 app.get("/public/todas", async (_req, res, next) => { try { res.json({ todas: await q("SELECT id,name,barangay,city,province FROM todas WHERE is_active=1 ORDER BY name") }); } catch (e) { next(e); } });
 
 app.post("/auth/register", async (req, res, next) => { try {

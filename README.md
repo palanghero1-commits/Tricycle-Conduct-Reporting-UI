@@ -311,3 +311,7 @@ The assistant is available while students draft reports, when authorized staff r
 Configure `GEMINI_API_KEY` on the backend server (never in a `VITE_` variable or frontend code). `GEMINI_MODEL` is optional and defaults to `gemini-3.5-flash-lite`. The PHP backend reads these from its process environment; set them in the PHP host/deployment environment. The Node API reads the same variables from its runtime environment. Requests require a signed-in user and role checks. Only the report text/category or aggregated dashboard counts are sent to Gemini; users are prompted not to include identifying details. Review your provider and school privacy requirements before enabling it with real student data.
 
 See [AI_ASSISTANT_QA_SCENARIOS.md](AI_ASSISTANT_QA_SCENARIOS.md) for manual test cases.
+
+
+
+npm run build:android --workspace @workspace/mockup-sandbox
