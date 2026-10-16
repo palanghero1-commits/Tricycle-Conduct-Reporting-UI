@@ -165,7 +165,10 @@ function getPreviewPath(): string | null {
 }
 
 function App() {
-  const previewPath = getPreviewPath() ?? "tricycle-reporting/Landing";
+  const defaultPreviewPath = import.meta.env.MODE === "android"
+    ? "tricycle-reporting/Auth"
+    : "tricycle-reporting/Landing";
+  const previewPath = getPreviewPath() ?? defaultPreviewPath;
 
   if (previewPath) {
     return <PreviewErrorBoundary key={previewPath}><PreviewRenderer componentPath={previewPath} modules={discoveredModules} /></PreviewErrorBoundary>;
