@@ -151,7 +151,7 @@ export function Profile() {
     let active = true;
     let objectUrl: string | null = null;
     fetchProfilePhoto().then((blob) => {
-      if (!active) return;
+      if (!active || !blob) return;
       objectUrl = URL.createObjectURL(blob);
       setProfilePhotoUrl(objectUrl);
     }).catch(() => undefined);
@@ -168,6 +168,7 @@ export function Profile() {
     setPhotoNotice("");
     uploadProfilePhoto(file).then(async () => {
       const blob = await fetchProfilePhoto();
+      if (!blob) throw new Error("The uploaded profile photo could not be loaded.");
       const nextUrl = URL.createObjectURL(blob);
       setProfilePhotoUrl((current) => { if (current) URL.revokeObjectURL(current); return nextUrl; });
       setPhotoNotice("Profile photo updated.");

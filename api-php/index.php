@@ -496,7 +496,10 @@ try {
     if ($method === 'GET' && $path === '/me/photo') {
         $user = auth($pdo, $config);
         $record = row($pdo, 'SELECT profile_photo_path FROM users WHERE id = ?', [$user['id']]);
-        if (!$record || empty($record['profile_photo_path']) || !is_file($record['profile_photo_path'])) fail(404, 'No profile photo has been uploaded.');
+        if (!$record || empty($record['profile_photo_path']) || !is_file($record['profile_photo_path'])) {
+            http_response_code(204);
+            exit;
+        }
         $mimeByExtension = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
         $mime = $mimeByExtension[strtolower(pathinfo($record['profile_photo_path'], PATHINFO_EXTENSION))] ?? 'application/octet-stream';
         header('Content-Type: ' . $mime);

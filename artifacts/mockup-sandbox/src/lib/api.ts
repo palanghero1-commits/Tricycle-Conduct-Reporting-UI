@@ -99,7 +99,8 @@ export async function fetchProfilePhoto() {
     cache: "no-store",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!response.ok) throw new Error("No profile photo uploaded.");
+  if (response.status === 204 || response.status === 404) return null;
+  if (!response.ok) throw new Error("Unable to load the profile photo.");
   return response.blob();
 }
 
