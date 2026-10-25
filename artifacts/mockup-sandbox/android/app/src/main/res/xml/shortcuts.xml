@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="emergency_sos"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/sos_shortcut_short"
+        android:shortcutLongLabel="@string/sos_shortcut_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="ph.sagay.tricycleconductreporting"
+            android:targetClass="ph.sagay.tricycleconductreporting.MainActivity"
+            android:data="tricycleconductreporting://sos" />
+    </shortcut>
+</shortcuts>

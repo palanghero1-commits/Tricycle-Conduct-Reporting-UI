@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  ArrowLeft,
   ArrowRight,
   BadgeCheck,
   CalendarDays,
@@ -27,8 +26,6 @@ import { requestCurrentDeviceLocation } from "../../../lib/deviceLocation";
 import { createLocalReportId, saveOfflineReport } from "../../../lib/offlineReports";
 import { getOfflineAccountData } from "../../../lib/offlineAccount";
 import { AiConductAssistant } from "./_shared/AiConductAssistant";
-
-type Step = 1 | 2 | 3 | 4;
 
 type Driver = {
   id: number;
@@ -104,13 +101,6 @@ function getCategoryDescription(categoryName: string, categoryDescription?: stri
   return categoryDescription || fallbackCategoryDescriptions[categoryName] || "Choose the category that best matches what you observed.";
 }
 
-const stepDetails = [
-  { number: 1, label: "Vehicle", caption: "Who and which tricycle" },
-  { number: 2, label: "Incident", caption: "What happened" },
-  { number: 3, label: "Evidence", caption: "Optional supporting files" },
-  { number: 4, label: "Review", caption: "Check before sending" },
-];
-
 function formatDate(value: string) {
   if (!value) return "Not provided";
   return new Intl.DateTimeFormat("en-PH", {
@@ -143,7 +133,6 @@ export function SubmitReport() {
       window.location.replace(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/preview/tricycle-reporting/Profile`);
     }
   }, []);
-  const [step, setStep] = useState<Step>(1);
   const [selectedDriver, setSelectedDriver] = useState<string>("");
   const [driverSearch, setDriverSearch] = useState("");
   const [liveDrivers, setLiveDrivers] = useState<Driver[]>([]);
@@ -152,6 +141,7 @@ export function SubmitReport() {
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [category, setCategory] = useState<string>("");
+  const [categoryDescriptionSeed, setCategoryDescriptionSeed] = useState("");
   const [otherCategory, setOtherCategory] = useState("");
   const [incidentDate, setIncidentDate] = useState(() => getDeviceIncidentDateTime().date);
   const [incidentTime, setIncidentTime] = useState(() => getDeviceIncidentDateTime().time);
@@ -208,6 +198,9 @@ export function SubmitReport() {
         if (categoryData.categories[0]) {
           const firstCategory = categoryData.categories[0];
           setCategory(firstCategory.name);
+          const firstDescription = getCategoryDescription(firstCategory.name, firstCategory.description);
+          setDescription(firstDescription);
+          setCategoryDescriptionSeed(firstDescription);
         }
       })
       .catch(async () => {
@@ -229,6 +222,9 @@ export function SubmitReport() {
           setLiveCategories(cached.categories);
           const firstCategory = cached.categories[0];
           setCategory(firstCategory.name);
+          const firstDescription = getCategoryDescription(firstCategory.name, firstCategory.description);
+          setDescription(firstDescription);
+          setCategoryDescriptionSeed(firstDescription);
           setNotice("Offline mode: using the account data saved on this device.");
         } else {
           setNotice("Connect once while online to download official drivers and categories before using offline mode.");
@@ -249,10 +245,23 @@ export function SubmitReport() {
 
   const selected = liveDrivers.find((driver) => driver.identifier === selectedDriver);
   const visibleCategories = liveCategories.map((item) => item.name);
-  const selectedCategoryDescription = getCategoryDescription(category, liveCategories.find((item) => item.name === category)?.description);
+  const selectedCategoryRecord = liveCategories.find((item) => item.name === category);
+  const selectedCategoryDescription = getCategoryDescription(category, selectedCategoryRecord?.description);
 
   const selectCategory = (nextCategory: string) => {
     setCategory(nextCategory);
+    const nextDescription = getCategoryDescription(
+      nextCategory,
+      liveCategories.find((item) => item.name === nextCategory)?.description,
+    );
+    setDescription((current) => {
+      if (!current.trim()) return nextDescription;
+      if (categoryDescriptionSeed && current.startsWith(categoryDescriptionSeed)) {
+        return `${nextDescription}${current.slice(categoryDescriptionSeed.length)}`;
+      }
+      return `${nextDescription}\n\n${current}`;
+    });
+    setCategoryDescriptionSeed(nextDescription);
   };
 
   const removeEvidence = (id: number) => {
@@ -283,68 +292,47 @@ export function SubmitReport() {
   };
 
   const resetReport = () => {
-    setStep(1);
     setIsSubmitted(false);
     setReportId("");
     setQueuedReportLocalId(null);
     setSubmissionState(null);
     setHasAcknowledged(false);
-    setDescription("");
+    const firstCategory = liveCategories[0];
+    const firstDescription = firstCategory ? getCategoryDescription(firstCategory.name, firstCategory.description) : "";
+    setDescription(firstDescription);
+    setCategoryDescriptionSeed(firstDescription);
     setOtherCategory("");
-    setCategory(liveCategories[0]?.name ?? "");
+    setCategory(firstCategory?.name ?? "");
     setLocation("");
     setCoordinates(null);
     setLocationStatus("");
     setIsLocating(false);
-    setIncidentDate("");
-    setIncidentTime("");
+    const now = getDeviceIncidentDateTime();
+    setIncidentDate(now.date);
+    setIncidentTime(now.time);
     setEvidence([]);
     setAttachmentFiles([]);
   };
 
-  const goNext = () => {
-    if (step === 1 && !selected) {
-      setNotice(isLoadingData ? "Loading registered drivers from the database…" : "No registered drivers are available. Ask authorized personnel to register a driver first.");
-      return;
-    }
-    if (step === 2 && (!incidentDate || !incidentTime)) {
-      setNotice("Please provide the date and approximate time of the incident before continuing.");
-      return;
-    }
-    if (step === 2 && category === "Other" && !otherCategory.trim()) {
-      setNotice("Please name the type of concern before continuing.");
-      return;
-    }
-    if (step === 2 && !location.trim()) {
-      setNotice("Please enter where the incident happened before continuing.");
-      return;
-    }
-    if (step === 2 && description.trim().length < 15) {
-      setNotice("Please describe what happened in at least 15 characters.");
-      return;
-    }
-    if (step < 4) setStep((current) => (current + 1) as Step);
-  };
-
-  const goBack = () => {
-    if (step > 1) setStep((current) => (current - 1) as Step);
-  };
-
   const submitReport = async () => {
-    if (!selected) return;
+    if (!selected) {
+      setNotice(isLoadingData ? "Loading registered drivers from the database?" : "Select the driver or vehicle before submitting.");
+      return;
+    }
     if (!incidentDate || !incidentTime) {
       setNotice("Please provide the date and approximate time of the incident before submitting.");
-      setStep(2);
       return;
     }
     if (category === "Other" && !otherCategory.trim()) {
       setNotice("Please name the type of concern before submitting.");
-      setStep(2);
       return;
     }
     if (!location.trim() || description.trim().length < 15) {
       setNotice(!location.trim() ? "Please enter where the incident happened." : "Please describe what happened in at least 15 characters.");
-      setStep(2);
+      return;
+    }
+    if (description.trim() === categoryDescriptionSeed.trim()) {
+      setNotice("Please add details about what happened beyond the category description.");
       return;
     }
     if (!hasAcknowledged) {
@@ -506,68 +494,17 @@ export function SubmitReport() {
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[250px_minmax(0,1fr)] xl:gap-9">
-          <aside className="lg:pt-2">
-            <div className="rounded-[22px] border border-[#dbe5f0] bg-white p-3 shadow-[0_12px_35px_rgba(40,77,111,0.06)] sm:p-5">
-              <p className="px-1 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#9aabbe] sm:text-[10px]">Report progress</p>
-              <div className="mt-3 flex gap-1 overflow-visible lg:mt-4 lg:block lg:space-y-1">
-                {stepDetails.map((item) => {
-                  const complete = step > item.number;
-                  const active = step === item.number;
-                  return (
-                    <button
-                      type="button"
-                      key={item.number}
-                      onClick={() => item.number <= step && setStep(item.number as Step)}
-                      className={`group flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-1 py-2 text-center transition lg:w-full lg:flex-row lg:gap-3 lg:p-2.5 lg:text-left ${
-                        active ? "bg-[#eaf2ff]" : "hover:bg-[#f7faff]"
-                      }`}
-                    >
-                      <span
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold ${
-                          complete ? "bg-[#d9f3e8] text-[#16815a]" : active ? "bg-[#0c5bce] text-white" : "bg-[#f0f4f8] text-[#8aa0b5]"
-                        }`}
-                      >
-                        {complete ? <Check size={15} strokeWidth={2.6} /> : item.number}
-                      </span>
-                      <span className="min-w-0">
-                        <span className={`block text-[11px] font-extrabold lg:text-[12px] ${active ? "text-[#0c5bce]" : "text-[#3f5873]"}`}>{item.label}</span>
-                        <span className="mt-0.5 hidden whitespace-nowrap text-[10px] font-medium text-[#93a5b8] sm:block lg:whitespace-normal">{item.caption}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="mt-5 hidden rounded-2xl bg-[#f3f8fd] p-3.5 lg:block">
-                <div className="flex gap-2">
-                  <CircleAlert size={15} className="mt-0.5 shrink-0 text-[#5581aa]" />
-                  <p className="text-[10px] leading-4 text-[#6d829a]">
-                    Reports are reviewed fairly. Submitting one does not mean a violation has been confirmed.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </aside>
+        <div className="mx-auto min-w-0 max-w-[900px]">
 
           <section className="min-w-0">
             <div className="overflow-hidden rounded-[22px] border border-[#dbe5f0] bg-white shadow-[0_15px_45px_rgba(35,72,108,0.07)] sm:rounded-[26px]">
-              <div className="flex items-center justify-between border-b border-[#edf1f5] bg-[#fbfdff] px-5 py-4 sm:bg-white sm:px-8 sm:py-5">
-                <div>
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#97a9ba]">Step {step} of 4</p>
-                  <h3 className="mt-1 text-[16px] font-extrabold tracking-[-0.025em] text-[#18385e] sm:text-[20px]">
-                    {step === 1 ? "Identify the tricycle" : step === 2 ? "Describe the incident" : step === 3 ? "Add supporting evidence" : "Review your report"}
-                  </h3>
-                </div>
-                <div className="hidden items-center gap-1.5 sm:flex">
-                  {stepDetails.map((item) => (
-                    <span key={item.number} className={`h-1.5 rounded-full transition-all ${item.number <= step ? "w-7 bg-[#0c5bce]" : "w-2 bg-[#dbe5f0]"}`} />
-                  ))}
-                </div>
+              <div className="border-b border-[#edf1f5] bg-[#fbfdff] px-5 py-4 sm:px-8 sm:py-5">
+                <h3 className="text-[16px] font-extrabold tracking-[-0.025em] text-[#18385e] sm:text-[20px]">Report details</h3>
+                <p className="mt-1 text-[11px] text-[#8295aa]">Complete the required fields, then review and send your report.</p>
               </div>
 
-              <div className="bg-white px-4 py-5 sm:px-8 sm:py-8">
-                {step === 1 ? (
-                  <div className="space-y-6">
+              <div className="space-y-7 bg-white px-4 py-5 sm:px-8 sm:py-8">
+                                  <div className="space-y-6">
                     <div>
                       <div className="mb-3 flex items-end justify-between gap-3">
                         <div>
@@ -630,10 +567,8 @@ export function SubmitReport() {
                       <p className="min-w-0 break-words text-[11px] leading-5">If you are unsure of the driver name, use the vehicle identifier printed on the tricycle.</p>
                     </div>
                   </div>
-                ) : null}
 
-                {step === 2 ? (
-                  <div className="space-y-6">
+                                  <div className="space-y-6">
                     <div>
                       <label className="text-[13px] font-extrabold text-[#294664]">What was the concern?</label>
                       <p className="mt-1 text-[11px] text-[#8ca0b5]">Select the category that best describes the experience.</p>
@@ -689,15 +624,14 @@ export function SubmitReport() {
                     </label>
                     <label className="block">
                       <span className="mb-2 block text-[12px] font-extrabold text-[#49647e]">What happened?</span>
+                      <span className="mb-2 block text-[10px] text-[#8295aa]">The category description is added as a starting point. Edit it to match what you observed.</span>
                       <textarea value={description} maxLength={500} onChange={(event) => setDescription(event.target.value)} rows={5} placeholder="Describe what happened in your own words (at least 15 characters)..." className="w-full resize-none rounded-xl border border-[#dbe5f0] px-3.5 py-3 text-[12px] leading-5 text-[#274563] outline-none placeholder:text-[#a1b0bf] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                       <span className="mt-1.5 block text-right text-[10px] text-[#9aaabd]">{description.length}/500</span>
                     </label>
                     <AiConductAssistant task="report" content={`Category: ${category === "Other" ? otherCategory : category}\nReport: ${description}`} onApplyDraft={setDescription} />
                   </div>
-                ) : null}
 
-                {step === 3 ? (
-                  <div className="space-y-5">
+                                  <div className="space-y-5">
                     <div className="rounded-2xl border border-[#dbeaf7] bg-[#f5faff] px-4 py-4">
                       <div className="flex gap-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#dceeff] text-[#2875bb]"><UploadCloud size={18} /></div>
@@ -764,10 +698,10 @@ export function SubmitReport() {
                       <p className="text-[11px] leading-5">Supporting evidence can provide context, but it is not required for a report to be reviewed.</p>
                     </div>
                   </div>
-                ) : null}
 
-                {step === 4 ? (
-                  <div className="space-y-4">
+                                  <details className="rounded-2xl border border-[#e1eaf2] bg-white px-4 py-3">
+                    <summary className="cursor-pointer text-[12px] font-extrabold text-[#294664]">Review report details</summary>
+                    <div className="mt-3 space-y-4">
                     <div className="rounded-2xl border border-[#dbeaf7] bg-[#f5faff] px-4 py-4">
                       <div className="flex gap-3"><ShieldCheck size={18} className="mt-0.5 shrink-0 text-[#2875bb]" /><p className="text-[11px] leading-5 text-[#58758f]">Please check your details. Sending a report shares your account of an experience with the conduct team for review.</p></div>
                     </div>
@@ -777,18 +711,13 @@ export function SubmitReport() {
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Place and description</p><p className="mt-1 text-[12px] font-bold text-[#294664]">{location}</p><p className="mt-1 max-w-[480px] text-[11px] leading-5 text-[#71859e]">{description || "No description provided."}</p></div><MapPin size={18} className="shrink-0 text-[#6d8baa]" /></div>
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Supporting evidence</p><p className="mt-1 text-[12px] font-extrabold text-[#294664]">{evidence.length ? `${evidence.length} attachment${evidence.length === 1 ? "" : "s"}` : "None added"}</p></div><Paperclip size={18} className="text-[#6d8baa]" /></div>
                     </div>
-                    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0e8f0] bg-[#fbfdff] px-4 py-3.5"><input type="checkbox" checked={hasAcknowledged} onChange={(event) => setHasAcknowledged(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[#0c5bce]" /><span className="text-[11px] leading-5 text-[#637b93]">I have shared what I observed as accurately as I can. I understand this report will be reviewed and is not a confirmed violation.</span></label>
-                  </div>
-                ) : null}
+                    </div>
+                  </details>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#e0e8f0] bg-[#fbfdff] px-4 py-3.5"><input type="checkbox" checked={hasAcknowledged} onChange={(event) => setHasAcknowledged(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[#0c5bce]" /><span className="text-[11px] leading-5 text-[#637b93]">I have shared what I observed as accurately as I can. I understand this report will be reviewed and is not a confirmed violation.</span></label>
               </div>
 
-              <div className="flex flex-col-reverse gap-2.5 border-t border-[#dfeaf4] bg-[#f8fbff] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:bg-white sm:px-8">
-                <button type="button" onClick={goBack} disabled={step === 1} className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-[12px] font-extrabold transition sm:min-h-0 sm:w-auto sm:rounded-xl sm:border-0 ${step === 1 ? "cursor-not-allowed border-[#e5edf4] text-[#bec9d4]" : "border-[#d8e5f0] bg-white text-[#6e849d] hover:bg-[#f4f7fb] hover:text-[#345371]"}`}><ArrowLeft size={16} />Back</button>
-                {step < 4 ? (
-                  <button type="button" onClick={goNext} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#0c5bce] px-5 py-3.5 text-[12px] font-extrabold text-white shadow-[0_8px_18px_rgba(12,91,206,0.22)] transition hover:bg-[#084da9] sm:min-h-0 sm:w-auto sm:rounded-xl sm:py-3 sm:shadow-[0_7px_16px_rgba(12,91,206,0.2)]">Continue<ArrowRight size={16} /></button>
-                ) : (
-                  <button type="button" onClick={submitReport} disabled={isSubmitting} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#0c5bce] px-5 py-3.5 text-[12px] font-extrabold text-white shadow-[0_8px_18px_rgba(12,91,206,0.22)] transition hover:bg-[#084da9] disabled:cursor-wait disabled:bg-[#7da5cb] sm:min-h-0 sm:w-auto sm:rounded-xl sm:py-3 sm:shadow-[0_7px_16px_rgba(12,91,206,0.2)]">{isSubmitting ? "Sending..." : "Send report"}<Send size={15} /></button>
-                )}
+              <div className="flex justify-end border-t border-[#dfeaf4] bg-[#f8fbff] px-4 py-4 sm:px-8">
+                <button type="button" onClick={submitReport} disabled={isSubmitting} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#0c5bce] px-5 py-3.5 text-[12px] font-extrabold text-white shadow-[0_8px_18px_rgba(12,91,206,0.22)] transition hover:bg-[#084da9] disabled:cursor-wait disabled:bg-[#7da5cb] sm:min-h-0 sm:w-auto sm:rounded-xl sm:py-3 sm:shadow-[0_7px_16px_rgba(12,91,206,0.2)]">{isSubmitting ? "Sending..." : "Send report"}<Send size={15} /></button>
               </div>
             </div>
             {notice ? <p className="mt-4 rounded-xl border border-[#f1d7c9] bg-[#fff7f2] px-4 py-3 text-center text-[12px] font-semibold text-[#9b6048]">{notice}</p> : null}

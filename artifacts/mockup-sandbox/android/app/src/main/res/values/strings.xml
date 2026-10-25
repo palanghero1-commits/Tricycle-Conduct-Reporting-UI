@@ -4,4 +4,6 @@
     <string name="title_activity_main">Tricycle Conduct</string>
     <string name="package_name">ph.sagay.tricycleconductreporting</string>
     <string name="custom_url_scheme">ph.sagay.tricycleconductreporting</string>
+    <string name="sos_shortcut_short">SOS</string>
+    <string name="sos_shortcut_long">Open Emergency SOS</string>
 </resources>

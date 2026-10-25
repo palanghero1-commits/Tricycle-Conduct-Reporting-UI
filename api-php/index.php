@@ -25,7 +25,9 @@ const ALLOWED_TRANSITIONS = [
     'RESOLVED' => ['CLOSED'],
     'CLOSED' => [],
 ];
-const SOS_ENABLED = false;
+function sos_enabled(): bool {
+    return filter_var(getenv('SOS_ENABLED') ?: 'false', FILTER_VALIDATE_BOOLEAN);
+}
 
 function json_response(array $data, int $status = 200): void {
     http_response_code($status);
@@ -60,6 +62,23 @@ function uuidv4(): string {
     $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
     $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
+}
+
+function valid_uuid(string $value): bool {
+    return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value);
+}
+
+function sos_coordinates(array $data): array {
+    $hasLatitude = isset($data['latitude']) && $data['latitude'] !== '';
+    $hasLongitude = isset($data['longitude']) && $data['longitude'] !== '';
+    if ($hasLatitude !== $hasLongitude) fail(400, 'Send both location coordinates or leave both blank.');
+    if (!$hasLatitude) return [null, null, null];
+    $latitude = filter_var($data['latitude'], FILTER_VALIDATE_FLOAT);
+    $longitude = filter_var($data['longitude'], FILTER_VALIDATE_FLOAT);
+    $accuracy = ($data['accuracy'] ?? '') === '' ? null : filter_var($data['accuracy'], FILTER_VALIDATE_FLOAT);
+    if ($latitude === false || $longitude === false || $latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) fail(400, 'The SOS location is invalid.');
+    if ($accuracy !== null && ($accuracy === false || $accuracy < 0)) fail(400, 'The SOS location accuracy is invalid.');
+    return [$latitude, $longitude, $accuracy];
 }
 
 function base64url_encode(string $data): string {
@@ -609,8 +628,162 @@ try {
         json_response(['stats' => $stats, 'reports' => $reports, 'activity' => $activity]);
     }
 
-    if (!SOS_ENABLED && str_starts_with($path, '/sos')) {
-        fail(503, 'Emergency SOS is under development and is currently disabled.');
+    if (str_starts_with($path, '/sos') && !sos_enabled()) {
+        fail(503, 'Emergency SOS is not enabled by the system administrator yet.');
+    }
+
+    if ($method === 'POST' && $path === '/sos/devices') {
+        $user = auth($pdo, $config);
+        require_roles($user, ['STUDENT']);
+        $data = input_json();
+        $deviceId = (string) ($data['deviceId'] ?? '');
+        if (!valid_uuid($deviceId)) fail(400, 'A valid Android device registration ID is required.');
+        $student = row($pdo, 'SELECT student_id AS "studentId" FROM students WHERE user_id = ?', [$user['id']]);
+        if (!$student || empty($student['studentId'])) fail(409, 'This account has no verified student ID to register for SOS.');
+        $existing = row($pdo, 'SELECT user_id AS userId FROM sos_devices WHERE id = ?', [$deviceId]);
+        if ($existing && $existing['userId'] !== $user['id']) fail(409, 'This phone is registered to another account. Contact an administrator to change its registration.');
+        if (is_postgres($pdo)) {
+            $stmt = $pdo->prepare('INSERT INTO sos_devices (id,user_id,device_label,registered_at,last_seen_at,revoked_at) VALUES (?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,NULL) ON CONFLICT (id) DO UPDATE SET device_label=EXCLUDED.device_label,last_seen_at=CURRENT_TIMESTAMP,revoked_at=NULL WHERE sos_devices.user_id=EXCLUDED.user_id');
+        } else {
+            $stmt = $pdo->prepare('INSERT INTO sos_devices (id,user_id,device_label,registered_at,last_seen_at,revoked_at) VALUES (?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,NULL) ON DUPLICATE KEY UPDATE device_label=VALUES(device_label),last_seen_at=CURRENT_TIMESTAMP,revoked_at=NULL');
+        }
+        $stmt->execute([$deviceId, $user['id'], substr((string) ($data['deviceLabel'] ?? 'Android phone'), 0, 120)]);
+        audit($pdo, $user['id'], 'SOS_DEVICE_REGISTERED', 'sos_devices', $deviceId);
+        json_response(['deviceId' => $deviceId, 'userId' => $user['id'], 'studentId' => $student['studentId'], 'fullName' => $user['full_name'], 'contactNumber' => $user['contact_number'] ?? '', 'registeredAt' => date(DATE_ATOM)]);
+    }
+
+    if ($method === 'DELETE' && preg_match('#^/sos/devices/([a-f0-9-]+)$#i', $path, $m)) {
+        $user = auth($pdo, $config);
+        require_roles($user, ['STUDENT']);
+        if (!valid_uuid($m[1])) fail(400, 'The SOS device ID is invalid.');
+        $stmt = $pdo->prepare('UPDATE sos_devices SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND revoked_at IS NULL');
+        $stmt->execute([$m[1], $user['id']]);
+        if ($stmt->rowCount() === 0) fail(404, 'Registered SOS phone not found.');
+        audit($pdo, $user['id'], 'SOS_DEVICE_REVOKED', 'sos_devices', $m[1]);
+        json_response(['ok' => true]);
+    }
+
+    if ($method === 'POST' && $path === '/sos') {
+        $user = auth($pdo, $config);
+        require_roles($user, ['STUDENT']);
+        $data = input_json();
+        $clientAlertId = (string) ($data['clientAlertId'] ?? '');
+        if (!valid_uuid($clientAlertId)) fail(400, 'A unique SOS alert ID is required.');
+        [$latitude, $longitude, $accuracy] = sos_coordinates($data);
+        $existing = row($pdo, 'SELECT id,status,source,delivery_status AS deliveryStatus,started_at AS startedAt FROM sos_alerts WHERE student_user_id = ? AND client_alert_id = ?', [$user['id'], $clientAlertId]);
+        if ($existing) json_response(['alert' => $existing, 'duplicate' => true]);
+        if (row($pdo, "SELECT id FROM sos_alerts WHERE student_user_id = ? AND status = 'ACTIVE' LIMIT 1", [$user['id']])) fail(409, 'You already have an active SOS alert.');
+        $deviceId = null;
+        if (!empty($data['deviceId'])) {
+            if (!valid_uuid((string) $data['deviceId'])) fail(400, 'The registered SOS phone ID is invalid.');
+            $device = row($pdo, 'SELECT id FROM sos_devices WHERE id = ? AND user_id = ? AND revoked_at IS NULL', [$data['deviceId'], $user['id']]);
+            if (!$device) fail(403, 'This phone is not registered to your student account. Register it while online first.');
+            $deviceId = $device['id'];
+        }
+        $driverId = empty($data['driverId']) ? null : filter_var($data['driverId'], FILTER_VALIDATE_INT);
+        if ($driverId !== null && ($driverId === false || !row($pdo, 'SELECT id FROM drivers WHERE id = ? AND is_active = 1', [$driverId]))) fail(400, 'The selected driver is not available.');
+        $id = uuidv4();
+        $stmt = $pdo->prepare("INSERT INTO sos_alerts (id,client_alert_id,student_user_id,device_id,driver_id,status,source,delivery_status,latitude,longitude,location_accuracy_meters,started_at,last_seen_at,received_at) VALUES (?,?,?,?,?,'ACTIVE','ONLINE','DELIVERED',?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        $stmt->execute([$id, $clientAlertId, $user['id'], $deviceId, $driverId, $latitude, $longitude, $accuracy]);
+        audit($pdo, $user['id'], 'SOS_STARTED', 'sos_alerts', $id, ['clientAlertId' => $clientAlertId, 'hasLocation' => $latitude !== null]);
+        foreach (rows($pdo, "SELECT id FROM users WHERE status = 'ACTIVE' AND role IN ('TODA_PRESIDENT','AUTHORIZED_PERSONNEL','SUPERADMIN','PNP')") as $responder) {
+            notify_best_effort(fn() => notify($pdo, $responder['id'], 'EMERGENCY_SOS', 'An emergency SOS alert was received.'), 'SOS notification');
+        }
+        $alert = row($pdo, 'SELECT s.id,s.status,s.source,s.delivery_status AS deliveryStatus,s.latitude,s.longitude,s.location_accuracy_meters AS locationAccuracyMeters,s.started_at AS startedAt,u.full_name AS studentName,st.student_id AS studentId,u.contact_number AS contactNumber,d.full_name AS driverName,d.driver_code AS driverCode,d.plate_number AS plateNumber,d.tricycle_identifier AS tricycleIdentifier FROM sos_alerts s JOIN users u ON u.id=s.student_user_id LEFT JOIN students st ON st.user_id=u.id LEFT JOIN drivers d ON d.id=s.driver_id WHERE s.id = ?', [$id]);
+        json_response(['alert' => $alert], 201);
+    }
+
+    if ($method === 'POST' && $path === '/sos/offline-sync') {
+        $user = auth($pdo, $config);
+        require_roles($user, ['STUDENT']);
+        $data = input_json();
+        $clientAlertId = (string) ($data['clientAlertId'] ?? '');
+        $deviceId = (string) ($data['deviceId'] ?? '');
+        if (!valid_uuid($clientAlertId) || !valid_uuid($deviceId)) fail(400, 'A registered phone and unique alert ID are required.');
+        if (($data['smsConfirmed'] ?? false) !== true) fail(400, 'Confirm that you sent the prepared SOS text before reporting this delayed alert.');
+        $device = row($pdo, 'SELECT id FROM sos_devices WHERE id = ? AND user_id = ? AND revoked_at IS NULL', [$deviceId, $user['id']]);
+        if (!$device) fail(403, 'This phone is not registered to your student account.');
+        $existing = row($pdo, 'SELECT id,status,source,delivery_status AS deliveryStatus,started_at AS startedAt FROM sos_alerts WHERE student_user_id = ? AND client_alert_id = ?', [$user['id'], $clientAlertId]);
+        if ($existing) json_response(['alert' => $existing, 'duplicate' => true]);
+        if (row($pdo, "SELECT id FROM sos_alerts WHERE student_user_id = ? AND status = 'ACTIVE' LIMIT 1", [$user['id']])) fail(409, 'You already have an active SOS alert.');
+        [$latitude, $longitude, $accuracy] = sos_coordinates($data);
+        $driverId = empty($data['driverId']) ? null : filter_var($data['driverId'], FILTER_VALIDATE_INT);
+        if ($driverId !== null && ($driverId === false || !row($pdo, 'SELECT id FROM drivers WHERE id = ? AND is_active = 1', [$driverId]))) fail(400, 'The selected driver is not available.');
+        $createdAt = strtotime((string) ($data['createdAt'] ?? ''));
+        if ($createdAt === false || $createdAt > time() + 60) $createdAt = time();
+        $startedAt = date('Y-m-d H:i:s', $createdAt);
+        $id = uuidv4();
+        $stmt = $pdo->prepare("INSERT INTO sos_alerts (id,client_alert_id,student_user_id,device_id,driver_id,status,source,delivery_status,latitude,longitude,location_accuracy_meters,started_at,last_seen_at,received_at) VALUES (?,?,?,?,?,'ACTIVE','OFFLINE_SMS_REPORTED','DELAYED_REPORTED',?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        $stmt->execute([$id, $clientAlertId, $user['id'], $deviceId, $driverId, $latitude, $longitude, $accuracy, $startedAt]);
+        audit($pdo, $user['id'], 'SOS_OFFLINE_REPORTED', 'sos_alerts', $id, ['clientAlertId' => $clientAlertId, 'hasLocation' => $latitude !== null]);
+        foreach (rows($pdo, "SELECT id FROM users WHERE status = 'ACTIVE' AND role IN ('TODA_PRESIDENT','AUTHORIZED_PERSONNEL','SUPERADMIN','PNP')") as $responder) {
+            notify_best_effort(fn() => notify($pdo, $responder['id'], 'EMERGENCY_SOS_DELAYED', 'A student reports that an offline SOS SMS was sent. Check the alert details and confirm with the sender.'), 'delayed SOS notification');
+        }
+        $alert = row($pdo, 'SELECT s.id,s.status,s.source,s.delivery_status AS deliveryStatus,s.latitude,s.longitude,s.location_accuracy_meters AS locationAccuracyMeters,s.started_at AS startedAt,s.received_at AS receivedAt,u.full_name AS studentName,st.student_id AS studentId,u.contact_number AS contactNumber,d.full_name AS driverName,d.tricycle_identifier AS tricycleIdentifier FROM sos_alerts s JOIN users u ON u.id=s.student_user_id LEFT JOIN students st ON st.user_id=u.id LEFT JOIN drivers d ON d.id=s.driver_id WHERE s.id = ?', [$id]);
+        json_response(['alert' => $alert], 201);
+    }
+
+    if ($method === 'GET' && $path === '/sos/mine') {
+        $user = auth($pdo, $config);
+        require_roles($user, ['STUDENT']);
+        $alert = row($pdo, "SELECT id,status,source,delivery_status AS deliveryStatus,started_at AS startedAt FROM sos_alerts WHERE student_user_id = ? AND status = 'ACTIVE' ORDER BY started_at DESC LIMIT 1", [$user['id']]);
+        json_response(['alert' => $alert ?: null]);
+    }
+
+    if ($method === 'GET' && $path === '/sos/active') {
+        $user = auth($pdo, $config);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        $where = "s.status = 'ACTIVE'";
+        $params = [];
+        if ($user['role'] === 'TODA_PRESIDENT') {
+            $ids = user_toda_ids($pdo, $user);
+            if (!$ids) json_response(['alerts' => []]);
+            $where .= ' AND d.toda_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+            $params = $ids;
+        }
+        $stmt = $pdo->prepare('SELECT s.id,s.status,s.source,s.delivery_status AS deliveryStatus,s.latitude,s.longitude,s.location_accuracy_meters AS locationAccuracyMeters,s.started_at AS startedAt,s.last_seen_at AS lastSeenAt,s.received_at AS receivedAt,s.acknowledged_at AS acknowledgedAt,s.acknowledged_by AS acknowledgedBy,u.full_name AS studentName,st.student_id AS studentId,u.contact_number AS studentContactNumber,d.full_name AS driverName,d.driver_code AS driverCode,d.plate_number AS plateNumber,d.tricycle_identifier AS tricycleIdentifier,d.contact_number AS driverContactNumber,t.name AS todaName,' . toda_route_area_sql('t') . ' AS routeArea FROM sos_alerts s JOIN users u ON u.id=s.student_user_id LEFT JOIN students st ON st.user_id=u.id LEFT JOIN drivers d ON d.id=s.driver_id LEFT JOIN todas t ON t.id=d.toda_id WHERE ' . $where . ' ORDER BY s.started_at ASC');
+        $stmt->execute($params);
+        json_response(['alerts' => $stmt->fetchAll()]);
+    }
+
+    if ($method === 'POST' && preg_match('#^/sos/([a-f0-9-]+)/acknowledge$#i', $path, $m)) {
+        $user = auth($pdo, $config);
+        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        if ($user['role'] === 'TODA_PRESIDENT' && !row($pdo, 'SELECT s.id FROM sos_alerts s JOIN drivers d ON d.id=s.driver_id JOIN todas t ON t.id=d.toda_id WHERE s.id = ? AND t.president_user_id = ? AND t.is_active = 1', [$m[1], $user['id']])) fail(404, 'Active SOS alert not found.');
+        $stmt = $pdo->prepare("UPDATE sos_alerts SET acknowledged_at = COALESCE(acknowledged_at,CURRENT_TIMESTAMP), acknowledged_by = COALESCE(acknowledged_by,?) WHERE id = ? AND status = 'ACTIVE'");
+        $stmt->execute([$user['id'], $m[1]]);
+        if ($stmt->rowCount() === 0) fail(404, 'Active SOS alert not found.');
+        audit($pdo, $user['id'], 'SOS_ACKNOWLEDGED', 'sos_alerts', $m[1]);
+        json_response(['ok' => true]);
+    }
+
+    if ($method === 'PATCH' && preg_match('#^/sos/([a-f0-9-]+)/location$#i', $path, $m)) {
+        $user = auth($pdo, $config);
+        require_roles($user, ['STUDENT']);
+        [$latitude, $longitude, $accuracy] = sos_coordinates(input_json());
+        if ($latitude === null) fail(400, 'A current location is required for a location update.');
+        $stmt = $pdo->prepare("UPDATE sos_alerts SET latitude = ?, longitude = ?, location_accuracy_meters = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ? AND student_user_id = ? AND status = 'ACTIVE'");
+        $stmt->execute([$latitude, $longitude, $accuracy, $m[1], $user['id']]);
+        if ($stmt->rowCount() === 0) fail(404, 'Active SOS alert not found.');
+        json_response(['ok' => true]);
+    }
+
+    if ($method === 'POST' && preg_match('#^/sos/([a-f0-9-]+)/(resolve|cancel)$#', $path, $m)) {
+        $user = auth($pdo, $config);
+        $action = $m[2];
+        if ($action === 'resolve') require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
+        else require_roles($user, ['STUDENT']);
+        if ($action === 'resolve' && $user['role'] === 'TODA_PRESIDENT' && !row($pdo, 'SELECT s.id FROM sos_alerts s JOIN drivers d ON d.id=s.driver_id JOIN todas t ON t.id=d.toda_id WHERE s.id = ? AND t.president_user_id = ? AND t.is_active = 1', [$m[1], $user['id']])) fail(404, 'Active SOS alert not found.');
+        $status = $action === 'resolve' ? 'RESOLVED' : 'CANCELLED';
+        $sql = $action === 'resolve'
+            ? "UPDATE sos_alerts SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolved_by = ? WHERE id = ? AND status = 'ACTIVE'"
+            : "UPDATE sos_alerts SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolved_by = ? WHERE id = ? AND student_user_id = ? AND status = 'ACTIVE'";
+        $params = $action === 'resolve' ? [$status, $user['id'], $m[1]] : [$status, $user['id'], $m[1], $user['id']];
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        if ($stmt->rowCount() === 0) fail(404, 'Active SOS alert not found.');
+        audit($pdo, $user['id'], 'SOS_' . $status, 'sos_alerts', $m[1]);
+        json_response(['ok' => true, 'status' => $status]);
     }
 
     if ($method === 'GET' && $path === '/drivers') {
@@ -622,64 +795,6 @@ try {
         $stmt = $pdo->prepare('SELECT d.id, d.full_name AS "fullName", d.driver_code AS "driverCode", d.tricycle_identifier AS "tricycleIdentifier", d.plate_number AS "plateNumber", ' . toda_route_area_sql('t') . ' AS "routeArea", d.contact_number AS "contactNumber", t.name AS "todaName", t.barangay AS "todaBarangay", t.city AS "todaCity", t.province AS "todaProvince", d.is_active AS "isActive", (SELECT COUNT(*) FROM complaints c WHERE c.driver_id = d.id) AS "reportCount", (SELECT COUNT(*) FROM violations v WHERE v.driver_id = d.id) AS "confirmedViolationCount" FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.is_active = 1' . $todaScope . ' AND (d.full_name LIKE ? OR d.driver_code LIKE ? OR d.tricycle_identifier LIKE ?) ORDER BY d.full_name LIMIT 100');
         $stmt->execute([...$todaIds, $search, $search, $search]);
         json_response(['drivers' => $stmt->fetchAll()]);
-    }
-
-    if ($method === 'POST' && $path === '/sos') {
-        $user = auth($pdo, $config);
-        require_roles($user, ['STUDENT']);
-        $data = input_json();
-        if (empty($data['driverId'])) fail(400, 'Select a driver before starting an emergency alert.');
-        $latitude = filter_var($data['latitude'] ?? null, FILTER_VALIDATE_FLOAT);
-        $longitude = filter_var($data['longitude'] ?? null, FILTER_VALIDATE_FLOAT);
-        $accuracy = ($data['accuracy'] ?? '') === '' ? null : filter_var($data['accuracy'], FILTER_VALIDATE_FLOAT);
-        if ($latitude === false || $longitude === false || $latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) fail(400, 'A valid current location is required.');
-        if ($accuracy !== null && ($accuracy === false || $accuracy < 0)) fail(400, 'The emergency location accuracy is invalid.');
-        if (row($pdo, 'SELECT id FROM sos_alerts WHERE student_user_id = ? AND status = \'ACTIVE\' LIMIT 1', [$user['id']])) fail(409, 'You already have an active emergency alert.');
-        $driver = row($pdo, 'SELECT d.id, d.full_name AS driverName, d.tricycle_identifier AS tricycleIdentifier, d.driver_code AS driverCode, d.plate_number AS plateNumber, ' . toda_route_area_sql('t') . ' AS routeArea, d.contact_number AS contactNumber, t.name AS todaName FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.id = ? AND d.is_active = 1', [(int) $data['driverId']]);
-        if (!$driver) fail(400, 'The selected driver is not available.');
-        $id = uuidv4();
-        $stmt = $pdo->prepare('INSERT INTO sos_alerts (id, student_user_id, driver_id, status, latitude, longitude, location_accuracy_meters) VALUES (?, ?, ?, \'ACTIVE\', ?, ?, ?)');
-        $stmt->execute([$id, $user['id'], (int) $data['driverId'], $latitude, $longitude, $accuracy]);
-        audit($pdo, $user['id'], 'SOS_STARTED', 'sos_alerts', $id, ['driverId' => (int) $data['driverId']]);
-        json_response(['alert' => ['id' => $id, 'status' => 'ACTIVE', 'driverName' => $driver['driverName'], 'driverCode' => $driver['driverCode'], 'plateNumber' => $driver['plateNumber'], 'routeArea' => $driver['routeArea'], 'contactNumber' => $driver['contactNumber'], 'todaName' => $driver['todaName'], 'tricycleIdentifier' => $driver['tricycleIdentifier']]], 201);
-    }
-
-    if ($method === 'GET' && $path === '/sos/active') {
-        $user = auth($pdo, $config);
-        require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
-        $stmt = $pdo->query('SELECT s.id, s.status, s.latitude, s.longitude, s.location_accuracy_meters AS locationAccuracyMeters, s.started_at AS startedAt, s.last_seen_at AS lastSeenAt, u.full_name AS studentName, d.full_name AS driverName, d.driver_code AS driverCode, d.plate_number AS plateNumber, ' . toda_route_area_sql('t') . ' AS routeArea, d.contact_number AS contactNumber, t.name AS todaName, d.tricycle_identifier AS tricycleIdentifier FROM sos_alerts s JOIN users u ON u.id = s.student_user_id JOIN drivers d ON d.id = s.driver_id LEFT JOIN todas t ON t.id = d.toda_id WHERE s.status = \'ACTIVE\' ORDER BY s.started_at DESC');
-        json_response(['alerts' => $stmt->fetchAll()]);
-    }
-
-    if ($method === 'PATCH' && preg_match('#^/sos/([a-f0-9-]+)/location$#', $path, $m)) {
-        $user = auth($pdo, $config);
-        require_roles($user, ['STUDENT']);
-        $data = input_json();
-        $latitude = filter_var($data['latitude'] ?? null, FILTER_VALIDATE_FLOAT);
-        $longitude = filter_var($data['longitude'] ?? null, FILTER_VALIDATE_FLOAT);
-        $accuracy = ($data['accuracy'] ?? '') === '' ? null : filter_var($data['accuracy'], FILTER_VALIDATE_FLOAT);
-        if ($latitude === false || $longitude === false || $latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) fail(400, 'A valid current location is required.');
-        $stmt = $pdo->prepare('UPDATE sos_alerts SET latitude = ?, longitude = ?, location_accuracy_meters = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ? AND student_user_id = ? AND status = \'ACTIVE\'');
-        $stmt->execute([$latitude, $longitude, $accuracy === false ? null : $accuracy, $m[1], $user['id']]);
-        if ($stmt->rowCount() === 0) fail(404, 'Active emergency alert not found.');
-        json_response(['ok' => true]);
-    }
-
-    if ($method === 'POST' && preg_match('#^/sos/([a-f0-9-]+)/(resolve|cancel)$#', $path, $m)) {
-        $user = auth($pdo, $config);
-        $action = $m[2];
-        if ($action === 'resolve') require_roles($user, ['AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
-        else require_roles($user, ['STUDENT']);
-        $status = $action === 'resolve' ? 'RESOLVED' : 'CANCELLED';
-        $sql = $action === 'resolve'
-            ? 'UPDATE sos_alerts SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolved_by = ? WHERE id = ? AND status = \'ACTIVE\''
-            : 'UPDATE sos_alerts SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolved_by = ? WHERE id = ? AND student_user_id = ? AND status = \'ACTIVE\'';
-        $params = $action === 'resolve' ? [$status, $user['id'], $m[1]] : [$status, $user['id'], $m[1], $user['id']];
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        if ($stmt->rowCount() === 0) fail(404, 'Active emergency alert not found.');
-        audit($pdo, $user['id'], 'SOS_' . $status, 'sos_alerts', $m[1]);
-        json_response(['ok' => true, 'status' => $status]);
     }
 
     if ($method === 'GET' && preg_match('#^/drivers/(\d+)$#', $path, $m)) {

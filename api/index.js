@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import pg from "pg";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
+import { registerSosRoutes } from "./sos-routes.js";
 
 const { Pool } = pg;
 const app = express();
@@ -82,6 +83,19 @@ const body = (req) => (req.body && typeof req.body === "object" ? req.body : {})
 const required = (data, fields) => fields.forEach((field) => { if (data[field] === undefined || data[field] === null || String(data[field]).trim() === "") error(400, `${field} is required.`); });
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const bool = (value) => Boolean(value === true || value === 1 || value === "1" || value === "true");
+const sosEnabled = () => bool(process.env.SOS_ENABLED);
+const requireSosEnabled = () => { if (!sosEnabled()) error(503, "Emergency SOS is not enabled by the system administrator yet."); };
+const validUuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+function sosCoordinates(data) {
+  const hasLatitude = data.latitude !== undefined && data.latitude !== null && data.latitude !== "";
+  const hasLongitude = data.longitude !== undefined && data.longitude !== null && data.longitude !== "";
+  if (hasLatitude !== hasLongitude) error(400, "Send both location coordinates or leave both blank.");
+  if (!hasLatitude) return { latitude: null, longitude: null, accuracy: null };
+  const latitude = Number(data.latitude), longitude = Number(data.longitude), accuracy = data.accuracy === undefined || data.accuracy === null || data.accuracy === "" ? null : Number(data.accuracy);
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) error(400, "The SOS location is invalid.");
+  if (accuracy !== null && (!Number.isFinite(accuracy) || accuracy < 0)) error(400, "The SOS location accuracy is invalid.");
+  return { latitude, longitude, accuracy };
+}
 const placeholders = (values, start = 1) => values.map((_, i) => `$${i + start}`).join(",");
 const todaRouteAreaSql = (alias) => `CONCAT_WS(', ', NULLIF(${alias}.barangay, ''), NULLIF(${alias}.city, ''), NULLIF(${alias}.province, ''))`;
 
@@ -152,6 +166,12 @@ async function canAccess(complaint, user, client = pool) {
   return false;
 }
 async function complaintOr404(id, user, client = pool) { const complaint = await one("SELECT * FROM complaints WHERE id=$1 LIMIT 1", [id], client); if (!complaint) error(404, "Complaint not found."); if (!(await canAccess(complaint, user, client))) error(403, "You are not authorized to view this complaint."); return complaint; }
+
+registerSosRoutes(app, {
+  auth, rolesOnly, q, one, uuid, body, error, audit, notifyOfficers, placeholders, todaRouteAreaSql, validUuid, sosCoordinates,
+  enabled: sosEnabled,
+});
+
 async function publicComplaint(id, client = pool) {
   const complaint = await one("SELECT * FROM complaints WHERE id=$1", [id], client);
   if (!complaint) return null;

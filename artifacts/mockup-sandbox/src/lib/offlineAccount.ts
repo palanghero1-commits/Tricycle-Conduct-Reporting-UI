@@ -2,6 +2,7 @@ import { apiRequest, type ApiUser } from "./api";
 
 export type OfflineDriver = { id: number; fullName: string; driverCode?: string | null; tricycleIdentifier: string; plateNumber?: string | null; routeArea: string | null; contactNumber?: string | null; todaName?: string | null; todaBarangay?: string | null; todaCity?: string | null; todaProvince?: string | null };
 export type OfflineCategory = { id: number; name: string; description?: string };
+export type OfflinePreparationProgress = { completed: number; total: number; label: string };
 export type OfflineAccountData = {
   user: ApiUser;
   profile: Record<string, unknown>;
@@ -52,23 +53,28 @@ export async function getOfflineAccountData(): Promise<OfflineAccountData | null
   return data;
 }
 
-export async function cacheStudentOfflineData(user: ApiUser) {
+export async function cacheStudentOfflineData(user: ApiUser, onProgress?: (progress: OfflinePreparationProgress) => void) {
   if (user.role !== "STUDENT") return { complete: true, failed: [] as string[] };
   const failed: string[] = [];
-  const load = async <T>(name: string, request: () => Promise<T>, fallback: T) => {
+  let completed = 0;
+  const total = 6;
+  const load = async <T>(name: string, label: string, request: () => Promise<T>, fallback: T) => {
     try {
       return await request();
     } catch {
       failed.push(name);
       return fallback;
+    } finally {
+      completed += 1;
+      onProgress?.({ completed, total, label });
     }
   };
   const [driverData, categoryData, profileData, reportData, notificationData] = await Promise.all([
-    load("drivers", () => apiRequest<{ drivers: OfflineDriver[] }>("/drivers"), { drivers: [] }),
-    load("categories", () => apiRequest<{ categories: OfflineCategory[] }>("/categories"), { categories: [] }),
-    load("profile", () => apiRequest<{ profile: Record<string, unknown> }>("/me"), { profile: {} }),
-    load("reports", () => apiRequest<{ complaints: Array<Record<string, unknown>> }>("/complaints"), { complaints: [] }),
-    load("notifications", () => apiRequest<{ notifications: Array<Record<string, unknown>> }>("/notifications"), { notifications: [] }),
+    load("drivers", "Loading driver directory", () => apiRequest<{ drivers: OfflineDriver[] }>("/drivers"), { drivers: [] }),
+    load("categories", "Loading report categories", () => apiRequest<{ categories: OfflineCategory[] }>("/categories"), { categories: [] }),
+    load("profile", "Saving student profile", () => apiRequest<{ profile: Record<string, unknown> }>("/me"), { profile: {} }),
+    load("reports", "Saving your reports", () => apiRequest<{ complaints: Array<Record<string, unknown>> }>("/complaints"), { complaints: [] }),
+    load("notifications", "Saving notifications", () => apiRequest<{ notifications: Array<Record<string, unknown>> }>("/notifications"), { notifications: [] }),
   ]);
   try {
     await saveAccountData({
@@ -83,5 +89,7 @@ export async function cacheStudentOfflineData(user: ApiUser) {
   } catch {
     failed.push("device storage");
   }
+  completed = total;
+  onProgress?.({ completed, total, label: failed.length ? "Checking saved data" : "Offline data saved" });
   return { complete: failed.length === 0, failed };
 }

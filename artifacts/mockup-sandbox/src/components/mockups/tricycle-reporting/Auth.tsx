@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { apiRequest, clearAuthToken, login, registerStudent, type ApiUser } from "../../../lib/api";
 import { cacheStudentOfflineData } from "../../../lib/offlineAccount";
+import { Capacitor } from "@capacitor/core";
 
 type AuthMode = "login" | "register";
 type RegistrationStep = 1 | 2 | 3;
@@ -273,6 +274,10 @@ export function Auth() {
           const selectedRole = expectedRole === "STUDENT" ? "Student" : expectedRole === "DRIVER" ? "Driver" : expectedRole === "TODA_PRESIDENT" ? "TODA President" : "Authorized Personnel";
           throw new Error(`This account is registered as ${actualRole}. Select ${selectedRole} to continue.`);
         }
+        if (data.user.role === "STUDENT" && Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android" && window.localStorage.getItem(`sos_offline_setup_complete:${data.user.id}`) !== "true") {
+          window.location.href = previewUrl("StudentDashboard");
+          return;
+        }
         setIsPreparingOffline(data.user.role === "STUDENT");
         return cacheStudentOfflineData(data.user).then((offlineResult) => {
           if (!offlineResult.complete) {
@@ -366,6 +371,10 @@ export function Auth() {
       routeArea: form.routeArea,
     })
       .then((data) => {
+        if (data.user?.role === "STUDENT" && Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
+          window.location.href = previewUrl("StudentDashboard");
+          return;
+        }
         window.location.href = previewUrl(getWorkspaceAfterLogin(data.user?.email ?? form.email, role, data.user));
       })
       .catch((error) => {

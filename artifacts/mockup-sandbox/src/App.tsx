@@ -1,6 +1,7 @@
 import { Component, useEffect, useState, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 
 import { modules as discoveredModules } from "./.generated/mockup-components";
+import { consumeSosShortcutLaunch } from "./lib/sosDevice";
 
 type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 
@@ -165,6 +166,17 @@ function getPreviewPath(): string | null {
 }
 
 function App() {
+  useEffect(() => {
+    const checkSosShortcut = () => void consumeSosShortcutLaunch().then((openSos) => {
+      if (openSos) window.location.replace(`${getBasePath()}/preview/tricycle-reporting/EmergencySOS`);
+    }).catch((error: unknown) => console.error("Could not open the SOS shortcut:", error));
+    const onVisible = () => { if (document.visibilityState === "visible") checkSosShortcut(); };
+    window.addEventListener("focus", checkSosShortcut);
+    document.addEventListener("visibilitychange", onVisible);
+    checkSosShortcut();
+    return () => { window.removeEventListener("focus", checkSosShortcut); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
+
   const defaultPreviewPath = import.meta.env.MODE === "android"
     ? "tricycle-reporting/Auth"
     : "tricycle-reporting/Landing";

@@ -8,13 +8,20 @@ import {
   ChevronRight,
   CircleAlert,
   Clock3,
+  CloudDownload,
   FilePlus2,
   Info,
+  LoaderCircle,
   MapPin,
+  Smartphone,
   ShieldCheck,
   X,
 } from "lucide-react";
 import { apiRequest, getCurrentUser } from "../../../lib/api";
+import { Capacitor } from "@capacitor/core";
+import { Geolocation } from "@capacitor/geolocation";
+import { cacheStudentOfflineData } from "../../../lib/offlineAccount";
+import { createSosDeviceId, getRegisteredSosIdentity, saveRegisteredSosIdentity } from "../../../lib/sosDevice";
 import { AppLayout } from "./_shared/AppLayout";
 
 type ReportStatus = "Under review" | "Resolved" | "Received";
@@ -100,6 +107,12 @@ function StatusPill({ status }: { status: ReportStatus }) {
 export function StudentDashboard() {
   const currentUser = getCurrentUser();
   const firstName = currentUser?.fullName?.trim().split(/\s+/)[0] || "Student";
+  const [showPhoneSetup, setShowPhoneSetup] = useState(false);
+  const [phoneSetupState, setPhoneSetupState] = useState<"idle" | "working" | "complete">("idle");
+  const [phoneSetupProgress, setPhoneSetupProgress] = useState(0);
+  const [phoneSetupStage, setPhoneSetupStage] = useState("Ready to register this phone");
+  const [phoneSetupError, setPhoneSetupError] = useState("");
+  const [setupBusy, setSetupBusy] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showAllReports, setShowAllReports] = useState(false);
   const [unreadNotification, setUnreadNotification] = useState(true);
@@ -107,6 +120,51 @@ export function StudentDashboard() {
   const [studentReports, setStudentReports] = useState<Report[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (currentUser?.role !== "STUDENT" || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") return;
+    if (window.localStorage.getItem(`sos_offline_setup_complete:${currentUser.id}`) !== "true") setShowPhoneSetup(true);
+  }, [currentUser?.id, currentUser?.role]);
+
+  const preparePhoneForOffline = async () => {
+    if (!currentUser || currentUser.role !== "STUDENT") return;
+    if (!navigator.onLine) { setPhoneSetupError("Connect to the internet to register this phone and download your offline data."); return; }
+    setSetupBusy(true); setPhoneSetupState("working"); setPhoneSetupProgress(8); setPhoneSetupStage("Registering this phone to your student account"); setPhoneSetupError("");
+    try {
+      const oldIdentity = await getRegisteredSosIdentity().catch(() => null);
+      const deviceId = oldIdentity?.userId === currentUser.id ? oldIdentity.deviceId : createSosDeviceId();
+      const registrationTask = apiRequest<{ deviceId: string; userId: string; studentId: string; fullName: string; contactNumber: string; registeredAt: string }>("/sos/devices", { method: "POST", body: JSON.stringify({ deviceId, deviceLabel: "Android phone" }) });
+      const offlineTask = cacheStudentOfflineData(currentUser, ({ completed, total, label }) => {
+        setPhoneSetupProgress(18 + Math.round((completed / total) * 68));
+        setPhoneSetupStage(label);
+      });
+      const [registrationResult, offlineResult] = await Promise.allSettled([registrationTask, offlineTask]);
+      if (registrationResult.status === "fulfilled") await saveRegisteredSosIdentity({ ...registrationResult.value, deviceId });
+      const offlineFailures = offlineResult.status === "fulfilled" ? offlineResult.value.failed : ["offline storage"];
+      if (registrationResult.status === "rejected" || offlineResult.status === "rejected" || offlineResult.value?.complete !== true) {
+        const registrationMessage = registrationResult.status === "rejected"
+          ? registrationResult.reason instanceof Error ? `Phone registration failed: ${registrationResult.reason.message}` : "Phone registration failed."
+          : "";
+        const offlineMessage = offlineFailures.length ? `Offline data could not be fully saved: ${offlineFailures.join(", ")}.` : "";
+        throw new Error([registrationMessage, offlineMessage, "Your offline data preparation was attempted. Stay online and retry."].filter(Boolean).join(" "));
+      }
+      setPhoneSetupProgress(92); setPhoneSetupStage("Checking location permission");
+      try {
+        const permission = await Geolocation.checkPermissions();
+        if (permission.location !== "granted" && permission.coarseLocation !== "granted") await Geolocation.requestPermissions();
+      } catch { /* GPS is optional; SOS remains available without a location fix. */ }
+      window.localStorage.setItem(`sos_offline_setup_complete:${currentUser.id}`, "true");
+      setPhoneSetupProgress(100); setPhoneSetupStage("Phone registered and offline data is ready"); setPhoneSetupState("complete");
+    } catch (error) {
+      setPhoneSetupState("idle");
+      setPhoneSetupError(error instanceof Error ? error.message : "Could not finish phone setup. Please retry while online.");
+    } finally { setSetupBusy(false); }
+  };
+
+  const deferPhoneSetup = () => {
+    if (currentUser) window.localStorage.setItem(`sos_offline_setup_complete:${currentUser.id}`, "skipped");
+    setShowPhoneSetup(false);
+  };
 
   useEffect(() => {
     if (currentUser?.role && currentUser.role !== "STUDENT") {
@@ -411,6 +469,49 @@ export function StudentDashboard() {
               Done
             </button>
           </div>
+        </div>
+      ) : null}
+      {showPhoneSetup ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#102b46]/55 px-4 py-6 backdrop-blur-sm" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="phone-setup-title" className="w-full max-w-[470px] overflow-hidden rounded-[26px] border border-[#dce7f1] bg-white shadow-[0_28px_90px_rgba(8,35,62,0.32)]">
+            <div className="bg-gradient-to-br from-[#edf6ff] via-white to-[#eaf8f5] px-6 pb-5 pt-7 sm:px-8">
+              <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${phoneSetupState === "complete" ? "bg-[#e4f5ed] text-[#21845b]" : "bg-[#dfeeff] text-[#0c5bce]"}`}>
+                {phoneSetupState === "complete" ? <CheckCircle2 size={27} /> : phoneSetupState === "working" ? <LoaderCircle size={27} className="animate-spin" /> : <Smartphone size={27} />}
+              </div>
+              <p className="mt-5 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#5482a7]">Offline phone setup</p>
+              <h2 id="phone-setup-title" className="mt-2 text-[22px] font-extrabold leading-tight tracking-[-0.03em] text-[#153656]">
+                {phoneSetupState === "complete" ? "You’re ready to go offline" : "Register your phone and prepare offline"}
+              </h2>
+              <p className="mt-2 text-[12px] leading-5 text-[#647b92]">
+                {phoneSetupState === "complete" ? "Your student identity is saved securely, and the latest account information is on this phone." : "We’ll link this Android phone to your student account and save the information you need if your connection drops."}
+              </p>
+            </div>
+
+            <div className="px-6 pb-6 pt-5 sm:px-8 sm:pb-7">
+              {phoneSetupState !== "complete" ? <>
+                <div className="mb-2 flex items-center justify-between text-[10px] font-bold text-[#668099]"><span>{phoneSetupState === "working" ? phoneSetupStage : "About a moment while your data is saved"}</span><span>{phoneSetupProgress}%</span></div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-[#e9f0f7]" role="progressbar" aria-label="Phone and offline setup progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={phoneSetupProgress}>
+                  <div className="h-full rounded-full bg-gradient-to-r from-[#0c5bce] to-[#2aa88c] transition-[width] duration-700 ease-out" style={{ width: `${phoneSetupProgress}%` }} />
+                </div>
+                <div className="mt-5 grid grid-cols-2 gap-2 text-[10px] font-semibold text-[#617a93]">
+                  <span className="flex items-center gap-2 rounded-lg bg-[#f6f9fc] p-2.5"><span className="h-1.5 w-1.5 rounded-full bg-[#55a58d]" />Student identity</span>
+                  <span className="flex items-center gap-2 rounded-lg bg-[#f6f9fc] p-2.5"><span className="h-1.5 w-1.5 rounded-full bg-[#55a58d]" />Driver directory</span>
+                  <span className="flex items-center gap-2 rounded-lg bg-[#f6f9fc] p-2.5"><span className="h-1.5 w-1.5 rounded-full bg-[#55a58d]" />Report categories</span>
+                  <span className="flex items-center gap-2 rounded-lg bg-[#f6f9fc] p-2.5"><span className="h-1.5 w-1.5 rounded-full bg-[#55a58d]" />Reports & notifications</span>
+                </div>
+              </> : <div className="rounded-xl border border-[#cce8d9] bg-[#f1f9f4] p-3 text-[11px] font-semibold leading-5 text-[#38775a]"><CheckCircle2 size={15} className="mr-1.5 inline" />Offline data is saved. Location is optional and can be turned on later in phone settings.</div>}
+
+              {phoneSetupError ? <p role="alert" className="mt-4 rounded-xl border border-[#f0c9c4] bg-[#fff3f1] p-3 text-[11px] leading-5 text-[#a23e34]">{phoneSetupError}</p> : null}
+
+              {phoneSetupState === "complete" ? <button type="button" onClick={() => setShowPhoneSetup(false)} className="mt-5 w-full rounded-xl bg-[#0c5bce] px-4 py-3.5 text-[13px] font-extrabold text-white transition hover:bg-[#084da9]">Continue to dashboard</button> : <>
+                <button type="button" disabled={setupBusy} onClick={() => void preparePhoneForOffline()} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-4 py-3.5 text-[13px] font-extrabold text-white transition hover:bg-[#084da9] disabled:cursor-wait disabled:opacity-70">
+                  {setupBusy ? <><LoaderCircle size={16} className="animate-spin" />Preparing your phone…</> : <><CloudDownload size={17} />Register phone & prepare offline</>}
+                </button>
+                <button type="button" disabled={setupBusy} onClick={deferPhoneSetup} className="mt-2 w-full rounded-xl py-2.5 text-[11px] font-bold text-[#71869b] hover:bg-[#f4f7fa] disabled:opacity-50">Do this later</button>
+                <p className="mt-2 text-center text-[9px] leading-4 text-[#98a8b7]">Keep the app open while setup runs. GPS access is optional.</p>
+              </>}
+            </div>
+          </section>
         </div>
       ) : null}
     </AppLayout>

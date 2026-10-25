@@ -67,7 +67,7 @@ function notificationTime(value: string) {
 const studentNav = [
   { label: "Dashboard", icon: LayoutDashboard, component: "StudentDashboard" },
   { label: "Submit report", icon: ClipboardList, component: "SubmitReport" },
-  { label: "Emergency SOS", icon: Siren, component: "UnderDevelopment" },
+  { label: "Emergency SOS", icon: Siren, component: "EmergencySOS" },
   { label: "Pending reports", icon: CloudOff, component: "PendingReports" },
   { label: "My reports", icon: FileCheck2, component: "MyReports" },
   { label: "Profile", icon: UserRound, component: "Profile" },
@@ -83,7 +83,7 @@ const driverNav = [
 const officerNav = [
   { label: "Dashboard", icon: Gauge, component: "OfficerDashboard" },
   { label: "Reports", icon: ClipboardList, component: "ReportsQueue" },
-  { label: "Emergency SOS", icon: Siren, component: "UnderDevelopment" },
+  { label: "Emergency SOS", icon: Siren, component: "EmergencyMonitor" },
   { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
   { label: "Violations", icon: ShieldCheck, component: "Violations" },
   { label: "Analytics", icon: BarChart3, component: "Analytics" },
@@ -92,6 +92,7 @@ const officerNav = [
 const adminNav = [
   { label: "Dashboard", icon: Gauge, component: "AdminDashboard" },
   { label: "Reports", icon: ClipboardList, component: "ReportsQueue" },
+  { label: "Emergency SOS", icon: Siren, component: "EmergencyMonitor" },
   { label: "Drivers", icon: UsersRound, component: "DriverDirectory" },
   { label: "Violations", icon: ShieldCheck, component: "Violations" },
   { label: "Analytics", icon: BarChart3, component: "Analytics" },
