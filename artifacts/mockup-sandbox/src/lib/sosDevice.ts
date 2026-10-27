@@ -19,6 +19,7 @@ export type PendingSosAlert = {
   driverId: number | null;
   message: string;
   smsConfirmed: boolean;
+  automaticSmsAttempted?: boolean;
 };
 
 export function createSosDeviceId() {
@@ -40,6 +41,9 @@ type SosDeviceNative = {
   getPendingAlert(): Promise<{ alert: PendingSosAlert | null }>;
   clearPendingAlert(): Promise<{ cleared: boolean }>;
   openSmsComposer(options: { number: string; message: string }): Promise<{ opened: boolean }>;
+  checkSmsPermission(): Promise<{ granted: boolean }>;
+  requestSmsPermission(): Promise<{ granted: boolean }>;
+  sendSmsDirectly(options: { number: string; message: string }): Promise<{ sent: boolean }>;
   getLaunchAction(): Promise<{ openSos: boolean }>;
 };
 
@@ -52,7 +56,20 @@ function requireAndroidSos() {
 }
 
 export function getConfiguredSosSmsNumber() {
+  try {
+    const saved = window.localStorage.getItem("sos_sms_destination");
+    if (saved?.trim()) return saved.trim();
+  } catch { /* Use the build-time default if local storage is unavailable. */ }
   return String(import.meta.env.VITE_SOS_SMS_NUMBER ?? "").trim();
+}
+
+export function saveConfiguredSosSmsNumber(number: string) {
+  const normalized = number.trim();
+  if (!normalized) throw new Error("Enter the emergency SMS destination number.");
+  if (!/^\+?[0-9().\-\s]{7,25}$/.test(normalized) || normalized.replace(/\D/g, "").length < 7) {
+    throw new Error("Enter a valid emergency SMS number, including the country code.");
+  }
+  window.localStorage.setItem("sos_sms_destination", normalized);
 }
 
 export async function saveRegisteredSosIdentity(identity: RegisteredSosIdentity) {
@@ -88,6 +105,21 @@ export async function clearPendingSosAlert() {
 export async function openSosSmsComposer(number: string, message: string) {
   requireAndroidSos();
   await nativeSos.openSmsComposer({ number, message });
+}
+
+export async function checkDirectSosSmsPermission() {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") return false;
+  return (await nativeSos.checkSmsPermission()).granted;
+}
+
+export async function requestDirectSosSmsPermission() {
+  requireAndroidSos();
+  return (await nativeSos.requestSmsPermission()).granted;
+}
+
+export async function sendDirectSosSms(number: string, message: string) {
+  requireAndroidSos();
+  await nativeSos.sendSmsDirectly({ number, message });
 }
 
 export async function consumeSosShortcutLaunch() {

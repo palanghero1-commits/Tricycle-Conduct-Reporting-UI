@@ -21,7 +21,7 @@ import { apiRequest, getCurrentUser } from "../../../lib/api";
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import { cacheStudentOfflineData } from "../../../lib/offlineAccount";
-import { createSosDeviceId, getRegisteredSosIdentity, saveRegisteredSosIdentity } from "../../../lib/sosDevice";
+import { createSosDeviceId, getConfiguredSosSmsNumber, getRegisteredSosIdentity, requestDirectSosSmsPermission, saveConfiguredSosSmsNumber, saveRegisteredSosIdentity } from "../../../lib/sosDevice";
 import { AppLayout } from "./_shared/AppLayout";
 
 type ReportStatus = "Under review" | "Resolved" | "Received";
@@ -113,6 +113,8 @@ export function StudentDashboard() {
   const [phoneSetupStage, setPhoneSetupStage] = useState("Ready to register this phone");
   const [phoneSetupError, setPhoneSetupError] = useState("");
   const [setupBusy, setSetupBusy] = useState(false);
+  const [sosSmsDestination, setSosSmsDestination] = useState(() => getConfiguredSosSmsNumber());
+  const [directSmsPermissionGranted, setDirectSmsPermissionGranted] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showAllReports, setShowAllReports] = useState(false);
   const [unreadNotification, setUnreadNotification] = useState(true);
@@ -129,6 +131,8 @@ export function StudentDashboard() {
   const preparePhoneForOffline = async () => {
     if (!currentUser || currentUser.role !== "STUDENT") return;
     if (!navigator.onLine) { setPhoneSetupError("Connect to the internet to register this phone and download your offline data."); return; }
+    try { saveConfiguredSosSmsNumber(sosSmsDestination); }
+    catch (error) { setPhoneSetupError(error instanceof Error ? error.message : "Enter a valid emergency SMS destination."); return; }
     setSetupBusy(true); setPhoneSetupState("working"); setPhoneSetupProgress(8); setPhoneSetupStage("Registering this phone to your student account"); setPhoneSetupError("");
     try {
       const oldIdentity = await getRegisteredSosIdentity().catch(() => null);
@@ -148,11 +152,14 @@ export function StudentDashboard() {
         const offlineMessage = offlineFailures.length ? `Offline data could not be fully saved: ${offlineFailures.join(", ")}.` : "";
         throw new Error([registrationMessage, offlineMessage, "Your offline data preparation was attempted. Stay online and retry."].filter(Boolean).join(" "));
       }
-      setPhoneSetupProgress(92); setPhoneSetupStage("Checking location permission");
+      setPhoneSetupProgress(88); setPhoneSetupStage("Checking location permission");
       try {
         const permission = await Geolocation.checkPermissions();
         if (permission.location !== "granted" && permission.coarseLocation !== "granted") await Geolocation.requestPermissions();
       } catch { /* GPS is optional; SOS remains available without a location fix. */ }
+      setPhoneSetupProgress(94); setPhoneSetupStage("Setting up one-tap offline SMS");
+      try { setDirectSmsPermissionGranted(await requestDirectSosSmsPermission()); }
+      catch { setDirectSmsPermissionGranted(false); }
       window.localStorage.setItem(`sos_offline_setup_complete:${currentUser.id}`, "true");
       setPhoneSetupProgress(100); setPhoneSetupStage("Phone registered and offline data is ready"); setPhoneSetupState("complete");
     } catch (error) {
@@ -499,12 +506,17 @@ export function StudentDashboard() {
                   <span className="flex items-center gap-2 rounded-lg bg-[#f6f9fc] p-2.5"><span className="h-1.5 w-1.5 rounded-full bg-[#55a58d]" />Report categories</span>
                   <span className="flex items-center gap-2 rounded-lg bg-[#f6f9fc] p-2.5"><span className="h-1.5 w-1.5 rounded-full bg-[#55a58d]" />Reports & notifications</span>
                 </div>
-              </> : <div className="rounded-xl border border-[#cce8d9] bg-[#f1f9f4] p-3 text-[11px] font-semibold leading-5 text-[#38775a]"><CheckCircle2 size={15} className="mr-1.5 inline" />Offline data is saved. Location is optional and can be turned on later in phone settings.</div>}
+                <label className="mt-4 block text-[11px] font-bold text-[#45617c]">Emergency SMS destination <span className="text-[#a5362d]">*</span>
+                  <input type="tel" inputMode="tel" autoComplete="tel" value={sosSmsDestination} onChange={(event) => setSosSmsDestination(event.target.value)} placeholder="+63 9XX XXX XXXX" disabled={setupBusy} className="mt-2 w-full rounded-xl border border-[#d9e3ec] px-3 py-3 text-sm font-semibold text-[#193958] outline-none focus:border-[#6799ce] disabled:bg-[#f4f7fa]" />
+                </label>
+                <p className="mt-1 text-[9px] leading-4 text-[#8295a9]">Enter the approved, monitored responder number. Include the country code. Saved on this phone for offline SOS.</p>
+                <p className="mt-2 text-[9px] leading-4 text-[#8295a9]">Android will ask once for SMS permission during setup. If allowed, pressing SOS sends directly to this number. Carrier charges may apply. Without permission, you can still send from your SMS app.</p>
+              </> : <div className="rounded-xl border border-[#cce8d9] bg-[#f1f9f4] p-3 text-[11px] font-semibold leading-5 text-[#38775a]"><CheckCircle2 size={15} className="mr-1.5 inline" />Offline data is saved. {directSmsPermissionGranted ? "One-tap SOS SMS is enabled." : "Direct SMS wasn’t allowed; SOS will open a message for you to send."} Location is optional.</div>}
 
               {phoneSetupError ? <p role="alert" className="mt-4 rounded-xl border border-[#f0c9c4] bg-[#fff3f1] p-3 text-[11px] leading-5 text-[#a23e34]">{phoneSetupError}</p> : null}
 
               {phoneSetupState === "complete" ? <button type="button" onClick={() => setShowPhoneSetup(false)} className="mt-5 w-full rounded-xl bg-[#0c5bce] px-4 py-3.5 text-[13px] font-extrabold text-white transition hover:bg-[#084da9]">Continue to dashboard</button> : <>
-                <button type="button" disabled={setupBusy} onClick={() => void preparePhoneForOffline()} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-4 py-3.5 text-[13px] font-extrabold text-white transition hover:bg-[#084da9] disabled:cursor-wait disabled:opacity-70">
+                <button type="button" disabled={setupBusy || !sosSmsDestination.trim()} onClick={() => void preparePhoneForOffline()} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#0c5bce] px-4 py-3.5 text-[13px] font-extrabold text-white transition hover:bg-[#084da9] disabled:cursor-wait disabled:opacity-70">
                   {setupBusy ? <><LoaderCircle size={16} className="animate-spin" />Preparing your phone…</> : <><CloudDownload size={17} />Register phone & prepare offline</>}
                 </button>
                 <button type="button" disabled={setupBusy} onClick={deferPhoneSetup} className="mt-2 w-full rounded-xl py-2.5 text-[11px] font-bold text-[#71869b] hover:bg-[#f4f7fa] disabled:opacity-50">Do this later</button>
