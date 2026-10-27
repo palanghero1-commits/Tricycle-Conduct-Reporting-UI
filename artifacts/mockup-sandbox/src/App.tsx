@@ -167,8 +167,8 @@ function getPreviewPath(): string | null {
 
 function App() {
   useEffect(() => {
-    const checkSosShortcut = () => void consumeSosShortcutLaunch().then((openSos) => {
-      if (openSos) window.location.replace(`${getBasePath()}/preview/tricycle-reporting/EmergencySOS`);
+    const checkSosShortcut = () => void consumeSosShortcutLaunch().then(({ openSos, autoSend }) => {
+      if (openSos) window.location.replace(`${getBasePath()}/preview/tricycle-reporting/EmergencySOS${autoSend ? "?widgetSend=1" : ""}`);
     }).catch((error: unknown) => console.error("Could not open the SOS shortcut:", error));
     const onVisible = () => { if (document.visibilityState === "visible") checkSosShortcut(); };
     window.addEventListener("focus", checkSosShortcut);

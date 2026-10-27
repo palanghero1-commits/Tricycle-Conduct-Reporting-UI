@@ -6,4 +6,7 @@
     <string name="custom_url_scheme">ph.sagay.tricycleconductreporting</string>
     <string name="sos_shortcut_short">SOS</string>
     <string name="sos_shortcut_long">Open Emergency SOS</string>
+    <string name="sos_widget_name">Emergency SOS</string>
+    <string name="sos_widget_label">SOS</string>
+    <string name="sos_widget_description">Tap to open Emergency SOS.</string>
 </resources>

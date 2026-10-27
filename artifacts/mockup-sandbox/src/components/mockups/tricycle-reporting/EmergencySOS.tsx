@@ -21,21 +21,26 @@ export function EmergencySOS() {
   const [smsNumber, setSmsNumber] = useState(() => getConfiguredSosSmsNumber());
   const [directSmsPermissionGranted, setDirectSmsPermissionGranted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sosStateReady, setSosStateReady] = useState(false);
+  const [activeAlertChecked, setActiveAlertChecked] = useState(false);
+  const [smsPermissionChecked, setSmsPermissionChecked] = useState(false);
   const [notice, setNotice] = useState("");
   const [smsComposerOpened, setSmsComposerOpened] = useState(false);
   const syncedPendingId = useRef("");
   const [error, setError] = useState("");
   const isAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
   const setupMode = new URLSearchParams(window.location.search).get("setup") === "1";
+  const widgetSend = new URLSearchParams(window.location.search).get("widgetSend") === "1";
+  const widgetSendStarted = useRef(false);
 
   useEffect(() => {
     let alive = true;
     void Promise.all([getRegisteredSosIdentity(), getPendingSosAlert()]).then(([savedIdentity, savedPending]) => {
       if (!alive) return;
-      setIdentity(savedIdentity); setPending(savedPending);
-    }).catch(() => undefined);
-    void checkDirectSosSmsPermission().then((granted) => { if (alive) setDirectSmsPermissionGranted(granted); }).catch(() => undefined);
-    if (isStudent) void apiRequest<{ alert: { id: string; status: string } | null }>("/sos/mine").then((data) => { if (alive) setActiveAlert(data.alert); }).catch(() => undefined);
+      setIdentity(savedIdentity); setPending(savedPending); setSosStateReady(true);
+    }).catch(() => { if (alive) { setSosStateReady(true); setError("Could not load this phone's saved SOS setup. Open Emergency SOS while online and check the phone setup."); } });
+    void checkDirectSosSmsPermission().then((granted) => { if (alive) { setDirectSmsPermissionGranted(granted); setSmsPermissionChecked(true); } }).catch(() => { if (alive) setSmsPermissionChecked(true); });
+    if (isStudent) void apiRequest<{ alert: { id: string; status: string } | null }>("/sos/mine").then((data) => { if (alive) { setActiveAlert(data.alert); setActiveAlertChecked(true); } }).catch(() => { if (alive) setActiveAlertChecked(true); });
     return () => { alive = false; };
   }, [isStudent, isAndroid]);
 
@@ -95,6 +100,7 @@ export function EmergencySOS() {
   const prepareOfflineSms = async (alertId: string, loc: Location | null) => {
     if (!identity) throw new Error("Register this Android phone while online before using offline SOS.");
     if (!smsNumber) throw new Error("The emergency SMS destination is not configured. Your alert was not sent.");
+    if (widgetSend && !directSmsPermissionGranted) throw new Error("Automatic offline SMS is unavailable because SMS permission is not enabled. Complete phone setup online, or send SOS from the app and use your messaging app.");
     const createdAt = new Date().toISOString();
     const maps = loc ? `\nLocation: https://maps.google.com/?q=${loc.latitude},${loc.longitude}${loc.accuracy ? ` (±${Math.round(loc.accuracy)} m)` : ""}` : "\nLocation: unavailable";
     const message = `EMERGENCY SOS\nStudent: ${identity.fullName}\nStudent ID: ${identity.studentId}\nContact: ${identity.contactNumber || "Not provided"}\nTime: ${createdAt}${maps}${details.trim() ? `\nDetails: ${details.trim()}` : ""}\nAlert ID: ${alertId}`;
@@ -130,6 +136,20 @@ export function EmergencySOS() {
     } catch (e) { setError(e instanceof Error ? e.message : "Could not start SOS."); }
     finally { setBusy(false); }
   };
+
+  useEffect(() => {
+    if (!widgetSend || widgetSendStarted.current) return;
+    if (!isStudent) { setError("Sign in with your student account before using SOS from the widget."); widgetSendStarted.current = true; return; }
+    if (!sosStateReady || !activeAlertChecked || !smsPermissionChecked) return;
+    widgetSendStarted.current = true;
+    if (activeAlert) { setNotice("An SOS alert is already active. No new alert was sent."); return; }
+    if (pending) { setNotice("An SOS message is already pending on this phone. No duplicate was sent."); return; }
+    if (!navigator.onLine && (!identity || !smsNumber || !directSmsPermissionGranted)) {
+      setError("Offline SOS auto-send needs this phone registered, an emergency number configured, and SMS permission enabled. Connect and complete phone setup first.");
+      return;
+    }
+    void sendSos();
+  }, [widgetSend, isStudent, sosStateReady, activeAlertChecked, smsPermissionChecked, activeAlert, pending, identity, smsNumber, directSmsPermissionGranted, sendSos]);
 
   const confirmSmsSent = async () => {
     if (!pending) return;

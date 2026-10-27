@@ -44,7 +44,7 @@ type SosDeviceNative = {
   checkSmsPermission(): Promise<{ granted: boolean }>;
   requestSmsPermission(): Promise<{ granted: boolean }>;
   sendSmsDirectly(options: { number: string; message: string }): Promise<{ sent: boolean }>;
-  getLaunchAction(): Promise<{ openSos: boolean }>;
+  getLaunchAction(): Promise<{ openSos: boolean; autoSend: boolean }>;
 };
 
 const nativeSos = registerPlugin<SosDeviceNative>("SosDevice");
@@ -123,6 +123,6 @@ export async function sendDirectSosSms(number: string, message: string) {
 }
 
 export async function consumeSosShortcutLaunch() {
-  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") return false;
-  return (await nativeSos.getLaunchAction()).openSos;
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") return { openSos: false, autoSend: false };
+  return nativeSos.getLaunchAction();
 }

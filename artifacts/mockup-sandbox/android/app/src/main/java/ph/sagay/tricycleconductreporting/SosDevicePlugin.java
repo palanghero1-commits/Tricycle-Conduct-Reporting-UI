@@ -250,8 +250,10 @@ public class SosDevicePlugin extends Plugin {
     public void getLaunchAction(PluginCall call) {
         Intent intent = getActivity().getIntent();
         Uri data = intent == null ? null : intent.getData();
-        boolean openSos = data != null && "tricycleconductreporting".equals(data.getScheme()) && "sos".equals(data.getHost());
+        boolean validScheme = data != null && "tricycleconductreporting".equals(data.getScheme());
+        boolean autoSend = validScheme && "sos-send".equals(data.getHost());
+        boolean openSos = validScheme && ("sos".equals(data.getHost()) || autoSend);
         if (openSos) getActivity().setIntent(new Intent(Intent.ACTION_MAIN));
-        call.resolve(new JSObject().put("openSos", openSos));
+        call.resolve(new JSObject().put("openSos", openSos).put("autoSend", autoSend));
     }
 }
