@@ -124,9 +124,11 @@ async function performOfflineReportSync(): Promise<SyncResult> {
       if (report.locationAccuracy !== undefined) body.append("locationAccuracy", String(report.locationAccuracy));
       if (report.locationCapturedAt) body.append("locationCapturedAt", report.locationCapturedAt);
       report.attachments.forEach((file) => body.append("attachments[]", file));
-      const response = await apiRequest<{ complaint?: { referenceNumber?: string } }>(`/complaints`, { method: "POST", body });
-      const trackingNumber = response?.complaint?.referenceNumber;
-      if (!trackingNumber || !/^TRC-\d{4}-\d{6}$/.test(trackingNumber)) {
+      const response = await apiRequest<{ complaint?: { referenceNumber?: unknown } }>(`/complaints`, { method: "POST", body });
+      const trackingNumber = typeof response?.complaint?.referenceNumber === "string"
+        ? response.complaint.referenceNumber.trim()
+        : "";
+      if (!trackingNumber) {
         throw new Error("The server did not return a valid tracking number. This report remains saved for retry.");
       }
       await saveSubmittedAndRemoveFromQueue(report.localReportId, trackingNumber);

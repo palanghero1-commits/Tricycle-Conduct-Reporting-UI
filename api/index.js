@@ -190,13 +190,18 @@ async function storageUpload(file, folder) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const bucket = process.env.SUPABASE_STORAGE_BUCKET || "uploads";
-  if (!url || !key) error(500, "Online file storage is not configured.");
+  if (!url || !key) error(503, "Online file storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for the API.");
   const extByMime = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "application/pdf": ".pdf" };
   const ext = extByMime[file.detectedMime];
   if (!ext) error(400, "Invalid attachment type.");
   const path = `${folder}/${uuid()}${ext}`;
-  const response = await fetch(`${url}/storage/v1/object/${bucket}/${path}`, { method: "POST", headers: { Authorization: `Bearer ${key}`, apikey: key, "Content-Type": file.detectedMime, "x-upsert": "false" }, body: file.buffer });
-  if (!response.ok) error(500, "Unable to save the uploaded file.");
+  let response;
+  try {
+    response = await fetch(`${url}/storage/v1/object/${bucket}/${path}`, { method: "POST", headers: { Authorization: `Bearer ${key}`, apikey: key, "Content-Type": file.detectedMime, "x-upsert": "false" }, body: file.buffer });
+  } catch {
+    error(503, "Online file storage could not be reached. Check that the API can connect to Supabase Storage.");
+  }
+  if (!response.ok) error(502, `Supabase Storage rejected the attachment (HTTP ${response.status}). Check that the '${bucket}' bucket exists and allows this file type and size.`);
   return { path, url: `${url}/storage/v1/object/authenticated/${bucket}/${path}` };
 }
 
