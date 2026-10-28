@@ -109,7 +109,7 @@ const statusOptions: Array<"All statuses" | ReportStatus> = [
   "Closed",
 ];
 const statusStyles: Record<ReportStatus, string> = {
-  Received: "border-[#d6e3f1] bg-[#f3f7fc] text-[#44617f]",
+  Received: "border-[#bfd6ff] bg-[#eaf2ff] text-[#1f5cae]",
   "Under Review": "border-[#f5dfaf] bg-[#fff8e7] text-[#9a6814]",
   Verified: "border-[#ddd4fa] bg-[#f4f0ff] text-[#6852b8]",
   Referred: "border-[#f2d9b4] bg-[#fff7e9] text-[#9b6011]",
@@ -118,7 +118,7 @@ const statusStyles: Record<ReportStatus, string> = {
 };
 
 const statusDotStyles: Record<ReportStatus, string> = {
-  Received: "bg-[#7390ae]",
+  Received: "bg-[#3478db]",
   "Under Review": "bg-[#d99927]",
   Verified: "bg-[#8069cf]",
   Referred: "bg-[#d9972e]",
