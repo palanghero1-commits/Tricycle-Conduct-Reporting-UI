@@ -136,30 +136,37 @@ export function AppLayout({
 
   useEffect(() => {
     let active = true;
+    let checking = false;
     let lastReachable: boolean | null = null;
     const checkConnection = async () => {
+      if (checking) return;
       if (!navigator.onLine) {
         if (active) setIsOnline(false);
         lastReachable = false;
         return;
       }
-      const reachable = await checkApiHealth();
-      if (active) {
-        if (lastReachable === false && reachable) window.dispatchEvent(new Event("app:api-reachable"));
-        lastReachable = reachable;
-        setIsOnline(reachable);
+      checking = true;
+      try {
+        const reachable = await checkApiHealth();
+        if (active) {
+          if (lastReachable === false && reachable) window.dispatchEvent(new Event("app:api-reachable"));
+          lastReachable = reachable;
+          setIsOnline(reachable);
+        }
+      } finally {
+        checking = false;
       }
     };
     const online = () => { void checkConnection(); };
     const offline = () => setIsOnline(false);
-    const apiUnreachable = () => setIsOnline(false);
+    const apiUnreachable = () => { void checkConnection(); };
     const onFocus = () => { void checkConnection(); };
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     window.addEventListener("app:api-unreachable", apiUnreachable);
     window.addEventListener("focus", onFocus);
     void checkConnection();
-    const timer = window.setInterval(() => { void checkConnection(); }, 5000);
+    const timer = window.setInterval(() => { void checkConnection(); }, 15000);
     return () => {
       active = false;
       window.clearInterval(timer);

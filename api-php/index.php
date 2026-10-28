@@ -254,8 +254,8 @@ try {
     }
     ensure_profile_photo_column($pdo);
 
-    if ($method === 'GET' && $path === '/healthz') {
-        json_response(['status' => 'ok']);
+    if ($method === 'GET' && in_array($path, ['/healthz', '/readyz'], true)) {
+        json_response(['status' => 'ok', 'database' => 'ok']);
     }
 
     if ($method === 'GET' && $path === '/public/todas') {

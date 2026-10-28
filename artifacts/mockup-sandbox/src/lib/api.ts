@@ -39,9 +39,9 @@ export function getCurrentUser(): ApiUser | null {
 
 export async function checkApiHealth() {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 5000);
+  const timer = window.setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(`${API_BASE.replace(/\/$/, "")}/healthz`, {
+    const response = await fetch(`${API_BASE.replace(/\/$/, "")}/readyz`, {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
