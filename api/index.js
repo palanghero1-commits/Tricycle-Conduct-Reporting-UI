@@ -371,6 +371,39 @@ app.post("/complaints", auth, rolesOnly("STUDENT"), upload.fields([{ name: "atta
   } catch (e) { next(e); }
 });
 
+app.post("/public/track", async (req, res, next) => {
+  try {
+    const trackingNumber = String(body(req).trackingNumber || "").trim().toUpperCase();
+    if (!/^TRC-\d{4}-\d{6}$/.test(trackingNumber)) error(400, "Enter the tracking number in the format TRC-YYYY-123456.");
+
+    const forwardedFor = req.headers["x-forwarded-for"];
+    const clientIp = typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : req.ip || "unknown";
+    const ipHash = crypto.createHmac("sha256", process.env.JWT_SECRET).update(clientIp).digest("hex");
+    const rate = await one("SELECT COUNT(*)::int AS attempts FROM audit_logs WHERE action='PUBLIC_TRACK_LOOKUP' AND target_type='rate_limit_ip' AND target_id=$1 AND created_at >= NOW() - INTERVAL '15 minutes'", [ipHash]);
+    if (Number(rate?.attempts || 0) >= 12) error(429, "Too many tracking lookups. Please wait a little while and try again.");
+    await audit(null, "PUBLIC_TRACK_LOOKUP", "rate_limit_ip", ipHash);
+
+    const complaint = await one("SELECT id,status,created_at AS \"createdAt\",updated_at AS \"updatedAt\" FROM complaints WHERE reference_number=$1 LIMIT 1", [trackingNumber]);
+    if (!complaint) error(404, "No report was found for that tracking number. Check it and try again.");
+
+    const statusLabels = { SUBMITTED: "Submitted", RECEIVED: "Received", UNDER_REVIEW: "Under review", VERIFIED: "Verified", REFERRED: "Referred", RESOLVED: "Resolved", CLOSED: "Closed" };
+    const status = statusLabels[complaint.status] || "Submitted";
+    const history = await q("SELECT new_status AS status,created_at AS \"occurredAt\" FROM complaint_status_history WHERE complaint_id=$1 ORDER BY created_at ASC LIMIT 20", [complaint.id]);
+    const timeline = history.map((item) => ({ status: statusLabels[item.status] || "Updated", occurredAt: item.occurredAt }));
+    if (!timeline.length) timeline.push({ status, occurredAt: complaint.updatedAt });
+    const explanations = {
+      SUBMITTED: "Your report has been submitted and is waiting for the review team to begin. This status does not mean a violation has been confirmed.",
+      RECEIVED: "The review team has received your report. They will check the information and decide whether follow-up is needed.",
+      UNDER_REVIEW: "Your report is being reviewed. The team may need time to check the details before recording an update.",
+      VERIFIED: "The review team recorded a verification step. This is a workflow status; it is not by itself a final decision about responsibility.",
+      REFERRED: "Your report was referred to another authorized desk for follow-up. Check again later for further status updates.",
+      RESOLVED: "The review process is marked complete. This status alone does not mean a violation was confirmed.",
+      CLOSED: "This report has been closed in the review queue. Contact the review team if you need more information.",
+    };
+    res.json({ tracking: { status, lastUpdated: complaint.updatedAt, timeline, aiExplanation: explanations[complaint.status] || explanations.SUBMITTED, aiGenerated: false } });
+  } catch (e) { next(e); }
+});
+
 app.get("/complaints", auth, async (req, res, next) => { try { let sql = "SELECT c.id,c.reference_number AS \"referenceNumber\",c.status,c.incident_date AS \"incidentDate\",c.incident_time AS \"incidentTime\",c.location,c.description,c.driver_id AS \"driverId\",d.full_name AS \"driverName\",c.category_id AS \"categoryId\",cat.name AS \"categoryName\",c.created_at AS \"createdAt\", EXISTS (SELECT 1 FROM violations v WHERE v.complaint_id = c.id) AS \"confirmedViolation\",(SELECT MAX(h.created_at) FROM complaint_status_history h WHERE h.complaint_id=c.id AND h.new_status IN ('RESOLVED','CLOSED')) AS \"resolvedAt\" FROM complaints c JOIN drivers d ON d.id=c.driver_id JOIN complaint_categories cat ON cat.id=c.category_id"; const params = []; const where = []; if (req.user.role === "STUDENT") { where.push(`c.student_user_id=$${params.length + 1}`); params.push(req.user.id); } else if (req.user.role === "DRIVER") { where.push(`c.driver_id IN (SELECT id FROM drivers WHERE user_id=$${params.length + 1})`); params.push(req.user.id); } else if (req.user.role === "TODA_PRESIDENT") { const ids = await todaIds(req.user); if (!ids.length) return res.json({ complaints: [] }); where.push(`d.toda_id IN (${placeholders(ids, params.length + 1)})`); params.push(...ids); } if (where.length) sql += ` WHERE ${where.join(" AND ")}`; sql += " ORDER BY c.created_at DESC"; res.json({ complaints: await q(sql, params) }); } catch (e) { next(e); } });
 app.get("/complaints/:id", auth, async (req, res, next) => { try { const complaint = await complaintOr404(req.params.id, req.user); res.json(await publicComplaint(complaint.id)); } catch (e) { next(e); } });
 app.get("/attachments/:id", auth, async (req, res, next) => { try { const attachment = await one("SELECT * FROM complaint_attachments WHERE id=$1", [req.params.id]); if (!attachment) error(404, "Attachment not found."); await complaintOr404(attachment.complaint_id, req.user); if (!attachment.storage_path) error(404, "Attachment file not found."); const response = await fetch(attachment.storage_path, { headers: process.env.SUPABASE_SERVICE_ROLE_KEY ? { Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`, apikey: process.env.SUPABASE_SERVICE_ROLE_KEY } : {} }); if (!response.ok) error(404, "Attachment file not found."); res.setHeader("Content-Type", attachment.mime_type); res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("Content-Disposition", `attachment; filename=\"${String(attachment.original_name).replace(/\"/g, "") }\"`); res.send(Buffer.from(await response.arrayBuffer())); } catch (e) { next(e); } });
