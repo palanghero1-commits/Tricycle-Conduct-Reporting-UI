@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -152,6 +152,7 @@ export function SubmitReport() {
   const [description, setDescription] = useState("");
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
   const [queuedReportLocalId, setQueuedReportLocalId] = useState<string | null>(null);
@@ -331,10 +332,6 @@ export function SubmitReport() {
       setNotice(!location.trim() ? "Please enter where the incident happened." : "Please describe what happened in at least 15 characters.");
       return;
     }
-    if (description.trim() === categoryDescriptionSeed.trim()) {
-      setNotice("Please add details about what happened beyond the category description.");
-      return;
-    }
     if (!hasAcknowledged) {
       setNotice("Please confirm that your report is accurate to the best of your knowledge.");
       return;
@@ -394,11 +391,14 @@ export function SubmitReport() {
     body.append("description", reportDescription);
     attachmentFiles.forEach((file) => body.append("attachments[]", file));
     try {
-      const data = await apiRequest<{ complaint: { referenceNumber: string } }>("/complaints", { method: "POST", body });
-      if (!data?.complaint?.referenceNumber || !/^TRC-\d{4}-\d{6}$/.test(data.complaint.referenceNumber)) {
-        throw new Error("The server accepted the request without returning a tracking number. Check My reports before submitting again.");
+      const data = await apiRequest<{ complaint?: { referenceNumber?: unknown } }>("/complaints", { method: "POST", body });
+      const referenceNumber = typeof data?.complaint?.referenceNumber === "string"
+        ? data.complaint.referenceNumber.trim()
+        : "";
+      if (!referenceNumber) {
+        throw new Error("The server accepted the request but did not return a tracking number. Check My reports before retrying.");
       }
-      setReportId(data.complaint.referenceNumber);
+      setReportId(referenceNumber);
       setSubmissionState("submitted");
       setIsSubmitted(true);
     } catch (error) {
@@ -645,14 +645,20 @@ export function SubmitReport() {
                       <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eaf2ff] text-[#0c5bce]"><Paperclip size={20} /></div>
                       <p className="mt-3 text-[12px] font-extrabold text-[#36516d]">Supporting evidence is optional</p>
                       <p className="mt-1 text-[11px] text-[#91a2b4]">Attachments are prepared securely for submission.</p>
-                      <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-2.5 text-[11px] font-extrabold text-[#0c5bce] transition hover:bg-[#f0f7ff]">
+                      <button
+                        type="button"
+                        onClick={() => attachmentInputRef.current?.click()}
+                        className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-2.5 text-[11px] font-extrabold text-[#0c5bce] transition hover:bg-[#f0f7ff]"
+                      >
                         <Plus size={15} />Add attachment
-                        <input
-                          type="file"
-                          multiple
-                          accept="image/jpeg,image/png,image/webp,application/pdf"
-                          className="sr-only"
-                          onChange={(event) => {
+                      </button>
+                      <input
+                        ref={attachmentInputRef}
+                        type="file"
+                        multiple
+                        accept="image/jpeg,image/png,image/webp,application/pdf"
+                        className="hidden"
+                        onChange={(event) => {
                             const files = Array.from(event.target.files ?? []);
                             const allowedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
                             const validFiles = files.filter((file) => file.size <= 5 * 1024 * 1024 && allowedTypes.includes(file.type));
@@ -671,9 +677,8 @@ export function SubmitReport() {
                               })),
                             ]);
                             event.target.value = "";
-                          }}
-                        />
-                      </label>
+                        }}
+                      />
                     </div>
                     <div className="space-y-2.5">
                       {evidence.map((item) => (
