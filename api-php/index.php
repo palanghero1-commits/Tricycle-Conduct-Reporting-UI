@@ -1183,7 +1183,8 @@ try {
 } catch (Throwable $e) {
     if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
     error_log($e->getMessage() . " in $method $path");
-    fail(500, 'The request could not be completed.');
+    $localDatabase = in_array(strtolower((string) ($config['db_host'] ?? '')), ['127.0.0.1', 'localhost', '::1'], true);
+    fail(500, $localDatabase ? 'Local API error: ' . $e->getMessage() : 'The request could not be completed.');
 }
 
 function user_toda_ids(PDO $pdo, array $user): array {
