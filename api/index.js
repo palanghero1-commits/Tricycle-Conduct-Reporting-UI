@@ -201,7 +201,19 @@ async function storageUpload(file, folder) {
   } catch {
     error(503, "Online file storage could not be reached. Check that the API can connect to Supabase Storage.");
   }
-  if (!response.ok) error(502, `Supabase Storage rejected the attachment (HTTP ${response.status}). Check that the '${bucket}' bucket exists and allows this file type and size.`);
+  if (!response.ok) {
+    let storageReason = "";
+    try {
+      const responseText = await response.text();
+      const storageError = JSON.parse(responseText);
+      const candidate = storageError.message || storageError.error_description || storageError.error;
+      if (typeof candidate === "string") storageReason = candidate.replace(/[\r\n\t]+/g, " ").slice(0, 240);
+    } catch {
+      // Keep the response status useful even if Storage returned a non-JSON body.
+    }
+    const detail = storageReason ? `: ${storageReason}` : `: check that the '${bucket}' bucket exists and allows this file type and size`;
+    error(502, `Supabase Storage rejected the attachment (HTTP ${response.status})${detail}.`);
+  }
   return { path, url: `${url}/storage/v1/object/authenticated/${bucket}/${path}` };
 }
 
