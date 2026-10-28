@@ -448,16 +448,23 @@ app.use((req, _res, next) => next(Object.assign(new Error("Route not found."), {
 app.use((err, _req, res, _next) => {
   console.error(err);
   const isUploadError = err instanceof multer.MulterError;
-  const isSchemaError = err.code === "42703" || err.code === "42P01";
-  const status = Number(err.status || (isUploadError ? 400 : err.code === "23505" ? 409 : 500));
+  const sqlState = typeof err.code === "string" ? err.code : "";
+  const isSchemaError = sqlState === "42703" || sqlState === "42P01";
+  const isConstraintError = sqlState.startsWith("23");
+  const isDatabaseUnavailable = sqlState.startsWith("08") || ["57P01", "57P02", "57P03"].includes(sqlState);
+  const status = Number(err.status || (isUploadError ? 400 : sqlState === "23505" ? 409 : 500));
   const uploadMessage = err.code === "LIMIT_FILE_SIZE"
     ? "Each evidence file must be 5 MB or smaller."
     : err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE"
       ? "You can attach up to 5 evidence files per report."
       : "An evidence file could not be uploaded. Please try again.";
   const message = isSchemaError
-    ? "The online database schema needs an update. Run the offline report sync migration in Supabase, then retry."
-    : status === 500 ? "The request could not be completed." : isUploadError ? uploadMessage : err.message;
+    ? "The online database is missing a required table or column. Apply the current Supabase migrations, then retry the pending report."
+    : isDatabaseUnavailable
+      ? "The online database could not be reached. Check the API database connection and try again."
+      : isConstraintError
+        ? `The online database rejected the report data (SQLSTATE ${sqlState}). Check the driver, category, and report migrations.`
+        : status === 500 ? "The request could not be completed." : isUploadError ? uploadMessage : err.message;
   res.status(status).json({ error: { message, ...(err.issues ? { issues: err.issues } : {}) } });
 });
 
