@@ -13,6 +13,7 @@ const { database } = vi.hoisted(() => ({
       { status: "SUBMITTED", occurredAt: new Date("2026-10-28T08:00:00.000Z") },
       { status: "UNDER_REVIEW", occurredAt: new Date("2026-10-28T09:00:00.000Z") },
     ],
+    categorySelections: [],
   },
 }));
 
@@ -26,9 +27,10 @@ vi.mock("pg", () => ({
         if (sql.includes("information_schema.columns") && sql.includes("local_report_id")) return { rows: [{ available: true }] };
         if (sql.includes("COUNT(*)::int AS count") && sql.includes("information_schema.columns")) return { rows: [{ count: 4 }] };
         if (sql.includes("FROM drivers WHERE id=$1 AND is_active=1")) return { rows: [{ id: 1 }] };
-        if (sql.includes("FROM complaint_categories WHERE id=$1 AND is_active=1")) return { rows: [{ id: 2 }] };
+        if (sql.includes("FROM complaint_categories WHERE id=$1 AND is_active=1")) return { rows: [{ id: params[0] }] };
         if (sql.includes("FROM complaints WHERE student_user_id=$1 AND local_report_id=$2")) return { rows: [] };
         if (sql.startsWith("INSERT INTO complaints")) return { rows: [] };
+        if (sql.startsWith("INSERT INTO complaint_category_selections")) { database.categorySelections.push(params); return { rows: [] }; }
         if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
         if (sql.includes("INSERT INTO audit_logs")) return { rows: [] };
         if (sql.includes("FROM complaints WHERE reference_number")) {
@@ -140,5 +142,30 @@ describe("online API readiness and public tracking", () => {
     expect(response.status).toBe(201);
     expect(payload.complaint.status).toBe("SUBMITTED");
     expect(payload.complaint.referenceNumber).toMatch(/^TRC-\d{4}-\d{6}$/);
+  });
+
+  it("stores every category selected for a student report", async () => {
+    const jwt = await import("jsonwebtoken");
+    const token = jwt.default.sign({ sub: database.student.id }, process.env.JWT_SECRET);
+    const form = new FormData();
+    form.set("driverId", "1");
+    form.append("categoryIds[]", "2");
+    form.append("categoryIds[]", "3");
+    form.set("incidentDate", "2026-10-28");
+    form.set("incidentTime", "16:00");
+    form.set("location", "Old Sagay route");
+    form.set("description", "A multi-category unit test report with enough detail.");
+    database.categorySelections = [];
+
+    const response = await fetch(`${baseUrl}/complaints`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.complaint.referenceNumber).toMatch(/^TRC-\d{4}-\d{6}$/);
+    expect(database.categorySelections.map((selection) => selection[1])).toEqual([2, 3]);
   });
 });

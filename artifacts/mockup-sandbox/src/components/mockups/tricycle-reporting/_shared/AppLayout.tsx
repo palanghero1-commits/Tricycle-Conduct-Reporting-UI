@@ -127,6 +127,7 @@ export function AppLayout({
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [activeSosAlerts, setActiveSosAlerts] = useState<{ id: string; studentName: string }[]>([]);
   const roleUsesReviewWorkspace = ["TODA_PRESIDENT", "AUTHORIZED_PERSONNEL", "PNP", "SUPERADMIN"].includes(currentUser?.role ?? "");
   const workspaceOfficer = officer || roleUsesReviewWorkspace;
   const navItems: NavItem[] = currentUser?.role === "SUPERADMIN" ? adminNav : currentUser?.role === "DRIVER" ? driverNav : workspaceOfficer ? (currentUser?.role === "AUTHORIZED_PERSONNEL" ? [...officerNav, { label: "TODAs", icon: UsersRound, component: "OfficerDashboard", hash: "#todas" }] : officerNav) : studentNav;
@@ -176,6 +177,48 @@ export function AppLayout({
       window.removeEventListener("focus", onFocus);
     };
   }, []);
+
+  useEffect(() => {
+    if (!roleUsesReviewWorkspace) return;
+    let mounted = true;
+    let audioContext: AudioContext | null = null;
+    let alarmTimer: number | null = null;
+    const poll = () => {
+      apiRequest<{ alerts: { id: string; studentName: string }[] }>("/sos/active")
+        .then(({ alerts }) => { if (mounted) setActiveSosAlerts(alerts); })
+        .catch(() => undefined);
+    };
+    const alarm = () => {
+      if (!activeSosAlerts.length || alarmTimer !== null) return;
+      try {
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextClass) return;
+        audioContext = new AudioContextClass();
+        const beep = () => {
+          if (!audioContext || audioContext.state !== "running") return;
+          const oscillator = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+          oscillator.type = "square";
+          oscillator.frequency.value = 880;
+          gain.gain.value = 0.25;
+          oscillator.connect(gain).connect(audioContext.destination);
+          oscillator.start();
+          oscillator.stop(audioContext.currentTime + 0.3);
+        };
+        void audioContext.resume().catch(() => undefined);
+        beep();
+        alarmTimer = window.setInterval(beep, 1200);
+      } catch { /* The browser may require a user gesture before playing alarm audio. */ }
+    };
+    poll();
+    const pollTimer = window.setInterval(poll, 5000);
+    return () => {
+      mounted = false;
+      window.clearInterval(pollTimer);
+      if (alarmTimer !== null) window.clearInterval(alarmTimer);
+      if (audioContext) void audioContext.close().catch(() => undefined);
+    };
+  }, [roleUsesReviewWorkspace, activeSosAlerts.length > 0]);
 
   useEffect(() => {
     let active = true;
@@ -378,6 +421,13 @@ export function AppLayout({
             <div role="status" className="mx-4 mt-4 rounded-xl border border-[#f0d8aa] bg-[#fff8e9] px-4 py-3 text-[12px] leading-5 text-[#805d24] sm:mx-5 lg:mx-10">
               Offline mode: previously loaded information is available from this device and may be out of date. New student reports stay in the pending queue; other changes need a connection.
             </div>
+          ) : null}
+          {roleUsesReviewWorkspace && activeSosAlerts.length > 0 ? (
+            <button type="button" onClick={() => navigateTo("EmergencyMonitor")} className="mx-4 mt-4 flex w-[calc(100%-2rem)] animate-pulse items-center gap-3 rounded-xl border-2 border-[#bd2f26] bg-[#fff0ee] px-4 py-3 text-left text-[#8f201a] shadow-[0_5px_22px_rgba(189,47,38,0.2)] sm:mx-5 sm:w-[calc(100%-2.5rem)] lg:mx-10 lg:w-[calc(100%-5rem)]" role="alert" aria-live="assertive">
+              <Siren size={22} className="shrink-0" />
+              <span className="min-w-0 flex-1"><strong className="block text-[13px] font-extrabold">ACTIVE SOS ALERT{activeSosAlerts.length === 1 ? "" : "S"} · {activeSosAlerts.length}</strong><span className="block truncate text-[11px] font-semibold">{activeSosAlerts[0].studentName} needs assistance. Open emergency monitor.</span></span>
+              <ArrowUpRight size={17} className="shrink-0" />
+            </button>
           ) : null}
           <div className="mx-auto min-w-0 w-full max-w-[1460px] px-4 py-6 sm:px-5 sm:py-7 lg:px-10 lg:py-9">{children}</div>
         </main>

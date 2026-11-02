@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronLeft,
   ChevronDown,
+  ChevronRight,
   Clock3,
   FileSearch,
   FileText,
@@ -20,6 +22,7 @@ import { getOfflineAccountData } from "../../../lib/offlineAccount";
 
 type ReportStatus = "Received" | "Under Review" | "Verified" | "Referred" | "Resolved" | "Closed";
 type ReportCategory = string;
+const REPORTS_PER_PAGE = 5;
 
 type ReportRecord = {
   id: string;
@@ -293,10 +296,11 @@ export function MyReports() {
   const [category, setCategory] = useState("All categories");
   const [dateRange, setDateRange] = useState("Any date");
   const [sortDescending, setSortDescending] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedReport, setSelectedReport] = useState<ReportRecord | null>(null);
   const [liveRecords, setLiveRecords] = useState<ReportRecord[]>([]);
   const [loadError, setLoadError] = useState("");
-  const categoryOptions = useMemo(() => ["All categories", ...Array.from(new Set(liveRecords.map((report) => report.category).filter(Boolean)))], [liveRecords]);
+  const categoryOptions = useMemo(() => ["All categories", ...Array.from(new Set(liveRecords.flatMap((report) => report.category.split(", ").filter(Boolean))))], [liveRecords]);
 
   useEffect(() => {
     apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; incidentTime: string; location: string; description: string; createdAt: string; confirmedViolation?: boolean | number }> }>("/complaints")
@@ -401,7 +405,7 @@ export function MyReports() {
         const searchable = `${report.id} ${report.category} ${report.location} ${report.summary}`.toLowerCase();
         const matchesQuery = !normalizedQuery || searchable.includes(normalizedQuery);
         const matchesStatus = status === "All statuses" || report.status === status;
-        const matchesCategory = category === "All categories" || report.category === category;
+        const matchesCategory = category === "All categories" || report.category.split(", ").includes(category);
         const reportDate = dateValue(report.date);
         const matchesDate = !cutoff || (Number.isFinite(reportDate) && reportDate >= cutoff.getTime());
         return matchesQuery && matchesStatus && matchesCategory && matchesDate;
@@ -413,6 +417,22 @@ export function MyReports() {
         return sortDescending ? -difference : difference;
       });
   }, [category, dateRange, liveRecords, query, sortDescending, status]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / REPORTS_PER_PAGE));
+  const pageRecords = useMemo(
+    () => filteredRecords.slice((currentPage - 1) * REPORTS_PER_PAGE, currentPage * REPORTS_PER_PAGE),
+    [currentPage, filteredRecords],
+  );
+  const firstVisibleReport = filteredRecords.length ? (currentPage - 1) * REPORTS_PER_PAGE + 1 : 0;
+  const lastVisibleReport = Math.min(currentPage * REPORTS_PER_PAGE, filteredRecords.length);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [category, dateRange, query, sortDescending, status]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   const activeFilterCount = [status !== "All statuses", category !== "All categories", dateRange !== "Any date"].filter(Boolean).length;
   const hasFilters = Boolean(query.trim()) || activeFilterCount > 0;
@@ -513,7 +533,7 @@ export function MyReports() {
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-[11px] font-semibold text-[#8295aa]">
-            Showing <span className="font-extrabold text-[#46617d]">{filteredRecords.length}</span> of {liveRecords.length} reports
+            Showing <span className="font-extrabold text-[#46617d]">{firstVisibleReport}–{lastVisibleReport}</span> of {filteredRecords.length} reports
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {hasFilters ? (
@@ -536,7 +556,7 @@ export function MyReports() {
                 <span className="text-right">Action</span>
               </div>
               <div className="divide-y divide-[#e7edf4]">
-                {filteredRecords.map((report) => (
+                {pageRecords.map((report) => (
                   <div key={report.id} className="group px-4 py-4 transition hover:bg-[#fbfdff] sm:px-6 lg:grid lg:grid-cols-[1.2fr_1fr_1fr_1.15fr_0.65fr] lg:items-center lg:gap-4 lg:py-5">
                     <div className="min-w-0">
                       <div className="flex items-start justify-between gap-3 lg:block">
@@ -590,6 +610,29 @@ export function MyReports() {
                   </div>
                 ))}
               </div>
+              {totalPages > 1 ? (
+                <nav aria-label="Reports pagination" className="flex flex-col gap-3 border-t border-[#e7edf4] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                  <p className="text-[11px] font-medium text-[#8295aa]">Page {currentPage} of {totalPages}</p>
+                  <div className="flex items-center justify-between gap-2 sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                      disabled={currentPage === 1}
+                      className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#dbe5f0] bg-white px-3 text-[11px] font-bold text-[#49647e] transition hover:bg-[#f4f8fd] disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <ChevronLeft size={14} />Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                      disabled={currentPage === totalPages}
+                      className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#dbe5f0] bg-white px-3 text-[11px] font-bold text-[#49647e] transition hover:bg-[#f4f8fd] disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      Next<ChevronRight size={14} />
+                    </button>
+                  </div>
+                </nav>
+              ) : null}
             </>
           ) : (
             <div className="flex min-h-[335px] flex-col items-center justify-center px-6 py-12 text-center">

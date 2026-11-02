@@ -221,6 +221,7 @@ Check these:
 
 1. MySQL is running.
 2. `api-php/schema.mysql.sql` was imported.
+   If this database already existed before multiple report categories were added, also apply `api-php/migrations/mysql/010-multiple-complaint-categories.sql`.
 3. `api-php/seed.mysql.sql` was imported.
 4. `api-php/config.php` has the correct MySQL username and password.
 5. PHP API is running:

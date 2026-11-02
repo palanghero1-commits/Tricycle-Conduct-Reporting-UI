@@ -12,6 +12,7 @@ function previewUrl(component: string) {
 export function AdminAccess() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,7 +22,7 @@ export function AdminAccess() {
     setError("");
     setLoading(true);
 
-    login(email.trim(), password)
+    login(email.trim(), password, rememberDevice)
       .then((data) => {
         if (data.user.role !== "SUPERADMIN") {
           clearAuthToken();
@@ -71,6 +72,17 @@ export function AdminAccess() {
               </button>
             </div>
           </div>
+
+          <label htmlFor="admin-remember-device" className="flex cursor-pointer items-center gap-2 text-[12px] font-semibold text-[#71889e]">
+            <input
+              id="admin-remember-device"
+              type="checkbox"
+              checked={rememberDevice}
+              onChange={(event) => setRememberDevice(event.target.checked)}
+              className="h-4 w-4 rounded border-[#c6d8e4] accent-[#123f72]"
+            />
+            Remember this device for 15 days
+          </label>
 
           <button type="submit" disabled={loading} className="w-full rounded-[13px] bg-[#123f72] px-4 py-3.5 text-[13px] font-extrabold text-white transition hover:bg-[#0d3159] disabled:cursor-wait disabled:opacity-60">
             {loading ? "Signing in…" : "Sign in to admin console"}

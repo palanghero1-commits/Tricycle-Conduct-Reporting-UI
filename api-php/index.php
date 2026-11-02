@@ -93,14 +93,21 @@ function is_postgres(PDO $pdo): bool {
     return $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql';
 }
 
+function complaint_category_names_sql(PDO $pdo, string $complaintAlias = 'c'): string {
+    $aggregate = is_postgres($pdo)
+        ? "SELECT string_agg(selected_category.name, ', ' ORDER BY selected_category.name) FROM complaint_category_selections selected JOIN complaint_categories selected_category ON selected_category.id = selected.category_id WHERE selected.complaint_id = {$complaintAlias}.id"
+        : "SELECT GROUP_CONCAT(selected_category.name ORDER BY selected_category.name SEPARATOR ', ') FROM complaint_category_selections selected JOIN complaint_categories selected_category ON selected_category.id = selected.category_id WHERE selected.complaint_id = {$complaintAlias}.id";
+    return "COALESCE(({$aggregate}), cat.name)";
+}
+
 function last_insert_id(PDO $pdo, string $sequence = ''): string {
     if (!is_postgres($pdo)) return $pdo->lastInsertId();
     return (string) $pdo->query('SELECT LASTVAL()')->fetchColumn();
 }
 
-function token_create(array $user, string $secret): string {
+function token_create(array $user, string $secret, bool $rememberDevice = false): string {
     $header = base64url_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
-    $payload = base64url_encode(json_encode(['sub' => $user['id'], 'role' => $user['role'], 'exp' => time() + 28800]));
+    $payload = base64url_encode(json_encode(['sub' => $user['id'], 'role' => $user['role'], 'exp' => time() + ($rememberDevice ? 1296000 : 28800)]));
     $signature = base64url_encode(hash_hmac('sha256', "$header.$payload", $secret, true));
     return "$header.$payload.$signature";
 }
@@ -309,7 +316,7 @@ try {
         $user = $stmt->fetch();
         if (!$user || $user['status'] !== 'ACTIVE' || !password_verify($data['password'] ?? '', $user['password_hash'])) fail(401, 'Invalid email or password.');
         audit($pdo, $user['id'], 'LOGIN', 'users', $user['id']);
-        json_response(['user' => public_user($user), 'token' => token_create($user, $config['jwt_secret'])]);
+        json_response(['user' => public_user($user), 'token' => token_create($user, $config['jwt_secret'], !empty($data['rememberDevice']))]);
     }
 
     if ($method === 'POST' && $path === '/users/authorized-personnel') {
@@ -623,7 +630,8 @@ try {
             'resolvedReports' => (int) $pdo->query("SELECT COUNT(*) FROM complaints WHERE status IN ('RESOLVED','CLOSED')")->fetchColumn(),
             'violations' => (int) $pdo->query("SELECT COUNT(*) FROM violations")->fetchColumn(),
         ];
-        $reports = $pdo->query("SELECT c.reference_number AS id, c.location, cat.name AS category, c.status, c.created_at AS received, d.tricycle_identifier AS reference, LEFT(c.description, 120) AS subject FROM complaints c JOIN complaint_categories cat ON cat.id = c.category_id JOIN drivers d ON d.id = c.driver_id ORDER BY c.created_at DESC LIMIT 50")->fetchAll();
+        $categoryNames = complaint_category_names_sql($pdo, 'c');
+        $reports = $pdo->query("SELECT c.reference_number AS id, c.location, {$categoryNames} AS category, c.status, c.created_at AS received, d.tricycle_identifier AS reference, LEFT(c.description, 120) AS subject FROM complaints c JOIN complaint_categories cat ON cat.id = c.category_id JOIN drivers d ON d.id = c.driver_id ORDER BY c.created_at DESC LIMIT 50")->fetchAll();
         $activity = $pdo->query("SELECT a.action, a.target_type AS \"targetType\", a.created_at AS \"createdAt\", COALESCE(u.full_name, 'System') AS actor FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.created_at DESC LIMIT 25")->fetchAll();
         json_response(['stats' => $stats, 'reports' => $reports, 'activity' => $activity]);
     }
@@ -804,7 +812,8 @@ try {
         if (!$driver) fail(404, 'Driver not found.');
         if ($user['role'] === 'TODA_PRESIDENT' && !row($pdo, 'SELECT d.id FROM drivers d JOIN todas t ON t.id = d.toda_id WHERE d.id = ? AND t.president_user_id = ? AND t.is_active = 1 LIMIT 1', [(int) $m[1], $user['id']])) fail(404, 'Driver not found.');
         $dateFormat = is_postgres($pdo) ? "TO_CHAR(c.incident_date, 'DD Mon YYYY')" : "DATE_FORMAT(c.incident_date, '%d %b %Y')";
-        $reports = rows($pdo, "SELECT c.reference_number AS id, {$dateFormat} AS date, cat.name AS category, LEFT(c.description, 180) AS summary, c.status FROM complaints c JOIN complaint_categories cat ON cat.id = c.category_id WHERE c.driver_id = ? ORDER BY c.created_at DESC", [(int) $m[1]]);
+        $categoryNames = complaint_category_names_sql($pdo, 'c');
+        $reports = rows($pdo, "SELECT c.reference_number AS id, {$dateFormat} AS date, {$categoryNames} AS category, LEFT(c.description, 180) AS summary, c.status FROM complaints c JOIN complaint_categories cat ON cat.id = c.category_id WHERE c.driver_id = ? ORDER BY c.created_at DESC", [(int) $m[1]]);
         $violationDateFormat = is_postgres($pdo) ? "TO_CHAR(v.confirmation_date, 'DD Mon YYYY')" : "DATE_FORMAT(v.confirmation_date, '%d %b %Y')";
         $confirmedViolationText = is_postgres($pdo) ? "'Confirmed violation'" : '"Confirmed violation"';
         $violations = rows($pdo, "SELECT " . (is_postgres($pdo) ? "'VIO-' || v.id::text" : 'CONCAT("VIO-", v.id)') . " AS reference, {$violationDateFormat} AS date, v.violation_category AS finding, COALESCE(v.remarks, {$confirmedViolationText}) AS action FROM violations v WHERE v.driver_id = ? ORDER BY v.confirmation_date DESC", [(int) $m[1]]);
@@ -915,7 +924,13 @@ try {
     if ($method === 'POST' && $path === '/complaints') {
         $user = auth($pdo, $config);
         require_roles($user, ['STUDENT']);
-        foreach (['driverId', 'categoryId', 'incidentDate', 'incidentTime', 'location', 'description'] as $field) {
+        $submittedCategoryIds = $_POST['categoryIds'] ?? null;
+        if (!is_array($submittedCategoryIds) || !$submittedCategoryIds) {
+            $submittedCategoryIds = isset($_POST['categoryId']) ? [$_POST['categoryId']] : [];
+        }
+        $submittedCategoryIds = array_values(array_unique(array_filter(array_map(static fn($id) => is_scalar($id) ? (int) $id : 0, $submittedCategoryIds), static fn($id) => $id > 0)));
+        if (!$submittedCategoryIds) fail(400, 'Select at least one report category.');
+        foreach (['driverId', 'incidentDate', 'incidentTime', 'location', 'description'] as $field) {
             if (empty($_POST[$field])) fail(400, "$field is required.");
         }
         if (strlen($_POST['description']) < 15) fail(400, 'Description must be at least 15 characters.');
@@ -925,7 +940,7 @@ try {
             if ($existing) json_response(['complaint' => ['id' => $existing['id'], 'referenceNumber' => $existing['referenceNumber'], 'status' => $existing['status']]]);
         }
         $driverId = (int) $_POST['driverId'];
-        $categoryId = (int) $_POST['categoryId'];
+        $categoryId = $submittedCategoryIds[0];
         $latitude = ($_POST['latitude'] ?? '') === '' ? null : filter_var($_POST['latitude'], FILTER_VALIDATE_FLOAT);
         $longitude = ($_POST['longitude'] ?? '') === '' ? null : filter_var($_POST['longitude'], FILTER_VALIDATE_FLOAT);
         $accuracy = ($_POST['locationAccuracy'] ?? '') === '' ? null : filter_var($_POST['locationAccuracy'], FILTER_VALIDATE_FLOAT);
@@ -942,13 +957,15 @@ try {
         $pdo->beginTransaction();
         $driver = $pdo->prepare('SELECT id FROM drivers WHERE id = ? AND is_active = 1');
         $driver->execute([$driverId]);
-        $category = $pdo->prepare('SELECT id FROM complaint_categories WHERE id = ? AND is_active = 1');
-        $category->execute([$categoryId]);
-        if (!$driver->fetch() || !$category->fetch()) fail(400, 'Invalid driver or category.');
+        $category = $pdo->prepare('SELECT id FROM complaint_categories WHERE is_active = 1 AND id IN (' . implode(',', array_fill(0, count($submittedCategoryIds), '?')) . ')');
+        $category->execute($submittedCategoryIds);
+        if (!$driver->fetch() || count($category->fetchAll()) !== count($submittedCategoryIds)) fail(400, 'Invalid driver or category.');
         $complaintId = uuidv4();
         $reference = 'TRC-' . date('Y') . '-' . random_int(100000, 999999);
         $stmt = $pdo->prepare("INSERT INTO complaints (id, local_report_id, reference_number, student_user_id, driver_id, category_id, status, incident_date, incident_time, location, latitude, longitude, location_accuracy_meters, location_captured_at, description) VALUES (?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$complaintId, $localReportId, $reference, $user['id'], $driverId, $categoryId, $_POST['incidentDate'], $_POST['incidentTime'], trim($_POST['location']), $latitude, $longitude, $accuracy, $capturedAt, trim($_POST['description'])]);
+        $categoryLink = $pdo->prepare('INSERT INTO complaint_category_selections (complaint_id, category_id) VALUES (?, ?)');
+        foreach ($submittedCategoryIds as $submittedCategoryId) $categoryLink->execute([$complaintId, $submittedCategoryId]);
         $stmt = $pdo->prepare("INSERT INTO complaint_status_history (complaint_id, previous_status, new_status, changed_by, remarks) VALUES (?, NULL, 'SUBMITTED', ?, ?)");
         $stmt->execute([$complaintId, $user['id'], 'Complaint submitted by student.']);
         save_uploads($pdo, $config, $complaintId, $user['id']);
@@ -981,17 +998,22 @@ try {
             $where[] = 'd.toda_id IN (' . implode(',', array_fill(0, count($todaIds), '?')) . ')';
             array_push($params, ...$todaIds);
         }
-        foreach (['status' => 'status', 'driverId' => 'driver_id', 'categoryId' => 'category_id'] as $query => $column) {
+        foreach (['status' => 'status', 'driverId' => 'driver_id'] as $query => $column) {
             if (!empty($_GET[$query])) {
                 $where[] = "$column = ?";
                 $params[] = $_GET[$query];
             }
         }
+        if (!empty($_GET['categoryId'])) {
+            $where[] = 'EXISTS (SELECT 1 FROM complaint_category_selections category_filter WHERE category_filter.complaint_id = c.id AND category_filter.category_id = ?)';
+            $params[] = (int) $_GET['categoryId'];
+        }
         if (!empty($_GET['reference'])) {
             $where[] = 'reference_number LIKE ?';
             $params[] = '%' . $_GET['reference'] . '%';
         }
-        $sql = "SELECT c.id, c.reference_number AS \"referenceNumber\", c.status, c.driver_id AS \"driverId\", d.full_name AS \"driverName\", c.category_id AS \"categoryId\", cat.name AS \"categoryName\", c.incident_date AS \"incidentDate\", c.incident_time AS \"incidentTime\", c.location, c.latitude, c.longitude, c.location_accuracy_meters AS \"locationAccuracyMeters\", c.location_captured_at AS \"locationCapturedAt\", c.description, c.created_at AS \"createdAt\", EXISTS (SELECT 1 FROM violations v WHERE v.complaint_id = c.id) AS \"confirmedViolation\", (SELECT MAX(h.created_at) FROM complaint_status_history h WHERE h.complaint_id = c.id AND h.new_status IN ('RESOLVED', 'CLOSED')) AS \"resolvedAt\" FROM complaints c JOIN drivers d ON d.id = c.driver_id JOIN complaint_categories cat ON cat.id = c.category_id";
+        $categoryNames = complaint_category_names_sql($pdo, 'c');
+        $sql = "SELECT c.id, c.reference_number AS \"referenceNumber\", c.status, c.driver_id AS \"driverId\", d.full_name AS \"driverName\", c.category_id AS \"categoryId\", {$categoryNames} AS \"categoryName\", c.incident_date AS \"incidentDate\", c.incident_time AS \"incidentTime\", c.location, c.latitude, c.longitude, c.location_accuracy_meters AS \"locationAccuracyMeters\", c.location_captured_at AS \"locationCapturedAt\", c.description, c.created_at AS \"createdAt\", EXISTS (SELECT 1 FROM violations v WHERE v.complaint_id = c.id) AS \"confirmedViolation\", (SELECT MAX(h.created_at) FROM complaint_status_history h WHERE h.complaint_id = c.id AND h.new_status IN ('RESOLVED', 'CLOSED')) AS \"resolvedAt\" FROM complaints c JOIN drivers d ON d.id = c.driver_id JOIN complaint_categories cat ON cat.id = c.category_id";
         if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
         $sql .= ' ORDER BY c.created_at DESC';
         $stmt = $pdo->prepare($sql);
@@ -1139,7 +1161,7 @@ try {
         require_roles($user, ['TODA_PRESIDENT', 'AUTHORIZED_PERSONNEL', 'SUPERADMIN', 'PNP']);
         [$scopeJoin, $scopeWhere, $scopeParams] = complaint_scope_sql($pdo, $user, 'r');
         $byStatus = rows($pdo, 'SELECT r.status AS label, COUNT(*) AS total FROM complaints r' . $scopeJoin . $scopeWhere . ' GROUP BY r.status', $scopeParams);
-        $byCategory = rows($pdo, 'SELECT cc.name AS label, COUNT(*) AS total FROM complaints r JOIN complaint_categories cc ON cc.id = r.category_id' . $scopeJoin . $scopeWhere . ' GROUP BY cc.name', $scopeParams);
+        $byCategory = rows($pdo, 'SELECT cc.name AS label, COUNT(DISTINCT r.id) AS total FROM complaints r JOIN complaint_category_selections rcs ON rcs.complaint_id = r.id JOIN complaint_categories cc ON cc.id = rcs.category_id' . $scopeJoin . $scopeWhere . ' GROUP BY cc.name', $scopeParams);
         $monthlyExpression = is_postgres($pdo) ? "TO_CHAR(r.created_at, 'YYYY-MM')" : "DATE_FORMAT(r.created_at, '%Y-%m')";
         $monthly = rows($pdo, "SELECT {$monthlyExpression} AS label, COUNT(*) AS total FROM complaints r" . $scopeJoin . $scopeWhere . " GROUP BY {$monthlyExpression}", $scopeParams);
         json_response(['byStatus' => $byStatus, 'byCategory' => $byCategory, 'monthly' => $monthly]);
@@ -1236,11 +1258,14 @@ function complaint_or_404(PDO $pdo, string $id, array $user): array {
 function complaint_details(PDO $pdo, array $complaint): array {
     $driver = row($pdo, 'SELECT d.*, ' . toda_route_area_sql('t') . ' AS route_area FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.id = ?', [$complaint['driver_id']]);
     $category = row($pdo, 'SELECT * FROM complaint_categories WHERE id = ?', [$complaint['category_id']]);
+    $categories = rows($pdo, 'SELECT cc.id, cc.name FROM complaint_category_selections selected JOIN complaint_categories cc ON cc.id = selected.category_id WHERE selected.complaint_id = ? ORDER BY cc.name', [$complaint['id']]);
+    if (!$categories && $category) $categories = [['id' => $category['id'], 'name' => $category['name']]];
+    if ($category && $categories) $category['name'] = implode(', ', array_column($categories, 'name'));
     $history = rows($pdo, 'SELECT h.*, u.full_name AS "actorName", u.role AS "actorRole" FROM complaint_status_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.complaint_id = ? ORDER BY h.created_at', [$complaint['id']]);
     $actions = rows($pdo, 'SELECT a.*, u.full_name AS "authorName", u.role AS "authorRole" FROM complaint_actions a LEFT JOIN users u ON u.id = a.action_taken_by WHERE a.complaint_id = ? ORDER BY a.created_at DESC', [$complaint['id']]);
     $attachments = rows($pdo, 'SELECT id, original_name AS "originalName", mime_type AS "mimeType", size_bytes AS "sizeBytes", created_at AS "createdAt" FROM complaint_attachments WHERE complaint_id = ?', [$complaint['id']]);
     $violation = row($pdo, 'SELECT * FROM violations WHERE complaint_id = ? LIMIT 1', [$complaint['id']]);
-    return ['complaint' => $complaint, 'driver' => $driver, 'category' => $category, 'history' => $history, 'actions' => $actions, 'attachments' => $attachments, 'violation' => $violation ?: null];
+    return ['complaint' => $complaint, 'driver' => $driver, 'category' => $category, 'categories' => $categories, 'history' => $history, 'actions' => $actions, 'attachments' => $attachments, 'violation' => $violation ?: null];
 }
 
 function toda_route_area(array $toda): string {

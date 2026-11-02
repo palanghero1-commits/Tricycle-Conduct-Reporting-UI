@@ -6,6 +6,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   serial,
   text,
   timestamp,
@@ -143,6 +144,19 @@ export const complaintsTable = pgTable(
     studentIndex: index("complaints_student_idx").on(table.studentUserId),
     driverIndex: index("complaints_driver_idx").on(table.driverId),
     statusIndex: index("complaints_status_idx").on(table.status),
+  }),
+);
+
+export const complaintCategorySelectionsTable = pgTable(
+  "complaint_category_selections",
+  {
+    complaintId: uuid("complaint_id").notNull().references(() => complaintsTable.id, { onDelete: "cascade" }),
+    categoryId: integer("category_id").notNull().references(() => complaintCategoriesTable.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    selectionPrimaryKey: primaryKey({ columns: [table.complaintId, table.categoryId] }),
+    categoryIndex: index("complaint_category_selections_category_idx").on(table.categoryId),
   }),
 );
 

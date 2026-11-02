@@ -234,6 +234,13 @@ export function StudentDashboard() {
     window.setTimeout(() => setNotice(null), 3200);
   };
 
+  useEffect(() => {
+    const failedItems = window.sessionStorage.getItem("tricycle_offline_preparation_warning");
+    if (!failedItems) return;
+    window.sessionStorage.removeItem("tricycle_offline_preparation_warning");
+    showNotice(`Signed in. Offline data could not refresh (${failedItems}); online access is available.`);
+  }, []);
+
   return (
       <AppLayout active="Dashboard" title={`Good morning, ${firstName}`} eyebrow="Student dashboard">
       <div className="relative">

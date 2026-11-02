@@ -182,10 +182,10 @@ export async function fetchAttachment(attachmentId: string) {
   return response.blob();
 }
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password: string, rememberDevice = false) {
   const data = await apiRequest<{ user: ApiUser; token: string }>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, rememberDevice }),
   });
   if (!data?.user || typeof data.token !== "string" || !data.token) {
     throw new Error(IS_ONLINE_API ? "The online API returned an incomplete login response." : "The PHP API returned an incomplete login response. Check the API terminal for the database error.");

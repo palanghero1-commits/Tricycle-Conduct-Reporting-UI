@@ -264,7 +264,7 @@ export function Auth() {
 
     setNotice(null);
     setIsLoading(true);
-    login(form.email, form.password)
+    login(form.email, form.password, rememberMe)
       .then((data) => {
         const expectedRole = role === "student" ? "STUDENT" : role === "driver" ? "DRIVER" : personnelRole;
         const isPnpAsAuthorizedPersonnel = personnelRole === "AUTHORIZED_PERSONNEL" && data.user?.role === "PNP";
@@ -281,7 +281,8 @@ export function Auth() {
         setIsPreparingOffline(data.user.role === "STUDENT");
         return cacheStudentOfflineData(data.user).then((offlineResult) => {
           if (!offlineResult.complete) {
-            throw new Error(`Offline preparation could not finish: ${offlineResult.failed.join(", ")}. Please stay online and try again.`);
+            window.sessionStorage.setItem("tricycle_offline_preparation_warning", offlineResult.failed.join(", "));
+            console.warn("Signed in, but some offline account data could not be refreshed:", offlineResult.failed);
           }
           window.location.href = previewUrl(getWorkspaceAfterLogin(form.email, role, data.user));
         });
@@ -631,7 +632,7 @@ export function Auth() {
                             onChange={(event) => setRememberMe(event.target.checked)}
                             className="h-4 w-4 rounded border-[#c6d8e4] accent-[#0c5bce]"
                           />
-                          Remember this device
+                          Remember this device for 15 days
                         </label>
                         <button type="button" onClick={() => { setForgotPassword(true); setNotice(null); setComplete(false); }} className="text-[12px] font-extrabold text-[#0c5bce] hover:text-[#084b9e]">
                           Forgot password?

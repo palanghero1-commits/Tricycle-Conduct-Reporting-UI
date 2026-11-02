@@ -4,6 +4,7 @@ export type OfflineReport = {
   localReportId: string;
   driverId: string;
   categoryId: string;
+  categoryIds?: string[];
   incidentDate: string;
   incidentTime: string;
   location: string;
@@ -114,7 +115,7 @@ async function performOfflineReportSync(): Promise<SyncResult> {
       body.append("localReportId", report.localReportId);
       body.append("queueSync", "1");
       body.append("driverId", report.driverId);
-      body.append("categoryId", report.categoryId);
+      (report.categoryIds?.length ? report.categoryIds : [report.categoryId]).forEach((categoryId) => body.append("categoryIds[]", categoryId));
       body.append("incidentDate", report.incidentDate);
       body.append("incidentTime", report.incidentTime);
       body.append("location", report.location);

@@ -770,7 +770,7 @@ export function AdminDashboard() {
           </section>
         ) : activePanel === "Overview" ? (
           <>
-            <AiConductAssistant task="dashboard" compact content={JSON.stringify({ stats: liveStats ?? {}, categoryCounts: liveReports.reduce<Record<string, number>>((counts, report) => ({ ...counts, [report.category]: (counts[report.category] ?? 0) + 1 }), {}), statusCounts: liveReports.reduce<Record<string, number>>((counts, report) => ({ ...counts, [report.status]: (counts[report.status] ?? 0) + 1 }), {}) })} />
+            <AiConductAssistant task="dashboard" compact content={JSON.stringify({ stats: liveStats ?? {}, categoryCounts: liveReports.reduce<Record<string, number>>((counts, report) => { for (const category of report.category.split(", ").filter(Boolean)) counts[category] = (counts[category] ?? 0) + 1; return counts; }, {}), statusCounts: liveReports.reduce<Record<string, number>>((counts, report) => ({ ...counts, [report.status]: (counts[report.status] ?? 0) + 1 }), {}) })} />
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {statDefinitions.map(({ key: statKey, ...stat }) => (
                 <MetricCard

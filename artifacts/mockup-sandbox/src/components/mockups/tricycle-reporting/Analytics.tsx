@@ -135,7 +135,7 @@ export function Analytics() {
     };
     return liveReports.filter((report) => {
       const inDateRange = report.date >= thresholdByPeriod[period];
-      const matchesCategory = category === "All" || report.category === category;
+      const matchesCategory = category === "All" || report.category.split(", ").includes(category);
       const matchesStatus = status === "All" || report.status === status;
       return inDateRange && matchesCategory && matchesStatus;
     });
@@ -164,8 +164,8 @@ export function Analytics() {
 
   const categoryData = useMemo(
     () =>
-      [...new Set(filteredReports.map((report) => report.category))]
-        .map((name) => ({ name, total: filteredReports.filter((report) => report.category === name).length }))
+      [...new Set(filteredReports.flatMap((report) => report.category.split(", ").filter(Boolean)))]
+        .map((name) => ({ name, total: filteredReports.filter((report) => report.category.split(", ").includes(name)).length }))
         .sort((a, b) => b.total - a.total),
     [filteredReports],
   );
@@ -247,7 +247,7 @@ export function Analytics() {
               </SelectField>
               <SelectField label="Category" value={category} onChange={(value) => setCategory(value as "All" | ReportCategory)}>
                 <option value="All">All categories</option>
-                {[...new Set(liveReports.map((report) => report.category))].sort().map((item) => (
+                {[...new Set(liveReports.flatMap((report) => report.category.split(", ").filter(Boolean)))].sort().map((item) => (
                   <option key={item} value={item}>
                     {item}
                   </option>

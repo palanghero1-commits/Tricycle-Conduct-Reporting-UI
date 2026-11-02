@@ -315,11 +315,11 @@ export function OfficerDashboard() {
 
   const categoryMetrics = useMemo(() => {
     const counts = liveReports.reduce<Record<string, number>>((accumulator, report) => {
-      accumulator[report.category] = (accumulator[report.category] ?? 0) + 1;
+      for (const category of report.category.split(", ").filter(Boolean)) accumulator[category] = (accumulator[category] ?? 0) + 1;
       return accumulator;
     }, {});
     const colors = ["bg-[#2e78ad]", "bg-[#6c9a7d]", "bg-[#c18a48]", "bg-[#7b6b93]", "bg-[#d16f5b]"];
-    const total = Math.max(liveReports.length, 1);
+    const total = Math.max(Object.values(counts).reduce((sum, count) => sum + count, 0), 1);
     return Object.entries(counts)
       .sort(([, left], [, right]) => right - left)
       .slice(0, 5)

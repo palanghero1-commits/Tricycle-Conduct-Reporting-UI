@@ -140,7 +140,7 @@ export function SubmitReport() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [category, setCategory] = useState<string>("");
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [categoryDescriptionSeed, setCategoryDescriptionSeed] = useState("");
   const [otherCategory, setOtherCategory] = useState("");
   const [incidentDate, setIncidentDate] = useState(() => getDeviceIncidentDateTime().date);
@@ -198,7 +198,7 @@ export function SubmitReport() {
         setLiveCategories(categoryData.categories);
         if (categoryData.categories[0]) {
           const firstCategory = categoryData.categories[0];
-          setCategory(firstCategory.name);
+          setSelectedCategories([firstCategory.name]);
           const firstDescription = getCategoryDescription(firstCategory.name, firstCategory.description);
           setDescription(firstDescription);
           setCategoryDescriptionSeed(firstDescription);
@@ -222,7 +222,7 @@ export function SubmitReport() {
           })));
           setLiveCategories(cached.categories);
           const firstCategory = cached.categories[0];
-          setCategory(firstCategory.name);
+          setSelectedCategories([firstCategory.name]);
           const firstDescription = getCategoryDescription(firstCategory.name, firstCategory.description);
           setDescription(firstDescription);
           setCategoryDescriptionSeed(firstDescription);
@@ -246,15 +246,20 @@ export function SubmitReport() {
 
   const selected = liveDrivers.find((driver) => driver.identifier === selectedDriver);
   const visibleCategories = liveCategories.map((item) => item.name);
-  const selectedCategoryRecord = liveCategories.find((item) => item.name === category);
-  const selectedCategoryDescription = getCategoryDescription(category, selectedCategoryRecord?.description);
+  const selectedCategoryRecords = liveCategories.filter((item) => selectedCategories.includes(item.name));
+  const selectedCategoryDescription = selectedCategoryRecords
+    .map((item) => getCategoryDescription(item.name, item.description))
+    .join(" ");
 
-  const selectCategory = (nextCategory: string) => {
-    setCategory(nextCategory);
-    const nextDescription = getCategoryDescription(
-      nextCategory,
-      liveCategories.find((item) => item.name === nextCategory)?.description,
-    );
+  const toggleCategory = (nextCategory: string) => {
+    const nextCategories = selectedCategories.includes(nextCategory)
+      ? selectedCategories.filter((item) => item !== nextCategory)
+      : [...selectedCategories, nextCategory];
+    setSelectedCategories(nextCategories);
+    const nextDescription = liveCategories
+      .filter((item) => nextCategories.includes(item.name))
+      .map((item) => getCategoryDescription(item.name, item.description))
+      .join(" ");
     setDescription((current) => {
       if (!current.trim()) return nextDescription;
       if (categoryDescriptionSeed && current.startsWith(categoryDescriptionSeed)) {
@@ -303,7 +308,7 @@ export function SubmitReport() {
     setDescription(firstDescription);
     setCategoryDescriptionSeed(firstDescription);
     setOtherCategory("");
-    setCategory(firstCategory?.name ?? "");
+    setSelectedCategories(firstCategory ? [firstCategory.name] : []);
     setLocation("");
     setCoordinates(null);
     setLocationStatus("");
@@ -324,7 +329,11 @@ export function SubmitReport() {
       setNotice("Please provide the date and approximate time of the incident before submitting.");
       return;
     }
-    if (category === "Other" && !otherCategory.trim()) {
+    if (!selectedCategories.length) {
+      setNotice("Select at least one category for this report.");
+      return;
+    }
+    if (selectedCategories.includes("Other") && !otherCategory.trim()) {
       setNotice("Please name the type of concern before submitting.");
       return;
     }
@@ -336,19 +345,22 @@ export function SubmitReport() {
       setNotice("Please confirm that your report is accurate to the best of your knowledge.");
       return;
     }
-    const categoryRecord = liveCategories.find((item) => item.name === category);
-    if (!categoryRecord) {
+    const categoryRecords = selectedCategories
+      .map((name) => liveCategories.find((item) => item.name === name))
+      .filter((item): item is (typeof liveCategories)[number] => Boolean(item));
+    if (categoryRecords.length !== selectedCategories.length) {
       setNotice("Official complaint categories are still loading. Please try again.");
       return;
     }
     setIsSubmitting(true);
     setNotice("");
     const localReportId = createLocalReportId();
-    const reportDescription = category === "Other" && otherCategory ? `${otherCategory}\n\n${description}` : description;
+    const reportDescription = selectedCategories.includes("Other") && otherCategory ? `Other concern: ${otherCategory}\n\n${description}` : description;
     const offlineReport = {
       localReportId,
       driverId: String(selected.id),
-      categoryId: String(categoryRecord.id),
+      categoryId: String(categoryRecords[0].id),
+      categoryIds: categoryRecords.map((item) => String(item.id)),
       incidentDate,
       incidentTime,
       location,
@@ -378,7 +390,7 @@ export function SubmitReport() {
     const body = new FormData();
     body.append("localReportId", localReportId);
     body.append("driverId", String(selected.id));
-    body.append("categoryId", String(categoryRecord.id));
+    categoryRecords.forEach((item) => body.append("categoryIds[]", String(item.id)));
     body.append("incidentDate", incidentDate);
     body.append("incidentTime", incidentTime);
     body.append("location", location);
@@ -571,23 +583,23 @@ export function SubmitReport() {
                                   <div className="space-y-6">
                     <div>
                       <label className="text-[13px] font-extrabold text-[#294664]">What was the concern?</label>
-                      <p className="mt-1 text-[11px] text-[#8ca0b5]">Select the category that best describes the experience.</p>
+      <p className="mt-1 text-[11px] text-[#8ca0b5]">Select all categories that describe this experience.</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {visibleCategories.map((item) => (
                           <button
                             type="button"
                             key={item}
-                            onClick={() => selectCategory(item)}
+                            onClick={() => toggleCategory(item)}
                             className={`flex min-h-[48px] items-center justify-between rounded-xl border px-3.5 text-left text-[12px] font-bold transition ${
-                              category === item ? "border-[#4d91db] bg-[#f1f7ff] text-[#0c5bce]" : "border-[#e0e8f0] text-[#49647e] hover:border-[#adc9e5]"
+                              selectedCategories.includes(item) ? "border-[#4d91db] bg-[#f1f7ff] text-[#0c5bce]" : "border-[#e0e8f0] text-[#49647e] hover:border-[#adc9e5]"
                             }`}
                           >
                             {item}
-                            {category === item ? <Check size={16} /> : <span className="h-4 w-4 rounded-full border border-[#c8d6e3]" />}
+                            {selectedCategories.includes(item) ? <Check size={16} /> : <span className="h-4 w-4 rounded-full border border-[#c8d6e3]" />}
                           </button>
                         ))}
                       </div>
-                      {category === "Other" ? (
+                      {selectedCategories.includes("Other") ? (
                         <input
                           value={otherCategory}
                           onChange={(event) => setOtherCategory(event.target.value)}
@@ -628,7 +640,7 @@ export function SubmitReport() {
                       <textarea value={description} maxLength={500} onChange={(event) => setDescription(event.target.value)} rows={5} placeholder="Describe what happened in your own words (at least 15 characters)..." className="w-full resize-none rounded-xl border border-[#dbe5f0] px-3.5 py-3 text-[12px] leading-5 text-[#274563] outline-none placeholder:text-[#a1b0bf] focus:border-[#76a9e6] focus:ring-4 focus:ring-[#eaf2ff]" />
                       <span className="mt-1.5 block text-right text-[10px] text-[#9aaabd]">{description.length}/500</span>
                     </label>
-                    <AiConductAssistant task="report" content={`Category: ${category === "Other" ? otherCategory : category}\nReport: ${description}`} onApplyDraft={setDescription} />
+                    <AiConductAssistant task="report" content={`Categories: ${selectedCategories.map((item) => item === "Other" && otherCategory ? `Other (${otherCategory})` : item).join(", ")}\nReport: ${description}`} onApplyDraft={setDescription} />
                   </div>
 
                                   <div className="space-y-5">
@@ -712,7 +724,7 @@ export function SubmitReport() {
                     </div>
                     <div className="divide-y divide-[#edf1f5] rounded-2xl border border-[#e1eaf2]">
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Vehicle</p><p className="mt-1 text-[13px] font-extrabold text-[#294664]">{selected?.name ?? "No driver selected"}</p><p className="mt-1 font-mono text-[10px] font-bold tracking-[0.08em] text-[#0c5bce]">{selected?.identifier ?? "Not available"}</p></div><CarFront size={18} className="text-[#6d8baa]" /></div>
-                      <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Concern</p><p className="mt-1 text-[13px] font-extrabold text-[#294664]">{category === "Other" && otherCategory ? otherCategory : category}</p><p className="mt-1 text-[11px] text-[#71859e]">{formatDate(incidentDate)} at {formatTime(incidentTime)}</p></div><ClipboardCheck size={18} className="text-[#6d8baa]" /></div>
+                      <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Concern</p><p className="mt-1 text-[13px] font-extrabold text-[#294664]">{selectedCategories.map((item) => item === "Other" && otherCategory ? `Other (${otherCategory})` : item).join(", ") || "No category selected"}</p><p className="mt-1 text-[11px] text-[#71859e]">{formatDate(incidentDate)} at {formatTime(incidentTime)}</p></div><ClipboardCheck size={18} className="text-[#6d8baa]" /></div>
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Place and description</p><p className="mt-1 text-[12px] font-bold text-[#294664]">{location}</p><p className="mt-1 max-w-[480px] text-[11px] leading-5 text-[#71859e]">{description || "No description provided."}</p></div><MapPin size={18} className="shrink-0 text-[#6d8baa]" /></div>
                       <div className="flex items-start justify-between gap-4 px-4 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#9aaabd]">Supporting evidence</p><p className="mt-1 text-[12px] font-extrabold text-[#294664]">{evidence.length ? `${evidence.length} attachment${evidence.length === 1 ? "" : "s"}` : "None added"}</p></div><Paperclip size={18} className="text-[#6d8baa]" /></div>
                     </div>

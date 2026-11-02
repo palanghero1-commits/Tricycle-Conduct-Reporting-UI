@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
-import { and, asc, count, desc, eq, getTableColumns, gte, ilike, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import {
@@ -13,6 +13,7 @@ import {
   complaintActionsTable,
   complaintAttachmentsTable,
   complaintCategoriesTable,
+  complaintCategorySelectionsTable,
   complaintsTable,
   complaintStatusHistoryTable,
   driversTable,
@@ -73,8 +74,8 @@ function sendError(res: Response, status: number, message: string) {
   res.status(status).json({ error: { message } });
 }
 
-function tokenFor(user: AuthUser) {
-  return jwt.sign({ sub: user.id, role: user.role }, jwtSecret, { expiresIn: "8h" });
+function tokenFor(user: AuthUser, rememberDevice = false) {
+  return jwt.sign({ sub: user.id, role: user.role }, jwtSecret, { expiresIn: rememberDevice ? "15d" : "8h" });
 }
 
 async function audit(userId: string | null, action: string, targetType?: string, targetId?: string, metadata?: unknown) {
@@ -146,11 +147,11 @@ router.post("/auth/register", async (req, res) => {
 });
 
 router.post("/auth/login", async (req, res) => {
-  const input = z.object({ email: z.string().min(1), password: z.string().min(1) }).parse(req.body);
+  const input = z.object({ email: z.string().min(1), password: z.string().min(1), rememberDevice: z.boolean().optional() }).parse(req.body);
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, input.email.toLowerCase())).limit(1);
   if (!user || user.status !== "ACTIVE" || !(await bcrypt.compare(input.password, user.passwordHash))) return sendError(res, 401, "Invalid email or password.");
   await audit(user.id, "LOGIN", "users", user.id);
-  res.json({ user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role }, token: tokenFor(user) });
+  res.json({ user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role }, token: tokenFor(user, input.rememberDevice === true) });
 });
 
 router.post("/auth/logout", requireAuth, async (req, res) => {
@@ -176,15 +177,23 @@ router.get("/categories", requireAuth, async (_req, res) => {
 const complaintBodySchema = z.object({
   localReportId: z.string().trim().min(1).max(100).optional(),
   driverId: z.coerce.number().int().positive(),
-  categoryId: z.coerce.number().int().positive(),
+  categoryId: z.coerce.number().int().positive().optional(),
+  categoryIds: z.array(z.coerce.number().int().positive()).min(1).optional(),
   incidentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   incidentTime: z.string().regex(/^\d{2}:\d{2}$/),
   location: z.string().min(3).max(240),
   description: z.string().min(15).max(2000),
-});
+}).refine((input) => Boolean(input.categoryIds?.length || input.categoryId), { message: "Select at least one report category." });
 
 router.post("/complaints", requireAuth, requireRoles("STUDENT"), upload.fields([{ name: "attachments", maxCount: 5 }, { name: "attachments[]", maxCount: 5 }]), async (req, res) => {
-  const input = complaintBodySchema.parse(req.body);
+  const rawBody = req.body as Record<string, unknown>;
+  const submittedCategoryIds = rawBody.categoryIds ?? rawBody["categoryIds[]"];
+  const input = complaintBodySchema.parse({
+    ...rawBody,
+    categoryIds: submittedCategoryIds === undefined ? undefined : Array.isArray(submittedCategoryIds) ? submittedCategoryIds : [submittedCategoryIds],
+  });
+  const { categoryIds: requestedCategoryIds, categoryId: legacyCategoryId, ...reportFields } = input;
+  const categoryIds = [...new Set(requestedCategoryIds?.length ? requestedCategoryIds : legacyCategoryId ? [legacyCategoryId] : [])];
   const filesByField = (req.files as Record<string, Express.Multer.File[]> | undefined) ?? {};
   const files = Object.values(filesByField).flat();
   if (files.length > 5) return sendError(res, 400, "You can attach up to 5 evidence files per report.");
@@ -201,9 +210,10 @@ router.post("/complaints", requireAuth, requireRoles("STUDENT"), upload.fields([
   const referenceNumber = `TRC-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`;
   const complaint = await db.transaction(async (tx) => {
     const [driver] = await tx.select().from(driversTable).where(and(eq(driversTable.id, input.driverId), eq(driversTable.isActive, true))).limit(1);
-    const [category] = await tx.select().from(complaintCategoriesTable).where(and(eq(complaintCategoriesTable.id, input.categoryId), eq(complaintCategoriesTable.isActive, true))).limit(1);
-    if (!driver || !category) throw new Error("Invalid driver or category.");
-    const [created] = await tx.insert(complaintsTable).values({ ...input, referenceNumber, studentUserId: req.user!.id, status: "SUBMITTED" }).returning();
+    const categories = await tx.select({ id: complaintCategoriesTable.id }).from(complaintCategoriesTable).where(and(inArray(complaintCategoriesTable.id, categoryIds), eq(complaintCategoriesTable.isActive, true)));
+    if (!driver || categories.length !== categoryIds.length) throw new Error("Invalid driver or category.");
+    const [created] = await tx.insert(complaintsTable).values({ ...reportFields, categoryId: categoryIds[0], referenceNumber, studentUserId: req.user!.id, status: "SUBMITTED" }).returning();
+    await tx.insert(complaintCategorySelectionsTable).values(categoryIds.map((categoryId) => ({ complaintId: created.id, categoryId })));
     if (files.length) {
       await tx.insert(complaintAttachmentsTable).values(files.map((file) => ({
         complaintId: created.id,
@@ -236,7 +246,7 @@ function buildComplaintWhere(req: Request) {
   return and(
     req.user!.role === "STUDENT" ? eq(complaintsTable.studentUserId, req.user!.id) : undefined,
     q.status ? eq(complaintsTable.status, q.status) : undefined,
-    q.categoryId ? eq(complaintsTable.categoryId, q.categoryId) : undefined,
+    q.categoryId ? sql`exists (select 1 from ${complaintCategorySelectionsTable} where ${complaintCategorySelectionsTable.complaintId} = ${complaintsTable.id} and ${complaintCategorySelectionsTable.categoryId} = ${q.categoryId})` : undefined,
     q.driverId ? eq(complaintsTable.driverId, q.driverId) : undefined,
     q.reference ? ilike(complaintsTable.referenceNumber, `%${q.reference}%`) : undefined,
     q.from ? gte(complaintsTable.createdAt, new Date(String(q.from))) : undefined,
@@ -247,6 +257,7 @@ function buildComplaintWhere(req: Request) {
 router.get("/complaints", requireAuth, async (req, res) => {
   const complaints = await db.select({
     ...getTableColumns(complaintsTable),
+    categoryName: sql<string>`coalesce((select string_agg(${complaintCategoriesTable.name}, ', ' order by ${complaintCategoriesTable.name}) from ${complaintCategorySelectionsTable} inner join ${complaintCategoriesTable} on ${complaintCategoriesTable.id} = ${complaintCategorySelectionsTable.categoryId} where ${complaintCategorySelectionsTable.complaintId} = ${complaintsTable.id}), (select name from ${complaintCategoriesTable} where id = ${complaintsTable.categoryId}))`,
     confirmedViolation: sql<boolean>`exists (select 1 from ${violationsTable} where ${violationsTable.complaintId} = ${complaintsTable.id})`,
   }).from(complaintsTable).where(buildComplaintWhere(req)).orderBy(desc(complaintsTable.createdAt)).limit(100);
   res.json({ complaints });
@@ -259,11 +270,13 @@ router.get("/complaints/:id", requireAuth, async (req, res) => {
   if (req.user!.role === "STUDENT" && complaint.studentUserId !== req.user!.id) return sendError(res, 403, "You are not authorized to view this complaint.");
   const [driver] = await db.select().from(driversTable).where(eq(driversTable.id, complaint.driverId)).limit(1);
   const [category] = await db.select().from(complaintCategoriesTable).where(eq(complaintCategoriesTable.id, complaint.categoryId)).limit(1);
+  const categories = await db.select({ id: complaintCategoriesTable.id, name: complaintCategoriesTable.name }).from(complaintCategorySelectionsTable).innerJoin(complaintCategoriesTable, eq(complaintCategoriesTable.id, complaintCategorySelectionsTable.categoryId)).where(eq(complaintCategorySelectionsTable.complaintId, complaint.id)).orderBy(asc(complaintCategoriesTable.name));
+  if (category && categories.length) category.name = categories.map((item) => item.name).join(", ");
   const history = await db.select().from(complaintStatusHistoryTable).where(eq(complaintStatusHistoryTable.complaintId, complaint.id)).orderBy(asc(complaintStatusHistoryTable.createdAt));
   const actions = await db.select().from(complaintActionsTable).where(eq(complaintActionsTable.complaintId, complaint.id)).orderBy(desc(complaintActionsTable.createdAt));
   const attachments = await db.select({ id: complaintAttachmentsTable.id, originalName: complaintAttachmentsTable.originalName, mimeType: complaintAttachmentsTable.mimeType, sizeBytes: complaintAttachmentsTable.sizeBytes, createdAt: complaintAttachmentsTable.createdAt }).from(complaintAttachmentsTable).where(eq(complaintAttachmentsTable.complaintId, complaint.id));
   const violation = await db.select().from(violationsTable).where(eq(violationsTable.complaintId, complaint.id)).limit(1);
-  res.json({ complaint, driver, category, history, actions, attachments, violation: violation[0] ?? null });
+  res.json({ complaint, driver, category, categories: categories.length ? categories : category ? [{ id: category.id, name: category.name }] : [], history, actions, attachments, violation: violation[0] ?? null });
 });
 
 router.get("/attachments/:id", requireAuth, async (req, res) => {
@@ -469,7 +482,7 @@ router.get("/dashboard/stats", requireAuth, requireRoles("TODA_OFFICER", "ADMIN"
 router.get("/reports/summary", requireAuth, requireRoles("ADMIN", "TODA_OFFICER", "PNP"), async (req, res) => {
   const where = buildComplaintWhere(req);
   const byStatus = await db.select({ label: complaintsTable.status, total: count() }).from(complaintsTable).where(where).groupBy(complaintsTable.status);
-  const byCategory = await db.select({ label: complaintCategoriesTable.name, total: count() }).from(complaintsTable).innerJoin(complaintCategoriesTable, eq(complaintsTable.categoryId, complaintCategoriesTable.id)).where(where).groupBy(complaintCategoriesTable.name);
+  const byCategory = await db.select({ label: complaintCategoriesTable.name, total: count(sql`distinct ${complaintsTable.id}`) }).from(complaintsTable).innerJoin(complaintCategorySelectionsTable, eq(complaintsTable.id, complaintCategorySelectionsTable.complaintId)).innerJoin(complaintCategoriesTable, eq(complaintCategorySelectionsTable.categoryId, complaintCategoriesTable.id)).where(where).groupBy(complaintCategoriesTable.name);
   const monthly = await db.select({ label: sql<string>`to_char(${complaintsTable.createdAt}, 'YYYY-MM')`, total: count() }).from(complaintsTable).where(where).groupBy(sql`to_char(${complaintsTable.createdAt}, 'YYYY-MM')`);
   res.json({ byStatus, byCategory, monthly });
 });
