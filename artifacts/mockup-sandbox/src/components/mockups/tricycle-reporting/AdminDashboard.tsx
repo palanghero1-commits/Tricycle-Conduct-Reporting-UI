@@ -49,93 +49,6 @@ type ActivityItem = {
   tone: string;
 };
 
-const reports: Report[] = [
-  {
-    id: "RPT-2418",
-    subject: "Fare concern submitted for review",
-    location: "Old Sagay Public Market",
-    category: "Fare concern",
-    status: "Pending review",
-    received: "18 min ago",
-    reference: "SUNN-0841",
-  },
-  {
-    id: "RPT-2417",
-    subject: "Conduct concern linked to route record",
-    location: "SUNN Gate 2",
-    category: "Conduct",
-    status: "In review",
-    received: "1 hr ago",
-    reference: "SUNN-0839",
-  },
-  {
-    id: "RPT-2416",
-    subject: "Possible route deviation noted",
-    location: "Sagay Wharf Road",
-    category: "Route concern",
-    status: "Pending review",
-    received: "2 hrs ago",
-    reference: "SUNN-0837",
-  },
-  {
-    id: "RPT-2415",
-    subject: "Vehicle identification card concern",
-    location: "SUNN Student Center",
-    category: "Vehicle condition",
-    status: "Resolved",
-    received: "Yesterday",
-    reference: "SUNN-0828",
-  },
-  {
-    id: "RPT-2414",
-    subject: "Peak-hour fare clarification requested",
-    location: "Old Sagay Terminal",
-    category: "Fare concern",
-    status: "In review",
-    received: "Yesterday",
-    reference: "SUNN-0824",
-  },
-];
-
-const activity: ActivityItem[] = [
-  {
-    label: "Report RPT-2417 moved to in review",
-    detail: "A. Reyes · 34 min ago",
-    kind: "Reports",
-    tone: "bg-[#347caf]",
-  },
-  {
-    label: "New student account added to directory",
-    detail: "System · 1 hr ago",
-    kind: "Users",
-    tone: "bg-[#6d9a82]",
-  },
-  {
-    label: "Follow-up note added to RPT-2415",
-    detail: "M. Cabal · 1 hr ago",
-    kind: "Reports",
-    tone: "bg-[#c28a4b]",
-  },
-  {
-    label: "Weekly data snapshot completed",
-    detail: "System · 2 hrs ago",
-    kind: "System",
-    tone: "bg-[#806f92]",
-  },
-  {
-    label: "Authorized personnel record updated",
-    detail: "J. Dela Cruz · 3 hrs ago",
-    kind: "Users",
-    tone: "bg-[#568e96]",
-  },
-  {
-    label: "Review queue assignment changed",
-    detail: "System · Yesterday",
-    kind: "System",
-    tone: "bg-[#8e9cab]",
-  },
-];
-
 const statDefinitions = [
   {
     key: "totalUsers",
@@ -299,7 +212,7 @@ export function AdminDashboard() {
   const [activityFilter, setActivityFilter] =
     useState<ActivityKind>("All activity");
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedReportId, setSelectedReportId] = useState("RPT-2418");
+  const [selectedReportId, setSelectedReportId] = useState("");
   const [notice, setNotice] = useState("");
   const [directory, setDirectory] = useState<{
     students: Array<Record<string, string>>;
@@ -310,8 +223,8 @@ export function AdminDashboard() {
   const [liveStats, setLiveStats] = useState<Record<string, number> | null>(
     null,
   );
-  const [liveReports, setLiveReports] = useState<Report[]>(reports);
-  const [liveActivity, setLiveActivity] = useState<ActivityItem[]>(activity);
+  const [liveReports, setLiveReports] = useState<Report[]>([]);
+  const [liveActivity, setLiveActivity] = useState<ActivityItem[]>([]);
   const [showPersonnelForm, setShowPersonnelForm] = useState(false);
   const [isCreatingPersonnel, setIsCreatingPersonnel] = useState(false);
   const [personnelForm, setPersonnelForm] = useState({

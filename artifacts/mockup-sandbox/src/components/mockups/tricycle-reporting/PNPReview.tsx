@@ -61,119 +61,6 @@ type Report = {
   locationCapturedAt?: string | null;
 };
 
-// Live reports are loaded from the database below.
-/*
-  {
-    id: "OS-24018",
-    category: "Passenger safety",
-    submitted: "18 Jun 2024, 08:42",
-    age: "24 min ago",
-    location: "Old Sagay public market",
-    summary:
-      "A student passenger reported that the tricycle moved before they were fully seated near the market loading area.",
-    status: "For review",
-    reference: "RPT-OS-24018",
-    reporter: "SUNN student • identity protected",
-    driver: {
-      name: "Rogelio M. Dela Cruz",
-      plate: "NBT 4821",
-      unit: "Old Sagay Tricycle Association",
-      route: "Old Sagay – Sagay proper",
-      contact: "0917 ••• •482",
-    },
-    evidence: [
-      { name: "market-loading-area.jpg", type: "image", meta: "Mock image • 1.8 MB" },
-      { name: "student-statement.txt", type: "document", meta: "Mock document • 2 KB" },
-    ],
-    notes: [
-      {
-        id: 1,
-        author: "A. Reyes",
-        role: "Authorized personnel",
-        time: "18 Jun 2024, 08:51",
-        note: "Initial review opened. Confirm the loading area and identify any available witnesses.",
-      },
-    ],
-  },
-  {
-    id: "OS-24017",
-    category: "Route concern",
-    submitted: "18 Jun 2024, 07:56",
-    age: "1 hr ago",
-    location: "SUNN east gate",
-    summary: "A report noted that a tricycle declined a short trip to the east gate during peak arrival time.",
-    status: "Needs follow-up",
-    reference: "RPT-OS-24017",
-    reporter: "SUNN student • identity protected",
-    driver: {
-      name: "Maribel S. Navarro",
-      plate: "NBX 1904",
-      unit: "Old Sagay Tricycle Association",
-      route: "SUNN – Old Sagay centro",
-      contact: "0920 ••• •904",
-    },
-    evidence: [{ name: "route-context.pdf", type: "document", meta: "Mock document • 64 KB" }],
-    notes: [
-      {
-        id: 2,
-        author: "A. Reyes",
-        role: "Authorized personnel",
-        time: "18 Jun 2024, 08:20",
-        note: "Request a short statement from the driver before determining next steps.",
-      },
-    ],
-  },
-  {
-    id: "OS-24016",
-    category: "Fare concern",
-    submitted: "17 Jun 2024, 16:18",
-    age: "Yesterday",
-    location: "Barangay Old Sagay hall",
-    summary: "A passenger asked for clarification after being charged a fare different from the posted local rate.",
-    status: "For review",
-    reference: "RPT-OS-24016",
-    reporter: "SUNN student • identity protected",
-    driver: {
-      name: "Joel P. Amador",
-      plate: "NBY 7310",
-      unit: "Old Sagay Tricycle Association",
-      route: "Old Sagay hall – Sagay proper",
-      contact: "0908 ••• •310",
-    },
-    evidence: [{ name: "fare-board-reference.jpg", type: "image", meta: "Mock image • 928 KB" }],
-    notes: [],
-  },
-  {
-    id: "OS-24012",
-    category: "Conduct concern",
-    submitted: "15 Jun 2024, 11:04",
-    age: "3 days ago",
-    location: "SUNN south gate",
-    summary: "A student described an uncomfortable exchange while asking whether the vehicle was available for hire.",
-    status: "Resolved",
-    reference: "RPT-OS-24012",
-    reporter: "SUNN student • identity protected",
-    driver: {
-      name: "Cesar T. Villanueva",
-      plate: "NBS 5508",
-      unit: "Old Sagay Tricycle Association",
-      route: "SUNN – Old Sagay centro",
-      contact: "0919 ••• •508",
-    },
-    evidence: [{ name: "review-summary.txt", type: "document", meta: "Mock document • 3 KB" }],
-    notes: [
-      {
-        id: 3,
-        author: "A. Reyes",
-        role: "Authorized personnel",
-        time: "16 Jun 2024, 14:10",
-        note: "Parties were informed of the review outcome. No further action recorded.",
-      },
-    ],
-  },
-];
-*/
-
 const statusStyles: Record<ReviewStatus, string> = {
   "For review": "bg-[#fff5e8] text-[#a76419] ring-[#f4d8ad]",
   Received: "bg-[#eef6ff] text-[#326da8] ring-[#cfe2f7]",
@@ -191,24 +78,6 @@ function statusLabel(status: string): ReviewStatus {
   if (status === "RESOLVED" || status === "CLOSED") return "Resolved";
   return "For review";
 }
-
-const fallbackReports: Report[] = [
-  {
-    id: "RPT-2418",
-    category: "Fare concern",
-    submitted: "9 October 2026",
-    age: "Current",
-    location: "Old Sagay Public Market",
-    summary: "A student passenger submitted a fare concern for authorized review.",
-    status: "For review",
-    rawStatus: "SUBMITTED",
-    reference: "RPT-2418",
-    reporter: "SUNN student · identity protected",
-    driver: { name: "Ramon L. Dela Cruz", plate: "SAG 4821", unit: "Old Sagay TODA", route: "Public Market · Sagay Centro", contact: "Not recorded" },
-    evidence: [],
-    notes: [],
-  },
-];
 
 const statusOptions: Record<string, Array<{ value: string; label: string }>> = {
   SUBMITTED: [{ value: "RECEIVED", label: "Received" }, { value: "UNDER_REVIEW", label: "Under review" }, { value: "CLOSED", label: "Closed" }],
@@ -239,7 +108,7 @@ export function PNPReview() {
   const [showOpenReportsOnly, setShowOpenReportsOnly] = useState(false);
   const [showChecklist, setShowChecklist] = useState(false);
   const [localNotes, setLocalNotes] = useState<Record<string, ReviewNote[]>>({});
-  const [liveReports, setLiveReports] = useState<Report[]>(fallbackReports);
+  const [liveReports, setLiveReports] = useState<Report[]>([]);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
   const [pendingStatus, setPendingStatus] = useState("");
@@ -248,27 +117,27 @@ export function PNPReview() {
   const [evidencePreview, setEvidencePreview] = useState<{ name: string; type: "image" | "document"; url: string } | null>(null);
 
   useEffect(() => {
-    apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; location: string; description: string; driverName: string; latitude?: number | string | null; longitude?: number | string | null; locationAccuracyMeters?: number | string | null; locationCapturedAt?: string | null }> }>("/complaints")
-      .then(({ complaints }) => setLiveReports(complaints.length ? complaints.map((item) => ({
+    apiRequest<{ complaints: Array<{ id: string; referenceNumber: string; status: string; categoryName: string; incidentDate: string; createdAt: string; location: string; description: string; driverName: string; latitude?: number | string | null; longitude?: number | string | null; locationAccuracyMeters?: number | string | null; locationCapturedAt?: string | null }> }>("/complaints")
+      .then(({ complaints }) => setLiveReports(complaints.map((item) => ({
         id: item.id,
         category: item.categoryName,
-        submitted: item.incidentDate,
-        age: "Current",
+        submitted: formatPhilippineDateTime(item.createdAt),
+        age: formatPhilippineDateTime(item.createdAt),
         location: item.location,
         summary: item.description,
         status: statusLabel(item.status),
         rawStatus: item.status,
         reference: item.referenceNumber,
-        reporter: "Student reporter · identity protected",
-        driver: { name: item.driverName, plate: "Not recorded", unit: "Registered TODA", route: "Not recorded", contact: "Not recorded" },
+        reporter: "Not provided",
+        driver: { name: item.driverName, plate: "Not provided", unit: "Not provided", route: "Not provided", contact: "Not provided" },
         evidence: [],
         notes: [],
         latitude: item.latitude,
         longitude: item.longitude,
         locationAccuracyMeters: item.locationAccuracyMeters,
         locationCapturedAt: item.locationCapturedAt,
-      } as Report)) : fallbackReports))
-      .catch(() => setLiveReports(fallbackReports));
+      } as Report))))
+      .catch(() => setLiveReports([]));
   }, []);
 
   useEffect(() => {
@@ -285,8 +154,9 @@ export function PNPReview() {
         const details = await Promise.all(complaints.map(async (item) => ({
           id: item.id,
           data: await apiRequest<{
-            actions: Array<{ id: number; action_type: string; description: string; created_at: string }>;
+            actions: Array<{ id: number; action_type: string; description: string; created_at: string; authorName?: string; authorRole?: string }>;
             attachments: Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number }>;
+            driver: { full_name: string; plate_number?: string | null; tricycle_identifier?: string | null; route_area?: string | null; contact_number?: string | null; toda_name?: string | null } | null;
           }>(`/complaints/${item.id}`),
         })));
         setLiveReports((current) => current.map((report) => {
@@ -294,8 +164,9 @@ export function PNPReview() {
           if (!detail) return report;
           return {
             ...report,
+            driver: detail.driver ? { name: detail.driver.full_name, plate: detail.driver.plate_number || "Not provided", unit: detail.driver.toda_name || "Not provided", route: detail.driver.route_area || "Not provided", contact: detail.driver.contact_number || "Not provided" } : report.driver,
             evidence: detail.attachments.map((attachment) => ({ id: attachment.id, name: attachment.originalName, type: attachment.mimeType.startsWith("image/") ? "image" as const : "document" as const, meta: `${Math.round(attachment.sizeBytes / 1024)} KB` })),
-            notes: detail.actions.map((action) => ({ id: action.id, author: "Authorized reviewer", role: action.action_type, time: formatPhilippineDateTime(action.created_at), note: action.description })),
+            notes: detail.actions.map((action) => ({ id: action.id, author: action.authorName || "Reviewer", role: action.authorRole || action.action_type, time: formatPhilippineDateTime(action.created_at), note: action.description })),
           };
         }));
       })
@@ -386,9 +257,9 @@ export function PNPReview() {
 
     const newNote: ReviewNote = {
       id: Date.now(),
-      author: "A. Reyes",
-      role: "Authorized personnel",
-      time: "Just now",
+      author: currentUser?.fullName || "Reviewer",
+      role: currentUser?.role || "Reviewer",
+      time: formatPhilippineDateTime(new Date()),
       note: trimmedNote,
     };
 
@@ -502,7 +373,7 @@ export function PNPReview() {
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-2">
                         <StatusBadge status={report.status} />
-                        <span className="text-[10px] font-medium text-[#9aaabd]">{report.age}</span>
+                        <span className="text-[10px] font-medium text-[#9aaabd]">{report.submitted}</span>
                       </div>
                     </button>
                   );
@@ -757,25 +628,7 @@ export function PNPReview() {
                 <History size={14} />
                 Review history
               </div>
-              <div className="grid gap-3 px-5 py-4 sm:grid-cols-3 sm:px-6">
-                {[
-                  ["18 Jun 2024, 08:42", "Report received", "System intake"],
-                  ["18 Jun 2024, 08:51", "Review opened", "A. Reyes • Authorized personnel"],
-                  ["Current", selectedReport.status, "Awaiting next review action"],
-                ].map(([time, title, detail], index) => (
-                  <div key={`${time}-${title}`} className="relative flex gap-3 sm:block">
-                    <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#edf4fb] text-[#5e80a0] sm:mb-3">
-                      {index === 2 ? <Clock3 size={14} /> : <CheckCircle2 size={14} />}
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold text-[#9aabba]">{time}</p>
-                      <p className="mt-1 text-[12px] font-bold text-[#526d86]">{title}</p>
-                      <p className="mt-1 text-[10px] text-[#8b9daf]">{detail}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+              {selectedNotes.length ? <div className="grid gap-3 px-5 py-4 sm:grid-cols-3 sm:px-6">{selectedNotes.map((note) => <div key={note.id} className="relative flex gap-3 sm:block"><div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#edf4fb] text-[#5e80a0] sm:mb-3"><CheckCircle2 size={14} /></div><div><p className="text-[10px] font-semibold text-[#9aabba]">{note.time}</p><p className="mt-1 text-[12px] font-bold text-[#526d86]">{note.role}</p><p className="mt-1 text-[10px] text-[#8b9daf]">{note.note}</p><p className="mt-1 text-[10px] text-[#8b9daf]">{note.author}</p></div></div>)}</div> : <p className="px-5 py-4 text-[11px] text-[#8295a9] sm:px-6">No review actions have been recorded for this report.</p>}\r\n            </section>
           </section>
         </div>
       </div>

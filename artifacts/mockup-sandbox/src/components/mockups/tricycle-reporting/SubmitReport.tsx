@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import {
   ArrowRight,
   BadgeCheck,
@@ -50,55 +52,8 @@ type EvidenceItem = {
   status: "uploading" | "ready";
 };
 
-const drivers: Driver[] = [];
-/*
-  {
-    id: 1,
-    name: "Rogelio D. Santos",
-    identifier: "OS-4821",
-    color: "bg-[#dceeff] text-[#1660a8]",
-    initials: "RS",
-    route: "Old Sagay • Market loop",
-  },
-  {
-    id: 2,
-    name: "Maribel A. Cruz",
-    identifier: "OS-3176",
-    color: "bg-[#fbe8dc] text-[#b85e3d]",
-    initials: "MC",
-    route: "Old Sagay • Campus loop",
-  },
-  {
-    id: 3,
-    name: "Jonas P. Villanueva",
-    identifier: "OS-9084",
-    color: "bg-[#e8e4fb] text-[#6656a9]",
-    initials: "JV",
-    route: "Old Sagay • Riverside loop",
-  },
-];
-*/
-
-const categories = [
-  "Overcharging",
-  "Reckless Driving",
-  "Refusal to Transport",
-  "Discourteous Behavior",
-  "Unsafe Driving",
-  "Other",
-] as const;
-
-const fallbackCategoryDescriptions: Record<string, string> = {
-  Overcharging: "The fare collected differed from the posted or agreed route fare.",
-  "Reckless Driving": "The driver used unsafe speed, sudden stops, or risky vehicle operation.",
-  "Refusal to Transport": "The driver declined a valid route or passenger request.",
-  "Discourteous Behavior": "The driver acted disrespectfully or inappropriately.",
-  "Unsafe Driving": "The incident raised a passenger safety concern during the trip.",
-  Other: "This concern does not match another category.",
-};
-
-function getCategoryDescription(categoryName: string, categoryDescription?: string) {
-  return categoryDescription || fallbackCategoryDescriptions[categoryName] || "Choose the category that best matches what you observed.";
+function getCategoryDescription(_categoryName: string, categoryDescription?: string) {
+  return categoryDescription || "Choose the category that best matches what you observed.";
 }
 
 function formatDate(value: string) {
@@ -152,7 +107,12 @@ export function SubmitReport() {
   const [description, setDescription] = useState("");
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
-  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const evidenceInputRef = useRef<HTMLInputElement>(null);
+  const [isEvidencePickerOpen, setIsEvidencePickerOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState("");
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
   const [queuedReportLocalId, setQueuedReportLocalId] = useState<string | null>(null);
@@ -275,6 +235,110 @@ export function SubmitReport() {
     setEvidence((current) => current.filter((item) => item.id !== id));
     if (removedIndex >= 0) setAttachmentFiles((current) => current.filter((_, index) => index !== removedIndex));
   };
+
+  const addEvidenceFiles = (files: File[]) => {
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    const validFiles = files.filter((file) => file.size <= 5 * 1024 * 1024 && allowedTypes.includes(file.type));
+    if (validFiles.length !== files.length) setNotice("Only JPG, PNG, WebP, or PDF files up to 5 MB each can be attached. Invalid files were skipped.");
+    if (!validFiles.length) return;
+    setAttachmentFiles((current) => [...current, ...validFiles]);
+    setEvidence((current) => [
+      ...current,
+      ...validFiles.map((file, index) => ({
+        id: Date.now() + index,
+        name: file.name,
+        size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+        kind: file.type.startsWith("image/") ? "image" as const : "note" as const,
+        progress: 100,
+        status: "ready" as const,
+      })),
+    ]);
+  };
+
+  const stopCameraPreview = () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraStream(null);
+  };
+
+  const openEvidenceCamera = async () => {
+    setIsEvidencePickerOpen(false);
+    setCameraError("");
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const photo = await Camera.getPhoto({
+          quality: 90,
+          allowEditing: false,
+          resultType: CameraResultType.Uri,
+          source: CameraSource.Camera,
+        });
+        if (!photo.webPath) throw new Error("The camera did not return a photo. Please try again.");
+        const response = await fetch(photo.webPath);
+        if (!response.ok) throw new Error("Unable to read the captured photo.");
+        const blob = await response.blob();
+        const extension = blob.type.split("/")[1] || "jpeg";
+        addEvidenceFiles([new File([blob], `camera-${Date.now()}.${extension}`, { type: blob.type || "image/jpeg" })]);
+      } catch (error) {
+        if (error instanceof Error && /cancel/i.test(error.message)) return;
+        setNotice(error instanceof Error ? error.message : "Unable to open the camera. Check camera permissions and try again.");
+      }
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setNotice("Camera access is unavailable in this browser. Use HTTPS or localhost, or choose a photo or file instead.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      cameraStreamRef.current = stream;
+      setCameraStream(stream);
+    } catch (error) {
+      const message = error instanceof Error && error.name === "NotAllowedError"
+        ? "Camera permission was denied. Allow camera access in your browser settings, then try again."
+        : error instanceof Error && error.name === "NotFoundError"
+          ? "No camera was found on this device. Choose a photo or file instead."
+          : "Unable to open the camera. Check camera permissions and try again.";
+      setNotice(message);
+    }
+  };
+
+  const captureEvidencePhoto = () => {
+    const video = cameraVideoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraError("The camera is still starting. Please wait a moment and try again.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setCameraError("Unable to capture this photo. Please try again.");
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setCameraError("Unable to capture this photo. Please try again.");
+        return;
+      }
+      addEvidenceFiles([new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" })]);
+      stopCameraPreview();
+      setCameraError("");
+    }, "image/jpeg", 0.9);
+  };
+
+  useEffect(() => {
+    if (cameraVideoRef.current && cameraStream) {
+      cameraVideoRef.current.srcObject = cameraStream;
+      void cameraVideoRef.current.play().catch(() => setCameraError("Tap the camera preview to allow playback."));
+    }
+  }, [cameraStream]);
+
+  useEffect(() => () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   const captureLocation = async () => {
     if (!window.isSecureContext) {
@@ -659,39 +723,46 @@ export function SubmitReport() {
                       <p className="mt-1 text-[11px] text-[#91a2b4]">Attachments are prepared securely for submission.</p>
                       <button
                         type="button"
-                        onClick={() => attachmentInputRef.current?.click()}
+                        onClick={() => setIsEvidencePickerOpen(true)}
                         className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[#b9d2e9] bg-white px-4 py-2.5 text-[11px] font-extrabold text-[#0c5bce] transition hover:bg-[#f0f7ff]"
                       >
                         <Plus size={15} />Add attachment
                       </button>
                       <input
-                        ref={attachmentInputRef}
+                        ref={evidenceInputRef}
                         type="file"
                         multiple
                         accept="image/jpeg,image/png,image/webp,application/pdf"
                         className="hidden"
                         onChange={(event) => {
-                            const files = Array.from(event.target.files ?? []);
-                            const allowedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-                            const validFiles = files.filter((file) => file.size <= 5 * 1024 * 1024 && allowedTypes.includes(file.type));
-                            if (validFiles.length !== files.length) setNotice("Only JPG, PNG, WebP, or PDF files up to 5 MB each can be attached. Invalid files were skipped.");
-                            if (!validFiles.length) { event.target.value = ""; return; }
-                            setAttachmentFiles((current) => [...current, ...validFiles]);
-                            setEvidence((current) => [
-                              ...current,
-                              ...validFiles.map((file, index) => ({
-                                id: Date.now() + index,
-                                name: file.name,
-                                size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
-                                kind: file.type.startsWith("image/") ? "image" as const : "note" as const,
-                                progress: 100,
-                                status: "ready" as const,
-                              })),
-                            ]);
-                            event.target.value = "";
+                          addEvidenceFiles(Array.from(event.currentTarget.files ?? []));
+                          event.currentTarget.value = "";
                         }}
                       />
                     </div>
+                    {isEvidencePickerOpen ? (
+                      <div className="fixed inset-0 z-[100] flex items-end justify-center bg-[#10263d]/50 p-3 sm:items-center" onClick={() => setIsEvidencePickerOpen(false)}>
+                        <section role="dialog" aria-modal="true" aria-labelledby="evidence-picker-title" className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <h2 id="evidence-picker-title" className="text-[15px] font-extrabold text-[#294664]">Add supporting evidence</h2>
+                              <p className="mt-1 text-[11px] text-[#71859e]">Choose how you want to attach a file.</p>
+                            </div>
+                            <button type="button" onClick={() => setIsEvidencePickerOpen(false)} aria-label="Close evidence options" className="rounded-lg p-1.5 text-[#71859e] hover:bg-[#f0f5fa]"><X size={18} /></button>
+                          </div>
+                          <div className="mt-5 grid gap-3">
+                            <button type="button" onClick={openEvidenceCamera} className="flex min-h-12 items-center gap-3 rounded-xl border border-[#b9d2e9] px-4 py-3 text-left text-[12px] font-extrabold text-[#0c5bce] hover:bg-[#f0f7ff]">
+                              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#eaf2ff]"><FileImage size={18} /></span>
+                              <span><span className="block">Take a photo</span><span className="mt-0.5 block text-[10px] font-medium text-[#71859e]">Open your device camera</span></span>
+                            </button>
+                            <button type="button" onClick={() => { setIsEvidencePickerOpen(false); evidenceInputRef.current?.click(); }} className="flex min-h-12 items-center gap-3 rounded-xl border border-[#b9d2e9] px-4 py-3 text-left text-[12px] font-extrabold text-[#0c5bce] hover:bg-[#f0f7ff]">
+                              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#eaf2ff]"><UploadCloud size={18} /></span>
+                              <span><span className="block">Choose photos or a file</span><span className="mt-0.5 block text-[10px] font-medium text-[#71859e]">Select images or a PDF from your device</span></span>
+                            </button>
+                          </div>
+                        </section>
+                      </div>
+                    ) : null}
                     <div className="space-y-2.5">
                       {evidence.map((item) => (
                         <div key={item.id} className="flex items-center gap-3 rounded-2xl border border-[#e1eaf2] bg-white p-3">
@@ -710,6 +781,22 @@ export function SubmitReport() {
                         </div>
                       ))}
                     </div>
+                    {cameraStream ? (
+                      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#10263d]/70 p-3 sm:p-6">
+                        <section role="dialog" aria-modal="true" aria-labelledby="camera-preview-title" className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <h2 id="camera-preview-title" className="text-[14px] font-extrabold text-[#294664]">Take a photo</h2>
+                            <button type="button" onClick={stopCameraPreview} aria-label="Close camera" className="rounded-lg p-1.5 text-[#71859e] hover:bg-[#f0f5fa]"><X size={18} /></button>
+                          </div>
+                          <video ref={cameraVideoRef} autoPlay playsInline muted className="max-h-[65vh] w-full bg-black object-contain" />
+                          {cameraError ? <p role="alert" className="px-4 pt-3 text-[11px] font-semibold text-[#b35349]">{cameraError}</p> : null}
+                          <div className="flex justify-end gap-2 p-4">
+                            <button type="button" onClick={stopCameraPreview} className="rounded-xl border border-[#dbe5f0] px-4 py-2.5 text-[11px] font-extrabold text-[#49647e]">Cancel</button>
+                            <button type="button" onClick={captureEvidencePhoto} className="rounded-xl bg-[#0c5bce] px-4 py-2.5 text-[11px] font-extrabold text-white">Capture photo</button>
+                          </div>
+                        </section>
+                      </div>
+                    ) : null}
                     <div className="flex gap-3 rounded-2xl bg-[#fff9eb] px-4 py-3.5 text-[#80662e]">
                       <Info size={16} className="mt-0.5 shrink-0" />
                       <p className="text-[11px] leading-5">Supporting evidence can provide context, but it is not required for a report to be reviewed.</p>

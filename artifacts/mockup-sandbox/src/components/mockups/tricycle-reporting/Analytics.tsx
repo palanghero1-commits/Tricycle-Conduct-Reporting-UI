@@ -31,7 +31,7 @@ type AnalyticsReport = {
 
 const months = Array.from({ length: 12 }, (_, index) => ({
   key: String(index + 1).padStart(2, "0"),
-  label: new Date(2026, index, 1).toLocaleString("en", { month: "short" }),
+  label: new Date(new Date().getFullYear(), index, 1).toLocaleString("en", { month: "short" }),
 }));
 
 const categoryPalette = ["#0c5bce", "#e8794f", "#56a886", "#806bb2", "#d19a27", "#328b9b", "#bd6682", "#687c92"];

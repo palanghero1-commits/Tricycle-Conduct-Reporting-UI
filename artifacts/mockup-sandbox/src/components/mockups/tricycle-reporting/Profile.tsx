@@ -7,7 +7,6 @@ import {
   CircleHelp,
   Eye,
   KeyRound,
-  Laptop2,
   Mail,
   MapPin,
   PencilLine,
@@ -125,7 +124,7 @@ export function Profile() {
   const [draftName, setDraftName] = useState(displayName);
   const [draftEmail, setDraftEmail] = useState(email);
   const [draftContactNumber, setDraftContactNumber] = useState("");
-  const [activePanel, setActivePanel] = useState<"edit" | "password" | "notifications" | "privacy" | "sessions" | null>(null);
+  const [activePanel, setActivePanel] = useState<"edit" | "password" | "notifications" | "privacy" | null>(null);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [savedNotice, setSavedNotice] = useState(false);
   const [profileNotice, setProfileNotice] = useState("");
@@ -324,13 +323,11 @@ export function Profile() {
               <SettingRow icon={KeyRound} iconClassName="bg-[#fff1e9] text-[#c66846]" title="Change password" description="Keep your account password up to date" onClick={() => setActivePanel("password")} />
               <SettingRow icon={Bell} iconClassName="bg-[#fff7dd] text-[#b47c16]" title="Notification preferences" description="Choose which report updates reach you" status={`${Number(preferences.updates) + Number(preferences.reminders)} enabled`} onClick={() => setActivePanel("notifications")} />
               <SettingRow icon={Eye} iconClassName="bg-[#eaf7f1] text-[#27805b]" title="Privacy" description="Review how your report details are handled" onClick={() => setActivePanel("privacy")} />
-              <SettingRow icon={Laptop2} iconClassName="bg-[#f0efff] text-[#645ca9]" title="Active sessions" description="One session is currently open" trailing="status" onClick={() => setActivePanel("sessions")} />
-            </div>
+                          </div>
           </section>
         </div>
 
         <div className="mt-7 flex flex-col gap-2 text-[10px] font-medium text-[#91a2b4] sm:flex-row sm:items-center sm:justify-between">
-          <span>Profile last reviewed · 14 March 2025</span>
           <span className="inline-flex items-center gap-1.5"><ShieldCheck size={13} className="text-[#2a845f]" /> Your information stays within the secure system</span>
         </div>
       </div>
@@ -404,17 +401,6 @@ export function Profile() {
         </Modal>
       ) : null}
 
-      {activePanel === "sessions" ? (
-        <Modal title="Active sessions" description="A quick look at where your account is currently open." onClose={() => setActivePanel(null)}>
-          <div className="mt-5 rounded-[15px] border border-[#dce8f1] bg-white p-4">
-            <div className="flex items-start gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-[#f0efff] text-[#645ca9]"><Laptop2 size={17} /></span>
-              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-[12px] font-extrabold text-[#314b68]">This browser</p><span className="rounded-full bg-[#e9f7ef] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-[#25825b]">Current</span></div><p className="mt-1 text-[10px] text-[#8295aa]">Sagay City · Seen just now</p></div>
-            </div>
-          </div>
-          <button type="button" onClick={() => setActivePanel(null)} className="mt-5 w-full rounded-xl bg-[#0c5bce] px-4 py-3 text-[11px] font-extrabold text-white hover:bg-[#0a50b6]">Close</button>
-        </Modal>
-      ) : null}
 
     </AppLayout>
   );

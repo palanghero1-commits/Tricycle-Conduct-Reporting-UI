@@ -2,12 +2,9 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   BadgeCheck,
-  CalendarDays,
   CarFront,
   ChevronDown,
   ChevronRight,
-  CircleAlert,
-  Clock3,
   FileText,
   Info,
   MapPin,
@@ -22,7 +19,7 @@ import {
 import { AppLayout } from "./_shared/AppLayout";
 import { apiRequest } from "../../../lib/api";
 
-type DriverStatus = "Active" | "Review hold" | "On leave";
+type DriverStatus = "Active";
 
 type Driver = {
   id: string;
@@ -35,8 +32,6 @@ type Driver = {
   association: string;
   route: string;
   phone: string;
-  registered: string;
-  lastReviewed: string;
   reports: number;
   confirmedViolations: number;
   reportsHistory: Array<{
@@ -52,12 +47,6 @@ type Driver = {
     finding: string;
     action: string;
   }>;
-  activity: Array<{
-    title: string;
-    detail: string;
-    date: string;
-    tone: "blue" | "amber" | "green" | "slate";
-  }>;
 };
 
 function previewUrl(component: string) {
@@ -69,227 +58,10 @@ function navigateTo(component: string) {
   window.location.href = previewUrl(component);
 }
 
-const drivers: Driver[] = [
-  {
-    id: "DRV-OS-0187",
-    name: "Ramon L. Dela Cruz",
-    initials: "RD",
-    vehicleId: "TODA-OS-118",
-    plate: "SAG 4821",
-    status: "Active",
-    association: "Old Sagay TODA",
-    route: "Public Market ↔ Sagay Centro",
-    phone: "+63 917 248 1096",
-    registered: "11 January 2023",
-    lastReviewed: "No prior review in the last 12 months",
-    reports: 3,
-    confirmedViolations: 0,
-    reportsHistory: [
-      {
-        id: "TRC-2026-00124",
-        date: "18 Feb 2026",
-        category: "Passenger safety",
-        summary: "Passenger capacity was observed near the Old Sagay Public Market.",
-        status: "Under review",
-      },
-      {
-        id: "TRC-2025-00318",
-        date: "09 Dec 2025",
-        category: "Fare concern",
-        summary: "Student passenger requested a review of the fare collected on a market trip.",
-        status: "Resolved",
-      },
-      {
-        id: "TRC-2025-00271",
-        date: "22 Oct 2025",
-        category: "Driver conduct",
-        summary: "Report described a brief disagreement about the destination of a trip.",
-        status: "Resolved",
-      },
-    ],
-    violations: [],
-    activity: [
-      { title: "Report TRC-2026-00124 received", detail: "Student reporting channel · Passenger safety", date: "18 Feb 2026 · 9:42 AM", tone: "blue" },
-      { title: "Driver profile viewed", detail: "Alex R. Mendez · Authorized review staff", date: "18 Feb 2026 · 10:06 AM", tone: "slate" },
-      { title: "Previous report resolved", detail: "TRC-2025-00318 · Follow-up recorded", date: "13 Dec 2025 · 3:18 PM", tone: "green" },
-    ],
-  },
-  {
-    id: "DRV-OS-0112",
-    name: "Lorna Mae Villanueva",
-    initials: "LV",
-    vehicleId: "TODA-OS-074",
-    plate: "SAG 3190",
-    status: "Active",
-    association: "Old Sagay TODA",
-    route: "SUNN Gate 2 ↔ Old Sagay Terminal",
-    phone: "+63 905 624 7820",
-    registered: "04 June 2021",
-    lastReviewed: "Reviewed 08 February 2026",
-    reports: 6,
-    confirmedViolations: 1,
-    reportsHistory: [
-      {
-        id: "TRC-2026-00117",
-        date: "09 Feb 2026",
-        category: "Driver conduct",
-        summary: "Passenger requested review after a trip was declined at the campus gate.",
-        status: "Under review",
-      },
-      {
-        id: "TRC-2025-00209",
-        date: "18 Aug 2025",
-        category: "Fare concern",
-        summary: "Fare amount was reported as different from the posted student rate.",
-        status: "Resolved",
-      },
-      {
-        id: "TRC-2025-00142",
-        date: "06 May 2025",
-        category: "Route concern",
-        summary: "Passenger asked the office to clarify a route change near Sagay Centro.",
-        status: "Resolved",
-      },
-    ],
-    violations: [
-      {
-        reference: "FND-2025-0018",
-        date: "27 Aug 2025",
-        finding: "Fare collection did not follow the approved student rate.",
-        action: "Written reminder recorded",
-      },
-    ],
-    activity: [
-      { title: "Report TRC-2026-00117 moved to review", detail: "Review queue · Driver conduct", date: "09 Feb 2026 · 4:40 PM", tone: "amber" },
-      { title: "Finding FND-2025-0018 confirmed", detail: "Authorized review panel · Separate finding record", date: "27 Aug 2025 · 2:15 PM", tone: "green" },
-      { title: "Driver registration renewed", detail: "Old Sagay TODA desk", date: "04 Jan 2026 · 11:20 AM", tone: "slate" },
-    ],
-  },
-  {
-    id: "DRV-SN-0044",
-    name: "Joel P. Manalo",
-    initials: "JM",
-    vehicleId: "TODA-SN-044",
-    plate: "SAG 7642",
-    status: "Review hold",
-    association: "Sagay North TODA",
-    route: "SUNN Main Gate ↔ Sagay City Plaza",
-    phone: "+63 918 410 5631",
-    registered: "19 September 2022",
-    lastReviewed: "Review activity recorded 19 February 2026",
-    reports: 4,
-    confirmedViolations: 0,
-    reportsHistory: [
-      {
-        id: "TRC-2026-00119",
-        date: "10 Feb 2026",
-        category: "Route concern",
-        summary: "A route deviation was reported during an evening trip from SUNN.",
-        status: "Under review",
-      },
-      {
-        id: "TRC-2025-00304",
-        date: "23 Nov 2025",
-        category: "Vehicle condition",
-        summary: "Passenger noted a loose side panel while waiting at the campus gate.",
-        status: "Resolved",
-      },
-      {
-        id: "TRC-2025-00190",
-        date: "12 Jul 2025",
-        category: "Fare concern",
-        summary: "A passenger asked for clarification about an evening fare.",
-        status: "Resolved",
-      },
-    ],
-    violations: [],
-    activity: [
-      { title: "Profile placed on review hold", detail: "Linked to an active report review", date: "19 Feb 2026 · 8:20 AM", tone: "amber" },
-      { title: "Report TRC-2026-00119 updated", detail: "Additional route details requested", date: "18 Feb 2026 · 1:05 PM", tone: "blue" },
-      { title: "Vehicle record checked", detail: "TODA registry · No change recorded", date: "03 Jan 2026 · 9:10 AM", tone: "slate" },
-    ],
-  },
-  {
-    id: "DRV-OS-0092",
-    name: "Nestor A. Salazar",
-    initials: "NS",
-    vehicleId: "TODA-OS-092",
-    plate: "SAG 1908",
-    status: "On leave",
-    association: "Old Sagay TODA",
-    route: "Old Sagay Terminal ↔ Barangay 3",
-    phone: "+63 926 801 4472",
-    registered: "15 March 2020",
-    lastReviewed: "Reviewed 14 January 2026",
-    reports: 2,
-    confirmedViolations: 0,
-    reportsHistory: [
-      {
-        id: "TRC-2025-00362",
-        date: "20 Dec 2025",
-        category: "Vehicle condition",
-        summary: "A missing identification card was reported during a terminal visit.",
-        status: "Resolved",
-      },
-      {
-        id: "TRC-2025-00102",
-        date: "16 Apr 2025",
-        category: "Route concern",
-        summary: "Passenger asked about a stop that was skipped on a short trip.",
-        status: "Resolved",
-      },
-    ],
-    violations: [],
-    activity: [
-      { title: "Leave status recorded", detail: "Old Sagay TODA desk · Local registry update", date: "02 Feb 2026 · 10:10 AM", tone: "slate" },
-      { title: "Report TRC-2025-00362 resolved", detail: "Vehicle identification detail confirmed", date: "28 Dec 2025 · 4:25 PM", tone: "green" },
-      { title: "Profile reviewed", detail: "Alex R. Mendez · Authorized review staff", date: "14 Jan 2026 · 9:30 AM", tone: "blue" },
-    ],
-  },
-  {
-    id: "DRV-SN-0026",
-    name: "Maribel S. Yulo",
-    initials: "MY",
-    vehicleId: "TODA-SN-026",
-    plate: "SAG 5526",
-    status: "Active",
-    association: "Sagay North TODA",
-    route: "Sagay City Plaza ↔ Public Market",
-    phone: "+63 919 335 1027",
-    registered: "08 August 2023",
-    lastReviewed: "No prior review in the last 12 months",
-    reports: 1,
-    confirmedViolations: 0,
-    reportsHistory: [
-      {
-        id: "TRC-2025-00341",
-        date: "14 Dec 2025",
-        category: "Fare concern",
-        summary: "Student passenger asked the office to review an unclear fare collection.",
-        status: "Resolved",
-      },
-    ],
-    violations: [],
-    activity: [
-      { title: "Report TRC-2025-00341 resolved", detail: "Fare record clarified with route operator", date: "19 Dec 2025 · 2:30 PM", tone: "green" },
-      { title: "Profile registered", detail: "Sagay North TODA · Driver registry", date: "08 Aug 2023 · 9:00 AM", tone: "slate" },
-    ],
-  },
-];
-
-const statusOptions: Array<"All statuses" | DriverStatus> = ["All statuses", "Active", "Review hold", "On leave"];
+const statusOptions: Array<"All statuses" | DriverStatus> = ["All statuses", "Active"];
 
 const statusStyles: Record<DriverStatus, { badge: string; dot: string; icon: LucideIcon }> = {
   Active: { badge: "border-[#c8e7d7] bg-[#effaf4] text-[#287b55]", dot: "bg-[#2d9b6a]", icon: BadgeCheck },
-  "Review hold": { badge: "border-[#f1d8b1] bg-[#fff8ea] text-[#986117]", dot: "bg-[#d5912f]", icon: CircleAlert },
-  "On leave": { badge: "border-[#d9e1e9] bg-[#f4f7fa] text-[#65788d]", dot: "bg-[#8a9bad]", icon: Clock3 },
-};
-
-const toneStyles = {
-  blue: { dot: "bg-[#2877bb]", icon: "bg-[#eaf3ff] text-[#2877bb]" },
-  amber: { dot: "bg-[#d18b2d]", icon: "bg-[#fff4df] text-[#b2751f]" },
-  green: { dot: "bg-[#32936d]", icon: "bg-[#eaf8f1] text-[#2f805f]" },
-  slate: { dot: "bg-[#8a9cac]", icon: "bg-[#f0f4f7] text-[#72879b]" },
 };
 
 function StatusBadge({ status }: { status: DriverStatus }) {
@@ -350,7 +122,7 @@ function EmptyReports({ message }: { message: string }) {
 }
 
 export function DriverDirectory() {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("query") ?? "");
   const [status, setStatus] = useState<"All statuses" | DriverStatus>("All statuses");
   const [selectedId, setSelectedId] = useState("");
   const [notice, setNotice] = useState("");
@@ -360,7 +132,7 @@ export function DriverDirectory() {
   const [detailsWarning, setDetailsWarning] = useState("");
 
   useEffect(() => {
-    const loadDrivers = () => apiRequest<{ drivers: Array<{ id: number; fullName: string; driverCode: string; tricycleIdentifier: string; plateNumber: string | null; routeArea: string | null; contactNumber: string | null; reportCount: number; confirmedViolationCount: number }> }>("/drivers")
+    const loadDrivers = () => apiRequest<{ drivers: Array<{ id: number; fullName: string; driverCode: string; tricycleIdentifier: string; plateNumber: string | null; routeArea: string | null; contactNumber: string | null; todaName: string | null; reportCount: number; confirmedViolationCount: number }> }>("/drivers")
       .then(({ drivers: rows }) => {
         setLoadError("");
         setLiveDrivers(rows.map((driver) => ({
@@ -371,16 +143,13 @@ export function DriverDirectory() {
         vehicleId: driver.tricycleIdentifier,
         plate: driver.plateNumber ?? "Not recorded",
         status: "Active",
-        association: "Registered TODA",
+        association: driver.todaName || "TODA not recorded",
         route: driver.routeArea ?? "Route not recorded",
         phone: driver.contactNumber ?? "Not recorded",
-        registered: "Registered account",
-        lastReviewed: "No review recorded",
         reports: Number(driver.reportCount),
         confirmedViolations: Number(driver.confirmedViolationCount),
         reportsHistory: [],
         violations: [],
-        activity: [],
         })));
       })
       .catch((error) => { setLoadError(error instanceof Error ? error.message : "Driver directory could not be loaded."); });
@@ -409,7 +178,6 @@ export function DriverDirectory() {
           ...driver,
           reportsHistory: record.details.reports.map((report) => ({ ...report, status: report.status === "RESOLVED" || report.status === "CLOSED" ? "Resolved" : report.status === "SUBMITTED" ? "Received" : "Under review" } as Driver["reportsHistory"][number])),
           violations: record.details.violations,
-          activity: [],
         };
       }));
     });
@@ -455,7 +223,7 @@ export function DriverDirectory() {
               Know the record before reviewing the report.
             </h2>
             <p className="mt-3 max-w-[700px] text-[13px] leading-6 text-[#71859e]">
-              Browse registered TODA driver profiles connected to student and community reports in Barangay Old Sagay. Report counts and confirmed findings are shown as separate records.
+              Browse the active driver records available to your account. Report counts and confirmed findings come from linked system records.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 rounded-2xl border border-[#dbe5f0] bg-white px-3.5 py-3 shadow-[0_5px_18px_rgba(33,68,101,0.04)]">
@@ -634,8 +402,6 @@ export function DriverDirectory() {
                   </div>
                 </div>
                 <div className="space-y-2.5 pt-4">
-                  <div className="flex items-center gap-2 text-[10px] font-semibold text-[#8194a7]"><CalendarDays size={13} className="text-[#728ba3]" /> Registered {selectedDriver.registered}</div>
-                  <div className="flex items-start gap-2 text-[10px] font-semibold leading-4 text-[#8194a7]"><ShieldCheck size={13} className="mt-0.5 text-[#2d9369]" /> {selectedDriver.lastReviewed}</div>
                 </div>
               </div>
             </Card>
@@ -724,31 +490,6 @@ export function DriverDirectory() {
           </div>
         ) : null}
 
-        {selectedDriver ? (
-          <Card className="p-5 lg:p-6">
-            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-              <SectionTitle icon={Clock3} eyebrow="Recent record activity" title="Short activity timeline" detail={`Latest local updates connected to ${selectedDriver.name}.`} />
-            </div>
-            <div className="relative mt-7 grid gap-6 md:grid-cols-3 md:gap-5">
-              <div className="absolute left-[14px] right-[14px] top-3 hidden h-px bg-[#dce7ef] md:block" />
-              {selectedDriver.activity.map((item, index) => {
-                const tone = toneStyles[item.tone];
-                return (
-                  <div key={`${item.title}-${index}`} className="relative flex gap-3 md:block">
-                    <div className={`relative z-[1] flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-4 border-white ${tone.icon}`}>
-                      {index === 0 ? <CircleAlert size={11} /> : <span className={`h-2 w-2 rounded-full ${tone.dot}`} />}
-                    </div>
-                    <div className="min-w-0 md:mt-3">
-                      <p className="text-[11px] font-extrabold leading-4 text-[#45627a]">{item.title}</p>
-                      <p className="mt-1 text-[10px] leading-4 text-[#8295a8]">{item.detail}</p>
-                      <p className="mt-2 text-[9px] font-bold uppercase tracking-[0.08em] text-[#a0afbc]">{item.date}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        ) : null}
 
         <footer className="flex flex-col justify-between gap-2 border-t border-[#dbe5ed] pt-4 text-[10px] font-semibold text-[#93a4b3] sm:flex-row">
           <span>Old Sagay · SUNN transport conduct review center</span>

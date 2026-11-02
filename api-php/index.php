@@ -1256,7 +1256,7 @@ function complaint_or_404(PDO $pdo, string $id, array $user): array {
 }
 
 function complaint_details(PDO $pdo, array $complaint): array {
-    $driver = row($pdo, 'SELECT d.*, ' . toda_route_area_sql('t') . ' AS route_area FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.id = ?', [$complaint['driver_id']]);
+    $driver = row($pdo, 'SELECT d.*, t.name AS toda_name, ' . toda_route_area_sql('t') . ' AS route_area FROM drivers d LEFT JOIN todas t ON t.id = d.toda_id WHERE d.id = ?', [$complaint['driver_id']]);
     $category = row($pdo, 'SELECT * FROM complaint_categories WHERE id = ?', [$complaint['category_id']]);
     $categories = rows($pdo, 'SELECT cc.id, cc.name FROM complaint_category_selections selected JOIN complaint_categories cc ON cc.id = selected.category_id WHERE selected.complaint_id = ? ORDER BY cc.name', [$complaint['id']]);
     if (!$categories && $category) $categories = [['id' => $category['id'], 'name' => $category['name']]];

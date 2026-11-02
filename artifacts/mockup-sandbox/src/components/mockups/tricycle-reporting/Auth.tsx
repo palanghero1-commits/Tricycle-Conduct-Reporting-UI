@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { apiRequest, clearAuthToken, login, registerStudent, type ApiUser } from "../../../lib/api";
+import { apiRequest, clearAuthToken, getAuthToken, getCurrentUser, login, registerStudent, restoreRememberedSession, setCurrentUser, type ApiUser } from "../../../lib/api";
 import { cacheStudentOfflineData } from "../../../lib/offlineAccount";
 import { Capacitor } from "@capacitor/core";
 
@@ -198,6 +198,34 @@ export function Auth() {
     routeArea: "",
     hasReadNotice: false,
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        await restoreRememberedSession();
+        const token = getAuthToken();
+        const storedUser = getCurrentUser();
+        if (!token || !storedUser) return;
+        const redirect = (user: ApiUser) => {
+          if (!cancelled) window.location.replace(previewUrl(getWorkspaceAfterLogin(user.email ?? "", user.role === "DRIVER" ? "driver" : user.role === "STUDENT" ? "student" : "personnel", user)));
+        };
+        const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: number };
+        const tokenValid = typeof payload.exp === "number" && payload.exp * 1000 > Date.now();
+        if (!tokenValid) { clearAuthToken(); return; }
+        try {
+          const { user } = await apiRequest<{ user: ApiUser }>("/me");
+          if (user?.id === storedUser.id) { setCurrentUser(user); redirect(user); }
+          else clearAuthToken();
+        } catch {
+          if (Capacitor.isNativePlatform()) redirect(storedUser);
+        }
+      } catch (error) {
+        console.warn("Could not restore the remembered login:", error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [driverTodas, setDriverTodas] = useState<Array<{ id: number; name: string; barangay: string; city: string; province: string }>>([]);
   const [todasLoading, setTodasLoading] = useState(false);
   const [todasError, setTodasError] = useState("");

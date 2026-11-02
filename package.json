@@ -23,6 +23,7 @@
     "scripts"
   ],
   "dependencies": {
+    "@capacitor/preferences": "^8.0.1",
     "@replit/connectors-sdk": "^0.4.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",

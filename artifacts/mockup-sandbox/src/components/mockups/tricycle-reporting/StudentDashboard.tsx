@@ -39,54 +39,6 @@ type Report = {
   summary: string;
 };
 
-const reports: Report[] = [
-  {
-    complaintId: "",
-    id: "TR-2408-017",
-    date: "August 28, 2024",
-    dateShort: "Aug 28",
-    driver: "R. Villanueva",
-    category: "Unsafe driving",
-    location: "Old Sagay terminal",
-    status: "Under review",
-    updated: "Updated 2 hours ago",
-    summary: "A report about a sudden stop and passenger loading outside the marked bay.",
-  },
-  {
-    id: "TR-2408-011",
-    date: "August 22, 2024",
-    dateShort: "Aug 22",
-    driver: "J. Salcedo",
-    category: "Fare concern",
-    location: "SUNN Gate 2",
-    status: "Resolved",
-    updated: "Closed August 26",
-    summary: "The review team recorded the concern and clarified the posted student fare.",
-  },
-  {
-    id: "TR-2408-004",
-    date: "August 14, 2024",
-    dateShort: "Aug 14",
-    driver: "M. Dela Cruz",
-    category: "Route concern",
-    location: "Old Sagay public market",
-    status: "Received",
-    updated: "Received August 14",
-    summary: "A route and pickup-point concern shared for the market-side loading area.",
-  },
-  {
-    id: "TR-2407-019",
-    date: "July 31, 2024",
-    dateShort: "Jul 31",
-    driver: "A. Ramos",
-    category: "Passenger safety",
-    location: "SUNN main road",
-    status: "Resolved",
-    updated: "Closed August 5",
-    summary: "The team reviewed the reported overcrowding concern with the route operator.",
-  },
-];
-
 const statusStyles: Record<ReportStatus, string> = {
   "Under review": "bg-[#fff4d8] text-[#966516] ring-[#efd28f]",
   Resolved: "bg-[#e3f7ee] text-[#22785c] ring-[#b8e5d0]",

@@ -109,7 +109,7 @@ function navigateTo(component: string, hash?: string) {
 
 function signOut() {
   clearAuthToken();
-  window.location.href = previewUrl("Landing");
+  window.location.replace(previewUrl("Auth"));
 }
 
 export function AppLayout({
@@ -181,42 +181,51 @@ export function AppLayout({
   useEffect(() => {
     if (!roleUsesReviewWorkspace) return;
     let mounted = true;
-    let audioContext: AudioContext | null = null;
-    let alarmTimer: number | null = null;
     const poll = () => {
       apiRequest<{ alerts: { id: string; studentName: string }[] }>("/sos/active")
         .then(({ alerts }) => { if (mounted) setActiveSosAlerts(alerts); })
         .catch(() => undefined);
-    };
-    const alarm = () => {
-      if (!activeSosAlerts.length || alarmTimer !== null) return;
-      try {
-        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!AudioContextClass) return;
-        audioContext = new AudioContextClass();
-        const beep = () => {
-          if (!audioContext || audioContext.state !== "running") return;
-          const oscillator = audioContext.createOscillator();
-          const gain = audioContext.createGain();
-          oscillator.type = "square";
-          oscillator.frequency.value = 880;
-          gain.gain.value = 0.25;
-          oscillator.connect(gain).connect(audioContext.destination);
-          oscillator.start();
-          oscillator.stop(audioContext.currentTime + 0.3);
-        };
-        void audioContext.resume().catch(() => undefined);
-        beep();
-        alarmTimer = window.setInterval(beep, 1200);
-      } catch { /* The browser may require a user gesture before playing alarm audio. */ }
     };
     poll();
     const pollTimer = window.setInterval(poll, 5000);
     return () => {
       mounted = false;
       window.clearInterval(pollTimer);
-      if (alarmTimer !== null) window.clearInterval(alarmTimer);
-      if (audioContext) void audioContext.close().catch(() => undefined);
+    };
+  }, [roleUsesReviewWorkspace]);
+
+  useEffect(() => {
+    if (!roleUsesReviewWorkspace || activeSosAlerts.length === 0) return;
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    let context: AudioContext;
+    let timer: number | null = null;
+    try { context = new AudioContextClass(); } catch { return; }
+    const beep = () => {
+      if (context.state !== "running") return;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "square";
+      oscillator.frequency.value = 880;
+      gain.gain.value = 0.25;
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.3);
+      if ("vibrate" in navigator) navigator.vibrate?.([180, 100, 180]);
+    };
+    const resumeAlarm = () => {
+      void context.resume().then(beep).catch(() => undefined);
+    };
+    resumeAlarm();
+    timer = window.setInterval(beep, 1200);
+    window.addEventListener("pointerdown", resumeAlarm);
+    window.addEventListener("keydown", resumeAlarm);
+    return () => {
+      if (timer !== null) window.clearInterval(timer);
+      window.removeEventListener("pointerdown", resumeAlarm);
+      window.removeEventListener("keydown", resumeAlarm);
+      if ("vibrate" in navigator) navigator.vibrate?.(0);
+      void context.close().catch(() => undefined);
     };
   }, [roleUsesReviewWorkspace, activeSosAlerts.length > 0]);
 
@@ -423,7 +432,7 @@ export function AppLayout({
             </div>
           ) : null}
           {roleUsesReviewWorkspace && activeSosAlerts.length > 0 ? (
-            <button type="button" onClick={() => navigateTo("EmergencyMonitor")} className="mx-4 mt-4 flex w-[calc(100%-2rem)] animate-pulse items-center gap-3 rounded-xl border-2 border-[#bd2f26] bg-[#fff0ee] px-4 py-3 text-left text-[#8f201a] shadow-[0_5px_22px_rgba(189,47,38,0.2)] sm:mx-5 sm:w-[calc(100%-2.5rem)] lg:mx-10 lg:w-[calc(100%-5rem)]" role="alert" aria-live="assertive">
+            <button type="button" onClick={() => navigateTo("EmergencyMonitor")} className="mx-4 mt-4 flex w-[calc(100%-2rem)] items-center gap-3 rounded-xl border-2 border-[#a82018] bg-[#ffe2df] px-4 py-3 text-left text-[#72130e] shadow-[0_5px_22px_rgba(189,47,38,0.28)] sm:mx-5 sm:w-[calc(100%-2.5rem)] lg:mx-10 lg:w-[calc(100%-5rem)]" role="alert" aria-live="assertive">
               <Siren size={22} className="shrink-0" />
               <span className="min-w-0 flex-1"><strong className="block text-[13px] font-extrabold">ACTIVE SOS ALERT{activeSosAlerts.length === 1 ? "" : "S"} · {activeSosAlerts.length}</strong><span className="block truncate text-[11px] font-semibold">{activeSosAlerts[0].studentName} needs assistance. Open emergency monitor.</span></span>
               <ArrowUpRight size={17} className="shrink-0" />

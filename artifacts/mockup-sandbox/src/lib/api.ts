@@ -1,9 +1,13 @@
 import { getOfflineApiResponse, saveOfflineApiResponse } from "./offlineApiCache";
+import { Capacitor } from "@capacitor/core";
+import { Preferences } from "@capacitor/preferences";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 const IS_ONLINE_API = !API_BASE.startsWith("/") && !API_BASE.includes("localhost:8000");
 const TOKEN_KEY = "tricycle_auth_token";
 const USER_KEY = "tricycle_current_user";
+const REMEMBER_KEY = "tricycle_remember_device";
+const NATIVE_SESSION_KEY = "tricycle_remembered_session";
 
 export type ApiUser = {
   id: string;
@@ -23,6 +27,54 @@ export function setAuthToken(token: string) {
 export function clearAuthToken() {
   window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
+  window.localStorage.removeItem(REMEMBER_KEY);
+  if (Capacitor.isNativePlatform()) void Preferences.remove({ key: NATIVE_SESSION_KEY }).catch(() => undefined);
+}
+
+function tokenIsUnexpired(token: string) {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: number };
+    return typeof payload.exp === "number" && payload.exp * 1000 > Date.now();
+  } catch { return false; }
+}
+
+export async function persistRememberedSession(remember: boolean) {
+  if (!remember) {
+    window.localStorage.removeItem(REMEMBER_KEY);
+    if (Capacitor.isNativePlatform()) await Preferences.remove({ key: NATIVE_SESSION_KEY });
+    return;
+  }
+  const token = getAuthToken();
+  const user = getCurrentUser();
+  if (!token || !user || !tokenIsUnexpired(token)) return;
+  window.localStorage.setItem(REMEMBER_KEY, "true");
+  if (Capacitor.isNativePlatform()) {
+    await Preferences.set({ key: NATIVE_SESSION_KEY, value: JSON.stringify({ token, user }) });
+  }
+}
+
+export async function restoreRememberedSession() {
+  if (Capacitor.isNativePlatform()) {
+    const { value } = await Preferences.get({ key: NATIVE_SESSION_KEY });
+    if (!value) return false;
+    try {
+      const session = JSON.parse(value) as { token?: string; user?: ApiUser };
+      if (!session.token || !session.user || !tokenIsUnexpired(session.token)) {
+        await Preferences.remove({ key: NATIVE_SESSION_KEY });
+        return false;
+      }
+      setAuthToken(session.token);
+      setCurrentUser(session.user);
+      window.localStorage.setItem(REMEMBER_KEY, "true");
+      return true;
+    } catch {
+      await Preferences.remove({ key: NATIVE_SESSION_KEY });
+      return false;
+    }
+  }
+  const token = getAuthToken();
+  const user = getCurrentUser();
+  return window.localStorage.getItem(REMEMBER_KEY) === "true" && !!token && !!user && tokenIsUnexpired(token);
 }
 
 export function getCurrentUser(): ApiUser | null {
@@ -192,6 +244,7 @@ export async function login(email: string, password: string, rememberDevice = fa
   }
   setAuthToken(data.token);
   setCurrentUser(data.user);
+  await persistRememberedSession(rememberDevice);
   return data;
 }
 
@@ -219,5 +272,6 @@ export async function registerStudent(input: {
   }
   setAuthToken(data.token);
   setCurrentUser(data.user);
+  await persistRememberedSession(false);
   return data;
 }

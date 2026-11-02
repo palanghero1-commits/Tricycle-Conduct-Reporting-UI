@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, ChevronRight, Clock3, FileSearch, MapPin, Search, ShieldCheck } from "lucide-react";
 import { AppLayout } from "./_shared/AppLayout";
-import { apiRequest, formatPhilippineDate } from "../../../lib/api";
+import { apiRequest, formatPhilippineDateTime } from "../../../lib/api";
 
 type ReportStatus = "Received" | "Under Review" | "Verified" | "Referred" | "Resolved" | "Closed";
 type QueueFilter = "All reports" | "Needs review" | "Verified" | "Completed";
 type Report = {
   id: string;
   category: string;
-  submittedAt: string;
+  submittedAt?: string;
   incidentDate: string;
   location: string;
   status: ReportStatus;
@@ -33,10 +33,18 @@ const statusStyle: Record<ReportStatus, string> = {
   Closed: "border-[#d7dde4] bg-[#eef1f4] text-[#58687a]",
 };
 
-function dateLabel(value?: string) {
+function dateLabel(value?: string | Date | null) {
   if (!value) return "Date unavailable";
-  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? "Date unavailable" : formatPhilippineDate(date);
+  const raw = value instanceof Date ? value : String(value);
+  const dateOnly = typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const date = value instanceof Date ? value : new Date(dateOnly ? `${raw}T00:00:00+08:00` : raw);
+  return Number.isNaN(date.getTime()) ? "Date unavailable" : formatPhilippineDateTime(date);
+}
+
+function firstDateValue(...values: unknown[]) {
+  return values
+    .map((value) => value instanceof Date ? value.toISOString() : typeof value === "string" ? value : "")
+    .find((value) => value && dateLabel(value) !== "Date unavailable");
 }
 
 function belongsToFilter(report: Report, filter: QueueFilter) {
@@ -66,7 +74,7 @@ export function ReportsQueue() {
         setReports(complaints.map((item) => ({
           id: item.referenceNumber || item.reference_number || "Report",
           category: item.categoryName || item.category_name || "Uncategorized",
-          submittedAt: item.createdAt || item.created_at || item.incidentDate || item.incident_date,
+          submittedAt: firstDateValue(item.createdAt, item.created_at, item.submittedAt, item.submitted_at, item.incidentDate, item.incident_date),
           incidentDate: item.incidentDate || item.incident_date,
           location: item.location || "Location not provided",
           status: statusLabels[String(item.status).toUpperCase()] ?? "Received",

@@ -572,6 +572,10 @@ router.patch("/admin/categories/:id", requireAuth, requireRoles("ADMIN"), async 
 });
 
 router.post("/seed", async (_req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    res.status(404).json({ error: { message: "Not found." } });
+    return;
+  }
   const passwordHash = await bcrypt.hash(process.env.SEED_PASSWORD ?? "Password123!", 12);
   const [toda] = await db.insert(todaTable).values({ name: "Old Sagay TODA", barangay: "Old Sagay", city: "Sagay City", province: "Negros Occidental" }).onConflictDoNothing().returning();
   for (const name of ["Overcharging", "Reckless Driving", "Refusal to Transport", "Discourteous Behavior", "Unsafe Driving", "Other"]) {

@@ -40,55 +40,9 @@ type DialogState = {
   label: string;
 } | null;
 
-const staticIncident = {
-  reportId: "TRC-2026-00124",
-  submittedAt: "18 February 2026, 9:42 AM",
-  incidentDate: "17 February 2026",
-  incidentTime: "5:15 PM",
-  location: "Old Sagay Public Market, Zone 2",
-  latitude: null as number | string | null,
-  longitude: null as number | string | null,
-  locationAccuracyMeters: null as number | string | null,
-  category: "Passenger safety concern",
-  reporter: "SUNN student reporter",
-  description:
-    "The driver appeared to accept more passengers than the posted seating capacity while the tricycle was waiting near the market entrance. The reporter noted that one passenger was standing beside the driver before the vehicle departed.",
-};
-
-const staticDriver = {
-  name: "Ramon L. Dela Cruz",
-  id: "DRV-OS-0187",
-  plate: "SAG 4821",
-  association: "Old Sagay TODA",
-  route: "Public Market ↔ Sagay Centro",
-  phone: "+63 917 248 1096",
-  lastReview: "No prior review in the last 12 months",
-};
-
-const initialHistory = [
-  {
-    date: "18 Feb 2026 · 9:42 AM",
-    title: "Report received",
-    detail: "Submitted through the student reporting form.",
-    actor: "System intake",
-    tone: "blue",
-  },
-  {
-    date: "18 Feb 2026 · 10:06 AM",
-    title: "Access scope checked",
-    detail: "Record was routed to authorized TODA review staff.",
-    actor: "Access control",
-    tone: "slate",
-  },
-  {
-    date: "19 Feb 2026 · 8:20 AM",
-    title: "Reporter clarification added",
-    detail: "A follow-up note was attached to the original report.",
-    actor: "SUNN student reporter",
-    tone: "amber",
-  },
-];
-
+type Incident = { reportId: string; submittedAt: string; incidentDate: string; incidentTime: string; location: string; latitude: number | string | null; longitude: number | string | null; locationAccuracyMeters: number | string | null; category: string; reporter: string; description: string };
+type Driver = { name: string; id: string; plate: string; association: string; route: string; phone: string };
+type HistoryItem = { date: string; title: string; detail: string; actor: string; tone: string };
 const statusMeta: Record<ReviewStatus, { className: string; dot: string }> = {
   Received: { className: "border-[#d6e3f1] bg-[#f3f7fc] text-[#44617f]", dot: "bg-[#7390ae]" },
   "Under Review": { className: "border-[#c6dafb] bg-[#eaf2ff] text-[#0c5bce]", dot: "bg-[#0c5bce]" },
@@ -188,12 +142,14 @@ export function ReviewWorkspace() {
   const [dialog, setDialog] = useState<DialogState>(null);
   const [note, setNote] = useState("");
   const [notice, setNotice] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [lastUpdated, setLastUpdated] = useState("");
-  const [history, setHistory] = useState<typeof initialHistory>(initialHistory);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [complaintId, setComplaintId] = useState<string | null>(null);
-  const [incident, setIncident] = useState<typeof staticIncident | null>(null);
-  const [driver, setDriver] = useState<typeof staticDriver | null>(null);
+  const [incident, setIncident] = useState<Incident | null>(null);
+  const [driver, setDriver] = useState<Driver | null>(null);
   const [evidence, setEvidence] = useState<Array<{ id: string; label: string; type: string; size: string; icon: typeof FileText }>>([]);
   const [evidencePreview, setEvidencePreview] = useState<{ name: string; type: string; url: string } | null>(null);
   const [openingEvidenceId, setOpeningEvidenceId] = useState<string | null>(null);
@@ -215,13 +171,14 @@ export function ReviewWorkspace() {
 
   useEffect(() => {
     const reference = new URLSearchParams(window.location.search).get("reference");
-    setIncident({ ...staticIncident, reportId: reference || staticIncident.reportId });
-    setDriver(staticDriver);
     const query = reference ? `?reference=${encodeURIComponent(reference)}` : "";
     apiRequest<{ complaints: Array<{ id: string }> }>(`/complaints${query}`)
       .then(async ({ complaints }) => {
         const complaint = complaints[0];
-        if (!complaint) return;
+        if (!complaint) {
+          setLoadError(reference ? "That report could not be found or is not available to your account." : "There are no reports available for review yet.");
+          return;
+        }
         const details = await apiRequest<{ complaint: Record<string, any>; driver: Record<string, any> | null; category: Record<string, any> | null; history: Array<Record<string, any>>; actions?: Array<Record<string, any>>; attachments: Array<Record<string, any>>; violation: Record<string, any> | null }>(`/complaints/${complaint.id}`);
         const record = details.complaint;
         setComplaintId(complaint.id);
@@ -240,7 +197,7 @@ export function ReviewWorkspace() {
           longitude: record.longitude ?? null,
           locationAccuracyMeters: record.location_accuracy_meters ?? null,
           category: details.category?.name ?? "Uncategorized",
-          reporter: "Student reporter",
+          reporter: "Not provided",
           description: record.description,
         });
         if (details.driver) {
@@ -248,20 +205,22 @@ export function ReviewWorkspace() {
             name: details.driver.full_name,
             id: details.driver.driver_code,
             plate: details.driver.plate_number || "Not provided",
-            association: "Registered operator",
+            association: details.driver.toda_name || "TODA not recorded",
             route: details.driver.route_area || "Not provided",
             phone: details.driver.contact_number || "Not provided",
-            lastReview: details.violation ? "Confirmed violation on this report" : "No review history available",
           });
+        } else {
+          setDriver(null);
         }
         setEvidence(details.attachments.map((item) => ({ id: String(item.id), label: item.originalName, type: item.mimeType, size: `${Math.round(Number(item.sizeBytes || 0) / 1024)} KB`, icon: Paperclip })));
         setHistory([
           ...details.history.map((item) => ({ date: formatPhilippineDateTime(item.created_at || item.createdAt), title: String(item.new_status || item.newStatus || "Status recorded").replaceAll("_", " "), detail: item.remarks || "Status recorded in the review history.", actor: item.actorName || item.actorRole || "Authorized reviewer", tone: "blue" })),
           ...(details.actions ?? []).map((item) => ({ date: formatPhilippineDateTime(item.created_at || item.createdAt), title: item.action_type || item.actionType || "Action recorded", detail: item.description || "Authorized action recorded.", actor: item.authorName || item.authorRole || "Authorized reviewer", tone: "green" })),
           ...(details.violation ? [{ date: formatPhilippineDateTime(details.violation.confirmation_date || details.violation.confirmationDate || new Date()), title: "Confirmed violation recorded", detail: `${details.violation.violation_category || details.violation.violationCategory || "Violation"}: ${details.violation.description || ""}`, actor: "Authorized reviewer", tone: "green" }] : []),
-        ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) as typeof initialHistory);
+        ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) as HistoryItem[]);
       })
-      .catch(() => undefined);
+      .catch((error) => setLoadError(error instanceof Error ? error.message : "The report could not be loaded."))
+      .finally(() => setIsLoading(false));
   }, []);
 
   useEffect(() => () => {
@@ -289,7 +248,6 @@ export function ReviewWorkspace() {
         setStatus(statusMap[statusCode] ?? "Received");
         setConfirmedViolation(details.violation ?? null);
         setLastUpdated(formatPhilippineDateTime(record.updated_at || record.created_at || record.updatedAt || record.createdAt || new Date()));
-        if (details.violation) setDriver((current) => current ? { ...current, lastReview: "Confirmed violation on this report" } : current);
       } catch {
         // Keep the latest successful report state visible during brief connection interruptions.
       } finally {
@@ -303,7 +261,7 @@ export function ReviewWorkspace() {
   }, []);
 
   if (!incident || !driver) {
-    return <AppLayout officer active="Reports" title="Report review" eyebrow="Reports / Review workspace"><section className="rounded-2xl border border-dashed border-[#b8cade] bg-white px-6 py-16 text-center"><h2 className="text-[18px] font-extrabold text-[#23405f]">No report is available for review</h2><p className="mt-2 text-[12px] text-[#8ca0b6]">Live complaint records will appear here when a student submits a report.</p></section></AppLayout>;
+    return <AppLayout officer active="Reports" title="Report review" eyebrow="Reports / Review workspace"><section className="rounded-2xl border border-dashed border-[#b8cade] bg-white px-6 py-16 text-center"><h2 className="text-[18px] font-extrabold text-[#23405f]">{isLoading ? "Loading report…" : "No report is available for review"}</h2><p role={loadError && !isLoading ? "alert" : undefined} className="mt-2 text-[12px] text-[#8ca0b6]">{isLoading ? "Fetching the selected report from the system." : loadError || "The linked driver record is unavailable."}</p></section></AppLayout>;
   }
 
   const openAction = (action: ActionType, label: string) => {
@@ -377,7 +335,6 @@ export function ReviewWorkspace() {
         body: JSON.stringify({ violationCategory: category, description, remarks: violationRemarks.trim() || undefined }),
       });
       setConfirmedViolation({ ...result.violation, violationCategory: category, description });
-      setDriver((current) => current ? { ...current, lastReview: "Confirmed violation on this report" } : current);
       setViolationDialogOpen(false);
       setViolationCategory("");
       setViolationDescription("");
@@ -425,7 +382,7 @@ export function ReviewWorkspace() {
               <StatusPill status={status} />
             </div>
             <p className="mt-2 max-w-2xl text-[13px] leading-6 text-[#71859e]">
-              Student-submitted report concerning a public transport safety observation in Barangay Old Sagay.
+              Review the submitted report and its linked records.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -519,10 +476,10 @@ export function ReviewWorkspace() {
             </section>
 
             <section className="rounded-[22px] border border-[#dbe5f0] bg-white p-5 shadow-[0_10px_32px_rgba(36,72,111,0.04)] lg:p-7">
-              <SectionHeading icon={UsersRound} eyebrow="Registered operator" title="Driver information" action={<button type="button" onClick={() => setNotice("Driver profile preview opened locally.")} className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0c5bce]">View profile <ChevronRight size={14} /></button>} />
+              <SectionHeading icon={UsersRound} eyebrow="Registered operator" title="Driver information" action={<button type="button" onClick={() => { const base = import.meta.env.BASE_URL.replace(/\/$/, ""); window.location.href = `${base}/preview/tricycle-reporting/DriverDirectory?query=${encodeURIComponent(driver.id)}`; }} className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0c5bce]">View profile <ChevronRight size={14} /></button>} />
               <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_1fr]">
                 <div className="flex items-start gap-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#dcecff] text-[18px] font-extrabold text-[#0c5bce]">RD</div>
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#dcecff] text-[18px] font-extrabold text-[#0c5bce]">{driver.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</div>
                   <div>
                     <p className="text-[17px] font-extrabold tracking-[-0.02em] text-[#1a3859]">{driver.name}</p>
                     <p className="mt-1 text-[12px] font-semibold text-[#7c90a6]">{driver.id} · {driver.association}</p>
@@ -532,7 +489,6 @@ export function ReviewWorkspace() {
                 <div className="grid grid-cols-2 gap-4 rounded-2xl bg-[#f8fafc] p-4">
                   <div><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#8ca0b6]">Plate number</p><p className="mt-1.5 text-[12px] font-bold text-[#294765]">{driver.plate}</p></div>
                   <div><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#8ca0b6]">Assigned route</p><p className="mt-1.5 text-[12px] font-bold text-[#294765]">{driver.route}</p></div>
-                  <div className="col-span-2 border-t border-[#e5ebf3] pt-3"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#8ca0b6]">Review history</p><p className="mt-1.5 text-[12px] font-bold text-[#428265]">{driver.lastReview}</p></div>
                 </div>
               </div>
             </section>

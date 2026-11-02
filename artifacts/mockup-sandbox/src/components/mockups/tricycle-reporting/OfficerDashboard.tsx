@@ -53,78 +53,6 @@ function navigateTo(component: string) {
   window.location.href = previewUrl(component);
 }
 
-const reports: Report[] = [
-  {
-    id: "RPT-2418",
-    time: "Today, 10:42 AM",
-    relative: "18 min ago",
-    location: "Old Sagay Public Market",
-    category: "Fare concern",
-    status: "Needs review",
-    reference: "TODA-OS-118",
-    summary: "Passenger reported a fare that differed from the posted route rate.",
-    reports: "1 report",
-  },
-  {
-    id: "RPT-2417",
-    time: "Today, 9:56 AM",
-    relative: "1 hr ago",
-    location: "SUNN Gate 2",
-    category: "Conduct",
-    status: "In review",
-    reference: "TODA-SN-044",
-    summary: "Report describes a concern about tone and communication during a trip.",
-    reports: "2 reports",
-  },
-  {
-    id: "RPT-2416",
-    time: "Today, 8:31 AM",
-    relative: "2 hrs ago",
-    location: "Sagay Wharf Road",
-    category: "Route concern",
-    status: "Needs review",
-    reference: "TODA-OS-092",
-    summary: "Passenger noted a possible route deviation and requested a review of trip details.",
-    reports: "1 report",
-  },
-  {
-    id: "RPT-2415",
-    time: "Yesterday, 4:18 PM",
-    relative: "Yesterday",
-    location: "SUNN Student Center",
-    category: "Vehicle condition",
-    status: "Resolved",
-    reference: "TODA-SN-031",
-    summary: "Report about a missing vehicle identification card; officer follow-up recorded.",
-    reports: "1 report",
-  },
-  {
-    id: "RPT-2414",
-    time: "Yesterday, 2:07 PM",
-    relative: "Yesterday",
-    location: "Old Sagay Terminal",
-    category: "Fare concern",
-    status: "In review",
-    reference: "TODA-OS-079",
-    summary: "Passenger requested clarification on a fare collected during peak hours.",
-    reports: "3 reports",
-  },
-];
-
-const activity = [
-  { label: "Report RPT-2417 moved to in review", meta: "A. Reyes · 34 min ago", color: "bg-[#2b76c5]" },
-  { label: "Follow-up note added to RPT-2415", meta: "M. Cabal · 1 hr ago", color: "bg-[#d18a3c]" },
-  { label: "New report received from SUNN", meta: "System · 2 hrs ago", color: "bg-[#6b9b83]" },
-  { label: "Review queue assigned to your desk", meta: "Dispatch · 3 hrs ago", color: "bg-[#8998aa]" },
-];
-
-const categories = [
-  { label: "Fare concern", count: 18, width: "78%", color: "bg-[#2f78bd]" },
-  { label: "Conduct", count: 11, width: "48%", color: "bg-[#d18a3c]" },
-  { label: "Route concern", count: 8, width: "35%", color: "bg-[#5c8e86]" },
-  { label: "Vehicle condition", count: 6, width: "27%", color: "bg-[#9b7b91]" },
-];
-
 const ranges = ["Last 7 days", "Last 30 days", "This semester"];
 
 function StatusPill({ status }: { status: ReportStatus }) {
@@ -181,7 +109,7 @@ export function OfficerDashboard() {
   const [activePanel, setActivePanel] = useState<"Overview" | "People" | "Activity">(() => window.location.hash === "#todas" ? "People" : "Overview");
   const [statusFilter, setStatusFilter] = useState<"All" | ReportStatus>("All");
   const [timeRange, setTimeRange] = useState("Last 7 days");
-  const [selectedId, setSelectedId] = useState("RPT-2418");
+  const [selectedId, setSelectedId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [notice, setNotice] = useState("");
@@ -788,8 +716,8 @@ export function OfficerDashboard() {
           <div className="rounded-2xl border border-[#d9e3ec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-[15px] font-extrabold tracking-[-0.02em] text-[#1a3856]">Recent activity</h3>
-                <p className="mt-1 text-[11px] text-[#8396a9]">Desk updates and routing</p>
+                <h3 className="text-[15px] font-extrabold tracking-[-0.02em] text-[#1a3856]">Latest reports</h3>
+                <p className="mt-1 text-[11px] text-[#8396a9]">Newest submissions in the review queue</p>
               </div>
             </div>
             <div className="mt-5 space-y-4">
@@ -802,11 +730,11 @@ export function OfficerDashboard() {
                   </div>
                 </div>
               )) : (
-                <p className="rounded-xl bg-[#f7f9fb] p-4 text-[11px] text-[#8294a4]">No report activity recorded yet.</p>
+                <p className="rounded-xl bg-[#f7f9fb] p-4 text-[11px] text-[#8294a4]">No reports have been submitted yet.</p>
               )}
             </div>
             <button type="button" onClick={() => setShowAllActivity((current) => !current)} className="mt-5 text-[11px] font-extrabold text-[#2d6e9b] hover:text-[#1d5278]">
-              {showAllActivity ? "Show less" : "View all activity"} <ChevronRight size={13} className="ml-1 inline" />
+              {showAllActivity ? "Show less" : "View report list"} <ChevronRight size={13} className="ml-1 inline" />
             </button>
           </div>
         </section>
@@ -816,8 +744,8 @@ export function OfficerDashboard() {
           <section className="rounded-2xl border border-[#d9e3ec] bg-white p-5 shadow-[0_5px_20px_rgba(39,67,93,0.04)]">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-[15px] font-extrabold tracking-[-0.02em] text-[#1a3856]">System activity</h3>
-                <p className="mt-1 text-[11px] text-[#8396a9]">Recent report and review updates from the desk</p>
+                <h3 className="text-[15px] font-extrabold tracking-[-0.02em] text-[#1a3856]">Latest reports</h3>
+                <p className="mt-1 text-[11px] text-[#8396a9]">Newest submissions in the review queue</p>
               </div>
               <Activity size={17} className="text-[#87a0b4]" />
             </div>
@@ -830,7 +758,7 @@ export function OfficerDashboard() {
                     <p className="mt-1 text-[10px] text-[#9aaaba]">{item.meta}</p>
                   </div>
                 </div>
-              )) : <p className="rounded-xl bg-[#f7f9fb] p-4 text-[11px] text-[#8294a4]">No report activity recorded yet.</p>}
+              )) : <p className="rounded-xl bg-[#f7f9fb] p-4 text-[11px] text-[#8294a4]">No reports have been submitted yet.</p>}
             </div>
           </section>
         ) : null}

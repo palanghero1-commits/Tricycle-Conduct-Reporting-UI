@@ -2,6 +2,7 @@ import { Component, useEffect, useState, type ComponentType, type ErrorInfo, typ
 
 import { modules as discoveredModules } from "./.generated/mockup-components";
 import { consumeSosShortcutLaunch } from "./lib/sosDevice";
+import { apiRequest, clearAuthToken, getCurrentUser, getAuthToken, restoreRememberedSession, type ApiUser } from "./lib/api";
 
 type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 
@@ -166,6 +167,27 @@ function getPreviewPath(): string | null {
 }
 
 function App() {
+  useEffect(() => {
+    if (getPreviewPath() || import.meta.env.MODE === "android") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (!(await restoreRememberedSession())) return;
+        const storedUser = getCurrentUser();
+        const token = getAuthToken();
+        if (!storedUser || !token) return;
+        const { user } = await apiRequest<{ user: ApiUser }>("/me");
+        if (cancelled || user.id !== storedUser.id) { if (!cancelled) clearAuthToken(); return; }
+        const destination = user.role === "SUPERADMIN" ? "AdminDashboard"
+          : user.role === "DRIVER" ? "DriverDashboard"
+          : ["AUTHORIZED_PERSONNEL", "TODA_PRESIDENT", "PNP"].includes(user.role) ? "OfficerDashboard" : "StudentDashboard";
+        const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+        window.location.replace(`${base}/preview/tricycle-reporting/${destination}`);
+      } catch { /* Keep the public landing page available when session validation is unavailable. */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     const checkSosShortcut = () => void consumeSosShortcutLaunch().then(({ openSos, autoSend }) => {
       if (openSos) window.location.replace(`${getBasePath()}/preview/tricycle-reporting/EmergencySOS${autoSend ? "?widgetSend=1" : ""}`);

@@ -29,6 +29,7 @@ type ReportRecord = {
   complaintId?: string;
   date: string;
   submittedAt: string;
+  submittedTime: string;
   category: ReportCategory;
   status: ReportStatus;
   location: string;
@@ -38,69 +39,6 @@ type ReportRecord = {
   confirmedViolation: boolean;
   reviewNotes?: Array<{ id: number; authorName: string; authorRole: string; description: string; createdAt: string }>;
 };
-
-const records: ReportRecord[] = [
-  {
-    id: "TRC-2026-00124",
-    date: "2026-02-18",
-    submittedAt: "February 18, 2026 · 8:42 AM",
-    category: "Fare concern",
-    status: "Under Review",
-    location: "Old Sagay Public Market",
-    summary: "Reported a fare amount that did not match the posted student rate.",
-    lastUpdate: "Updated 2 days ago",
-    updateNote: "The report is queued for an initial review.",
-    confirmedViolation: false,
-  },
-  {
-    id: "TRC-2026-00117",
-    date: "2026-02-09",
-    submittedAt: "February 9, 2026 · 4:16 PM",
-    category: "Driver conduct",
-    status: "Resolved",
-    location: "Barangay Old Sagay Hall",
-    summary: "Shared a concern about a driver declining a short student trip.",
-    lastUpdate: "Updated February 13, 2026",
-    updateNote: "The office contacted the route operator and recorded the resolution.",
-    confirmedViolation: false,
-  },
-  {
-    id: "TRC-2026-00098",
-    date: "2026-01-22",
-    submittedAt: "January 22, 2026 · 7:31 AM",
-    category: "Vehicle condition",
-    status: "Closed",
-    location: "SUNN Main Gate",
-    summary: "Noted a loose side panel on a tricycle waiting near the campus gate.",
-    lastUpdate: "Updated January 28, 2026",
-    updateNote: "The report was closed after the concern was documented and addressed.",
-    confirmedViolation: false,
-  },
-  {
-    id: "TRC-2026-00081",
-    date: "2026-01-11",
-    submittedAt: "January 11, 2026 · 6:58 PM",
-    category: "Route concern",
-    status: "Resolved",
-    location: "Sagay City Transport Terminal",
-    summary: "Reported that the evening trip did not follow the usual Old Sagay route.",
-    lastUpdate: "Updated January 16, 2026",
-    updateNote: "The route operator provided clarification and the record was resolved.",
-    confirmedViolation: false,
-  },
-  {
-    id: "TRC-2025-00342",
-    date: "2025-12-14",
-    submittedAt: "December 14, 2025 · 12:05 PM",
-    category: "Fare concern",
-    status: "Closed",
-    location: "Sagay City Public Plaza",
-    summary: "Asked the office to review an unclear fare collection during a holiday trip.",
-    lastUpdate: "Updated December 19, 2025",
-    updateNote: "The available details were recorded for reference and the report was closed.",
-    confirmedViolation: false,
-  },
-];
 
 const statusOptions: Array<"All statuses" | ReportStatus> = [
   "All statuses",
@@ -142,6 +80,13 @@ function formatDate(value: string) {
 function dateValue(value: string) {
   if (!value) return Number.NaN;
   return new Date(`${value}T00:00:00`).getTime();
+}
+
+function submittedTimeLabel(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "Time unavailable"
+    : new Intl.DateTimeFormat("en-PH", { timeStyle: "short", timeZone: "Asia/Manila" }).format(date);
 }
 
 function reportStatus(value: string): ReportStatus {
@@ -310,6 +255,7 @@ export function MyReports() {
         id: item.referenceNumber,
         complaintId: item.id,
         date: item.incidentDate,
+        submittedTime: submittedTimeLabel(item.createdAt),
         submittedAt: `${item.incidentDate} · ${item.incidentTime}`,
         category: item.categoryName as ReportCategory,
         status: reportStatus(item.status),
@@ -329,6 +275,7 @@ export function MyReports() {
           id: String(item.referenceNumber ?? item.id ?? "Offline report"),
           complaintId: String(item.id ?? ""),
           date: String(item.incidentDate ?? ""),
+          submittedTime: submittedTimeLabel(String(item.createdAt ?? "")),
           submittedAt: `${String(item.incidentDate ?? "")} · ${String(item.incidentTime ?? "")}`,
           category: String(item.categoryName ?? "Other") as ReportCategory,
           status: reportStatus(String(item.status ?? "SUBMITTED")),
@@ -359,6 +306,7 @@ export function MyReports() {
               id: item.referenceNumber,
               complaintId: item.id,
               date: item.incidentDate,
+              submittedTime: submittedTimeLabel(item.createdAt),
               submittedAt: `${item.incidentDate} Â· ${item.incidentTime}`,
               category: item.categoryName as ReportCategory,
               status: reportStatus(item.status),
@@ -587,7 +535,7 @@ export function MyReports() {
                       <p className="text-[12px] font-semibold text-[#506b87]">{formatDate(report.date)}</p>
                       <p className="mt-1 flex items-center gap-1 text-[10px] text-[#93a3b4]">
                         <Clock3 size={11} />
-                        {report.lastUpdate}
+                        Submitted at {report.submittedTime}
                       </p>
                     </div>
                     <div className="mt-3 hidden lg:block">
@@ -596,7 +544,7 @@ export function MyReports() {
                     <div className="mt-4 flex items-center justify-between lg:mt-0 lg:justify-end">
                       <p className="flex items-center gap-1 text-[10px] text-[#93a3b4] lg:hidden">
                         <Clock3 size={11} />
-                        {report.lastUpdate}
+                        Submitted at {report.submittedTime}
                       </p>
                       <button
                         type="button"

@@ -335,11 +335,11 @@ export function Landing() {
                         </div>
                         <div>
                           <p className="text-[12px] font-extrabold text-[#234565]">Your report journey</p>
-                          <p className="mt-0.5 text-[10px] font-medium text-[#8aa0b5]">Private reference TRC-2048</p>
+                          <p className="mt-0.5 text-[10px] font-medium text-[#8aa0b5]">Track a submitted report</p>
                         </div>
                       </div>
                       <span className="rounded-full bg-[#fff3dc] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.08em] text-[#ae7624]">
-                        In review
+                        Status updates
                       </span>
                     </div>
                     <div className="mt-6 flex items-center">
@@ -572,7 +572,7 @@ export function Landing() {
                 <h2 id="dialog-title" className="mt-6 text-[23px] font-extrabold tracking-[-0.04em] text-[#173a61]">Track a report</h2>
                 <p className="mt-2 text-[13px] leading-6 text-[#71879b]">Enter the tracking number you received after reporting. You can check progress here without logging in.</p>
                 <label className="mt-6 block text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#7890a5]" htmlFor="reference-code">Reference code</label>
-                <input id="reference-code" value={referenceCode} onChange={(event) => { setReferenceCode(event.target.value.toUpperCase()); setSubmitted(false); setTrackingResult(null); setTrackingError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void trackReport(); }} placeholder="Example: TRC-2026-123456" autoComplete="off" className="mt-2 w-full rounded-[13px] border border-[#d5e4ee] bg-white px-4 py-3.5 text-sm font-bold tracking-[0.08em] text-[#244565] outline-none transition-shadow placeholder:font-medium placeholder:tracking-normal placeholder:text-[#a5b5c3] focus:border-[#7eb0dc] focus:ring-4 focus:ring-[#dcecff]" />
+                <input id="reference-code" value={referenceCode} onChange={(event) => { setReferenceCode(event.target.value.toUpperCase()); setSubmitted(false); setTrackingResult(null); setTrackingError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void trackReport(); }} placeholder="Example: TRC-YYYY-123456" autoComplete="off" className="mt-2 w-full rounded-[13px] border border-[#d5e4ee] bg-white px-4 py-3.5 text-sm font-bold tracking-[0.08em] text-[#244565] outline-none transition-shadow placeholder:font-medium placeholder:tracking-normal placeholder:text-[#a5b5c3] focus:border-[#7eb0dc] focus:ring-4 focus:ring-[#dcecff]" />
                 {trackingError ? <p role="alert" className="mt-3 rounded-[13px] bg-[#fff5f2] p-3 text-[11px] leading-5 text-[#9b4f38]">{trackingError}</p> : null}
                 {isTracking ? <p role="status" className="mt-3 rounded-[13px] bg-[#f3f8ff] p-3 text-[11px] text-[#567492]">Looking up your report and preparing an AI status explanation…</p> : null}
                 {trackingResult ? <section className="mt-4 max-h-[48vh] space-y-3 overflow-y-auto rounded-[15px] border border-[#cfe8e4] bg-[#eff9f7] p-4" aria-label="Report tracking result">
