@@ -68,18 +68,24 @@ const statusDotStyles: Record<ReportStatus, string> = {
 };
 
 function formatDate(value: string) {
-  const date = new Date(`${value}T00:00:00`);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T12:00:00+08:00`)
+    : new Date(value);
   if (!value || !Number.isFinite(date.getTime())) return "Date unavailable";
   return new Intl.DateTimeFormat("en-PH", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: "Asia/Manila",
   }).format(date);
 }
 
 function dateValue(value: string) {
   if (!value) return Number.NaN;
-  return new Date(`${value}T00:00:00`).getTime();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00+08:00`)
+    : new Date(value);
+  return date.getTime();
 }
 
 function submittedTimeLabel(value: string) {
@@ -254,7 +260,7 @@ export function MyReports() {
         setLiveRecords(complaints.map((item) => ({
         id: item.referenceNumber,
         complaintId: item.id,
-        date: item.incidentDate,
+        date: item.createdAt || item.incidentDate || "",
         submittedTime: submittedTimeLabel(item.createdAt),
         submittedAt: `${item.incidentDate} · ${item.incidentTime}`,
         category: item.categoryName as ReportCategory,
@@ -274,7 +280,7 @@ export function MyReports() {
         setLiveRecords(cachedReports.map((item) => ({
           id: String(item.referenceNumber ?? item.id ?? "Offline report"),
           complaintId: String(item.id ?? ""),
-          date: String(item.incidentDate ?? ""),
+          date: String(item.createdAt || item.incidentDate || ""),
           submittedTime: submittedTimeLabel(String(item.createdAt ?? "")),
           submittedAt: `${String(item.incidentDate ?? "")} · ${String(item.incidentTime ?? "")}`,
           category: String(item.categoryName ?? "Other") as ReportCategory,
@@ -305,7 +311,7 @@ export function MyReports() {
             return {
               id: item.referenceNumber,
               complaintId: item.id,
-              date: item.incidentDate,
+              date: item.createdAt || item.incidentDate || "",
               submittedTime: submittedTimeLabel(item.createdAt),
               submittedAt: `${item.incidentDate} Â· ${item.incidentTime}`,
               category: item.categoryName as ReportCategory,
